@@ -20,10 +20,11 @@ waves, and chats after a mutual wave.
 - `backend/api/src/`: `auth/` (password, jwt, refresh rotation, `AuthUser` extractor), `me/` (profile, photos +
   `image_proc`, filter, `DELETE /me`), `discovery/` (`geo` bands/haversine, `rules::mutually_visible` = spec,
   `window`, `nearby` = the **only runtime visibility SQL**, reused by waves), `social/` (waves, matches, messages),
-  `ws/` (hub + session), `safety.rs` (blocks/reports, `is_blocked_between`, `blocked_with`), `error.rs`
+  `ws/` (hub + session), `web.rs` (router fallback serving the `rust-embed`ded `frontend/dist`: files, SPA
+  `index.html` fallback, cache headers/ETag; `/api` has its own JSON 404 fallback so it never gets the shell), `safety.rs` (blocks/reports, `is_blocked_between`, `blocked_with`), `error.rs`
   (`AppError`, `AppJson`, `parse_id`), `rate_limit.rs`. New domain = module with `router()` merged in `lib.rs`.
 - `backend/api/tests/common/mod.rs`: `TestApp` harness (fresh DB per test, `register`, `onboard`, `open_window`,
-  `visible_user`, multipart helpers).
+  `visible_user`, multipart helpers; `with_frontend::<F>()` serves a fixture bundle from `tests/fixtures/dist`).
 - `frontend/src/`: `api/` (typed client with single-flight refresh, `ws.ts`, per-domain modules, `types.ts` mirrors
   docs/api.md), `stores/` (auth, me, window, nearby, matches, safety), `composables/` (geolocation sharing,
   realtime), `i18n/cs.ts` (source of truth; `en.ts` typed against it), `components/ui/` primitives.
@@ -34,6 +35,7 @@ waves, and chats after a mutual wave.
 make install           # npm ci
 make run-api           # API on BIND_ADDR, runs migrations on start
 make run-web           # Vite on :5173, proxies /api, /media, WS
+make build             # npm run build, then cargo build --release (binary embeds frontend/dist)
 make lint              # cargo fmt --check, clippy -D warnings, eslint, vue-tsc
 make test              # test-unit (cargo --lib/--bins + vitest) + test-integration (cargo tests/)
 make migrate
