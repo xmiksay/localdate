@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: localdate
+          POSTGRES_PASSWORD: localdate
+          POSTGRES_DB: localdate
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgres://localdate:localdate@localhost/localdate
+      TEST_DATABASE_URL: postgres://localdate:localdate@localhost/postgres
+      JWT_SECRET: ci-only-secret-that-is-at-least-32-bytes-long
+      PHOTO_DIR: ./data/photos
+      BIND_ADDR: 127.0.0.1:3000
+    steps:
+      - uses: actions/checkout@v4
+      # rustup picks up the pinned version + components from rust-toolchain.toml
+      - run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: backend
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: make install
+      - run: make lint
+      - run: make test

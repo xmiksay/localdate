@@ -1,0 +1,30 @@
+@import 'tailwindcss';
+@import '@fontsource-variable/fraunces';
+@import '@fontsource-variable/figtree';
+
+@theme {
+  --font-display: 'Fraunces Variable', Georgia, serif;
+  --font-sans: 'Figtree Variable', ui-sans-serif, system-ui, sans-serif;
+  --color-cream: #fbf4ea;
+  --color-paper: #fffaf3;
+  --color-ink: #2b1d2e;
+  --color-muted: #6e5f70;
+  --color-line: #e9dccb;
+  --color-coral: #e2552d;
+  --color-coral-dark: #b83d1a;
+  --color-sun: #f6b73c;
+  --color-plum: #4a2c5a;
+  --color-danger: #b3261e;
+}
+
+html,
+body {
+  background: var(--color-cream);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+}
+
+:focus-visible {
+  outline: 3px solid var(--color-plum);
+  outline-offset: 2px;
+}
