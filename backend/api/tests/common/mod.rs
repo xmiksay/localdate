@@ -33,10 +33,19 @@ pub struct Tokens {
 
 impl TestApp {
     pub async fn new() -> Self {
-        Self::try_new().await.expect("test app setup")
+        Self::try_new(localdate_api::app)
+            .await
+            .expect("test app setup")
     }
 
-    async fn try_new() -> Result<Self> {
+    /// Like `new`, but serving the embedded fixture bundle `F` instead of `frontend/dist`.
+    pub async fn with_frontend<F: rust_embed::RustEmbed + 'static>() -> Self {
+        Self::try_new(localdate_api::app_with_frontend::<F>)
+            .await
+            .expect("test app setup")
+    }
+
+    async fn try_new(build: fn(AppState) -> Router) -> Result<Self> {
         // Walks up from the crate dir to the workspace-root .env; real env vars win.
         dotenvy::dotenv().ok();
         let admin_url = std::env::var("TEST_DATABASE_URL")
@@ -66,7 +75,7 @@ impl TestApp {
             rate_limit: false,
         };
         let state = AppState::new(db.clone(), config);
-        let router = localdate_api::app(state.clone());
+        let router = build(state.clone());
         Ok(Self {
             router,
             state,

@@ -18,6 +18,9 @@ Makefile            single entry point for build / lint / test / run
 Deployment target is Kubernetes (manifests are a follow-up issue). Local dev uses the
 host Postgres; there is no docker-compose.
 
+The release `localdate-api` binary is the whole deployable: `make build` builds `frontend/dist`
+first and `rust-embed` compiles it into the binary (debug builds read it from disk instead).
+
 ## Core concepts
 
 - **Visibility window** — the user turns on "I'm available" for a preset duration
@@ -103,3 +106,17 @@ In-process broadcast hub keyed by user id — single API replica. Multi-replica 
 | `RUST_LOG` | `info,sqlx=warn,localdate_api=debug` | sqlx logs every query at info |
 
 Frontend dev server (Vite, :5173) proxies `/api` and `/media` (incl. WS) to `BIND_ADDR`.
+
+## Serving the PWA
+
+`web.rs` is the router fallback, so `/api/*` (which has its own JSON `not_found` fallback) and
+`/media/*` always win. For other GET/HEAD requests:
+
+- embedded file → served with its MIME type and an ETag (`If-None-Match` → 304);
+  `assets/*` (Vite content-hashed) get `Cache-Control: public, max-age=31536000, immutable`,
+  everything else (`index.html`, `sw.js`, `workbox-*.js`, `registerSW.js`, manifest, icons) `no-cache`;
+- no such file, last path segment has an extension → 404;
+- otherwise (client-side route such as `/nearby`) → `index.html`, `no-cache`.
+
+Other methods → 405. A binary built without `frontend/dist` (`#[allow_missing]`, e.g. CI) answers
+404 to every non-API path.

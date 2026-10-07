@@ -18,9 +18,9 @@ help: ## List targets
 install: ## Install frontend dependencies
 	$(FE) npm ci
 
-build: ## Build backend (release) and frontend
-	$(BE) cargo build --release
+build: ## Build frontend, then the release API binary that embeds it
 	$(FE) npm run build
+	$(BE) cargo build --release
 
 lint: ## fmt check + clippy + eslint + vue-tsc
 	$(BE) cargo fmt --all -- --check
