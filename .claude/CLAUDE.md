@@ -1,0 +1,55 @@
+# localdate
+
+Meet people nearby right now — a PWA where a user opens a time-boxed **visibility window**
+and sees every mutually-matching profile around them (distance band only, never coordinates),
+waves, and chats after a mutual wave.
+
+- Architecture, data model, config: [docs/architecture.md](../docs/architecture.md)
+- HTTP / WebSocket contract (source of truth for FE ↔ BE): [docs/api.md](../docs/api.md)
+- Tasks: GitHub issues in `xmiksay/localdate`
+
+## Stack
+
+- `backend/` — Rust workspace: `api` (Axum, binary `localdate-api`), `entity` (SeaORM), `migration`.
+  `anyhow` in main/setup, typed `AppError` (→ `{error:{code,message}}`) in handlers, `tracing`.
+- `frontend/` — Vue 3 `<script setup>` + TS + Vite + Tailwind + Pinia + vue-i18n (cs default, en) + vite-plugin-pwa.
+- Postgres on the host (no docker-compose); photos on local disk (`PHOTO_DIR`). Deploy target: Kubernetes.
+
+## Code map
+
+- `backend/api/src/`: `auth/` (password, jwt, refresh rotation, `AuthUser` extractor), `me/` (profile, photos +
+  `image_proc`, filter, `DELETE /me`), `discovery/` (`geo` bands/haversine, `rules::mutually_visible` = spec,
+  `window`, `nearby` = the **only runtime visibility SQL**, reused by waves), `social/` (waves, matches, messages),
+  `ws/` (hub + session), `safety.rs` (blocks/reports, `is_blocked_between`, `blocked_with`), `error.rs`
+  (`AppError`, `AppJson`, `parse_id`), `rate_limit.rs`. New domain = module with `router()` merged in `lib.rs`.
+- `backend/api/tests/common/mod.rs`: `TestApp` harness (fresh DB per test, `register`, `onboard`, `open_window`,
+  `visible_user`, multipart helpers).
+- `frontend/src/`: `api/` (typed client with single-flight refresh, `ws.ts`, per-domain modules, `types.ts` mirrors
+  docs/api.md), `stores/` (auth, me, window, nearby, matches, safety), `composables/` (geolocation sharing,
+  realtime), `i18n/cs.ts` (source of truth; `en.ts` typed against it), `components/ui/` primitives.
+
+## Commands (always via make)
+
+```
+make install           # npm ci
+make run-api           # API on BIND_ADDR, runs migrations on start
+make run-web           # Vite on :5173, proxies /api, /media, WS
+make lint              # cargo fmt --check, clippy -D warnings, eslint, vue-tsc
+make test              # test-unit (cargo --lib/--bins + vitest) + test-integration (cargo tests/)
+make migrate
+```
+
+Copy `.env.example` → `.env`. Local DB: role/db `localdate` (password `localdate`, CREATEDB for test DBs).
+
+## Testing
+
+- Backend: unit tests next to the code for pure logic (geo/bands, filter matching, validation, tokens);
+  integration tests in `backend/api/tests/` drive the router with `tower::ServiceExt::oneshot`
+  against a fresh `localdate_test_<uuid>` database per test (created/dropped via `TEST_DATABASE_URL`).
+- Frontend: Vitest unit tests for stores, API client and pure utils. **No E2E / click-through tests yet.**
+
+## Conventions
+
+- Contract changes go into `docs/api.md` first, then both sides.
+- Migrations are append-only.
+- Never return coordinates or birth dates of other users.
