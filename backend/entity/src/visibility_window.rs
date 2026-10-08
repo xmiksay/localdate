@@ -3,7 +3,7 @@ use sea_orm::entity::prelude::*;
 
 /// Active = `ended_at IS NULL AND ends_at > now()`. The DB only guarantees one *open*
 /// (`ended_at IS NULL`) row per user, so writers must set `ended_at` when replacing or
-/// expiring a window.
+/// expiring a window. `lat`/`lon` are `None` once the window has ended (privacy).
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel)]
 #[sea_orm(table_name = "visibility_window")]
 pub struct Model {
@@ -11,8 +11,8 @@ pub struct Model {
     pub id: Uuid,
     pub user_id: Uuid,
     pub kind: WindowKind,
-    pub lat: f64,
-    pub lon: f64,
+    pub lat: Option<f64>,
+    pub lon: Option<f64>,
     pub location_updated_at: DateTimeWithTimeZone,
     pub starts_at: DateTimeWithTimeZone,
     pub ends_at: DateTimeWithTimeZone,

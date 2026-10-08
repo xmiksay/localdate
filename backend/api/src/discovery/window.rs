@@ -89,7 +89,7 @@ fn extended_end(ends_at: DateTime<Utc>, now: DateTime<Utc>, extra: Duration) -> 
     (ends_at + extra).min(now + MAX_AHEAD)
 }
 
-/// Closes a window and drops the waves it sent.
+/// Closes a window, forgets where it was and drops the waves it sent.
 async fn end(db: &impl ConnectionTrait, w: vw::Model, now: DateTime<Utc>) -> Result<(), AppError> {
     wave::Entity::delete_many()
         .filter(wave::Column::WindowId.eq(w.id))
@@ -97,6 +97,8 @@ async fn end(db: &impl ConnectionTrait, w: vw::Model, now: DateTime<Utc>) -> Res
         .await?;
     let mut row: vw::ActiveModel = w.into();
     row.ended_at = Set(Some(now.fixed_offset()));
+    row.lat = Set(None);
+    row.lon = Set(None);
     row.update(db).await?;
     Ok(())
 }
@@ -178,8 +180,8 @@ pub async fn start_window(
         id: Set(Uuid::new_v4()),
         user_id: Set(auth.id),
         kind: Set(WindowKind::Timed),
-        lat: Set(lat),
-        lon: Set(lon),
+        lat: Set(Some(lat)),
+        lon: Set(Some(lon)),
         location_updated_at: Set(now.fixed_offset()),
         starts_at: Set(now.fixed_offset()),
         ends_at: Set((now + length).fixed_offset()),
@@ -200,12 +202,13 @@ pub async fn extend_window(
     AppJson(body): AppJson<ExtendBody>,
 ) -> Result<Json<WindowDto>, AppError> {
     let extra = check_minutes("extend_minutes", body.extend_minutes)?;
-    let w = active(&state.db, auth.id)
+    let txn = state.db.begin().await?;
+    // Locked so a concurrent close (cleanup tick, new window) cannot interleave with the extend.
+    let w = active_locked(&txn, auth.id)
         .await?
         .ok_or(AppError::NoActiveWindow)?;
     let new_end = extended_end(w.ends_at.to_utc(), Utc::now(), extra).fixed_offset();
 
-    let txn = state.db.begin().await?;
     // Waves live as long as the window that sent them.
     wave::Entity::update_many()
         .col_expr(wave::Column::ExpiresAt, new_end.into())
@@ -237,14 +240,21 @@ pub async fn update_location(
     AppJson(body): AppJson<LocationBody>,
 ) -> Result<StatusCode, AppError> {
     let (lat, lon) = check_coords(body.lat, body.lon)?;
-    let w = active(&state.db, auth.id)
+    let now = Utc::now().fixed_offset();
+    // Single conditional write: coordinates must never land on a window that already ended.
+    let updated = vw::Entity::update_many()
+        .col_expr(vw::Column::Lat, Some(lat).into())
+        .col_expr(vw::Column::Lon, Some(lon).into())
+        .col_expr(vw::Column::LocationUpdatedAt, now.into())
+        .filter(vw::Column::UserId.eq(auth.id))
+        .filter(vw::Column::EndedAt.is_null())
+        .filter(vw::Column::EndsAt.gt(now))
+        .exec(&state.db)
         .await?
-        .ok_or(AppError::NoActiveWindow)?;
-    let mut row: vw::ActiveModel = w.into();
-    row.lat = Set(lat);
-    row.lon = Set(lon);
-    row.location_updated_at = Set(Utc::now().fixed_offset());
-    row.update(&state.db).await?;
+        .rows_affected;
+    if updated == 0 {
+        return Err(AppError::NoActiveWindow);
+    }
     Ok(StatusCode::NO_CONTENT)
 }
 

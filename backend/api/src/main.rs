@@ -37,6 +37,11 @@ async fn main() -> Result<()> {
         .with_context(|| format!("binding {}", config.bind_addr))?;
     tracing::info!(addr = %config.bind_addr, "listening");
 
+    // Started here rather than in `app()` so integration tests drive `cleanup::run_once` directly.
+    tokio::spawn(localdate_api::cleanup::run_forever(
+        db.clone(),
+        config.cleanup_interval,
+    ));
     let app = localdate_api::app(AppState::new(db, config));
     axum::serve(
         listener,
