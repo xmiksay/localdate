@@ -7,6 +7,7 @@ pub mod filter;
 pub mod interest;
 pub mod matches;
 pub mod message;
+pub mod oauth_grant;
 pub mod photo;
 pub mod profile;
 pub mod push_prefs;
@@ -21,6 +22,6 @@ pub mod wave;
 
 mod enums;
 pub use enums::{
-    AreaKind, EmailTokenPurpose, Gender, IdentityProvider, Reason, ReportReason, ReportResolution,
-    WindowKind,
+    AreaKind, EmailTokenPurpose, Gender, IdentityProvider, OAuthGrantPurpose, Reason, ReportReason,
+    ReportResolution, WindowKind,
 };

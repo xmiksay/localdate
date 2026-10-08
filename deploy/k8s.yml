@@ -200,6 +200,19 @@ spec:
                   name: localdate
                   key: SMTP_URL
                   optional: true
+            # Optional: without them Sign in with Google is off (providers.google = false).
+            - name: GOOGLE_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: localdate
+                  key: GOOGLE_CLIENT_ID
+                  optional: true
+            - name: GOOGLE_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: localdate
+                  key: GOOGLE_CLIENT_SECRET
+                  optional: true
             # Optional: without them the API starts with Web Push turned off.
             - name: VAPID_PUBLIC_KEY
               valueFrom:

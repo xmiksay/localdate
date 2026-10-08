@@ -27,12 +27,12 @@ async fn providers_reflect_whether_email_is_configured() {
     let off = TestApp::new().await;
     assert_eq!(
         off.get("/api/auth/providers", None).await,
-        (StatusCode::OK, json!({ "email": false }))
+        (StatusCode::OK, json!({ "email": false, "google": false }))
     );
     let on = TestApp::with_email().await;
     assert_eq!(
         on.get("/api/auth/providers", None).await,
-        (StatusCode::OK, json!({ "email": true }))
+        (StatusCode::OK, json!({ "email": true, "google": false }))
     );
 }
 

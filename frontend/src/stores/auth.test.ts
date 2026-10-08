@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import * as authApi from '@/api/auth'
 import * as meApi from '@/api/me'
+import * as oauthApi from '@/api/oauth'
 import { ApiError, signalBanned } from '@/api/client'
 import { tokenStorage } from '@/api/tokens'
 import { useAuthStore } from './auth'
@@ -9,6 +10,7 @@ import { usePushStore } from './push'
 
 vi.mock('@/api/auth')
 vi.mock('@/api/me')
+vi.mock('@/api/oauth')
 
 const tokens = {
   access_token: 'a1',
@@ -119,12 +121,18 @@ describe('auth store', () => {
   it('loadProviders reflects the server and treats failure as disabled', async () => {
     const s = useAuthStore()
     expect(s.emailEnabled).toBe(false)
-    vi.mocked(authApi.getProviders).mockResolvedValue({ email: true })
+    expect(s.oauthProviders).toEqual([])
+    vi.mocked(authApi.getProviders).mockResolvedValue({ email: true, google: true })
     await s.loadProviders()
     expect(s.emailEnabled).toBe(true)
+    expect(s.oauthProviders).toEqual(['google'])
+    vi.mocked(authApi.getProviders).mockResolvedValue({ email: true, google: false })
+    await s.loadProviders()
+    expect(s.oauthProviders).toEqual([])
     vi.mocked(authApi.getProviders).mockRejectedValue(new Error('offline'))
     await s.loadProviders()
     expect(s.emailEnabled).toBe(false)
+    expect(s.oauthProviders).toEqual([])
   })
 
   it('emailStart normalizes the address and sends the UI language', async () => {
@@ -243,5 +251,41 @@ describe('auth store', () => {
     vi.mocked(meApi.putPassword).mockResolvedValue(tokens)
     vi.spyOn(usePushStore(), 'resync').mockRejectedValue(new Error('offline'))
     await expect(useAuthStore().changePassword('n'.repeat(10))).resolves.toBeUndefined()
+  })
+
+  it('oauthExchange logs a known account in and clears an old ban notice', async () => {
+    vi.mocked(oauthApi.oauthExchange).mockResolvedValue({ session: tokens })
+    const s = useAuthStore()
+    s.markBanned()
+    await expect(s.oauthExchange('code')).resolves.toBeNull()
+    expect(oauthApi.oauthExchange).toHaveBeenCalledWith('code')
+    expect(s.isAuthed).toBe(true)
+    expect(s.suspended).toBe(false)
+    expect(tokenStorage.refresh()).toBe('r1')
+  })
+
+  it('oauthExchange hands back the sign-up token for a new account without a session', async () => {
+    vi.mocked(oauthApi.oauthExchange).mockResolvedValue({
+      signup: { token: 'st', provider: 'google', expires_at: '2026-10-08T10:15:00Z' },
+    })
+    const s = useAuthStore()
+    await expect(s.oauthExchange('code')).resolves.toEqual({ signupToken: 'st' })
+    expect(s.isAuthed).toBe(false)
+  })
+
+  it('oauthExchange rejected as banned leaves the store suspended', async () => {
+    // Anonymous calls do not signal bans themselves: signIn() must mark it.
+    vi.mocked(oauthApi.oauthExchange).mockRejectedValue(new ApiError('banned', 403, 'banned'))
+    const s = useAuthStore()
+    await expect(s.oauthExchange('code')).rejects.toMatchObject({ code: 'banned' })
+    expect(s.suspended).toBe(true)
+  })
+
+  it('oauthSignup normalizes the username and stores tokens', async () => {
+    vi.mocked(oauthApi.oauthSignup).mockResolvedValue(tokens)
+    const s = useAuthStore()
+    await s.oauthSignup('st', ' Bob ')
+    expect(oauthApi.oauthSignup).toHaveBeenCalledWith({ token: 'st', username: 'bob' })
+    expect(s.isAuthed).toBe(true)
   })
 })

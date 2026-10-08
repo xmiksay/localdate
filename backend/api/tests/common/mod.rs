@@ -16,6 +16,7 @@ use uuid::Uuid;
 
 pub mod areas;
 pub mod email;
+pub mod oauth;
 pub mod photos;
 pub mod push;
 pub mod replica;
@@ -100,6 +101,8 @@ impl TestApp {
             ws_ping_every: localdate_api::config::WS_PING_EVERY,
             ws_idle_timeout: localdate_api::config::WS_IDLE_TIMEOUT,
             vapid: None,
+            oauth: Vec::new(),
+            app_base_url: Some(email::BASE_URL.into()),
         };
         tweak(&mut config);
         let outbox = std::sync::Arc::new(localdate_api::mail::MemoryMailer::default());

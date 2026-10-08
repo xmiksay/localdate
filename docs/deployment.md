@@ -7,7 +7,7 @@ Production runs on the k8s cluster behind ingress-nginx + cert-manager (`letsenc
 | Object | What |
 |---|---|
 | `ConfigMap localdate` | non-secret env (`BIND_ADDR`, `PHOTO_DIR`, `RUST_LOG`, `CLEANUP_INTERVAL_SECS`, `TRUST_PROXY_HEADERS=true`, `APP_BASE_URL`, `EMAIL_FROM`, `VAPID_SUBJECT`) |
-| `Secret localdate` | `POSTGRES_PASSWORD`, `JWT_SECRET`, optional `SMTP_URL`, optional `VAPID_PUBLIC_KEY` + `VAPID_PRIVATE_KEY` — **not in git**, created by hand (below) |
+| `Secret localdate` | `POSTGRES_PASSWORD`, `JWT_SECRET`, optional `SMTP_URL`, optional `GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET`, optional `VAPID_PUBLIC_KEY` + `VAPID_PRIVATE_KEY` — **not in git**, created by hand (below) |
 | `StatefulSet localdate-db` + headless `Service` | Postgres 18, 5 Gi PVC `data-localdate-db-0` |
 | `NetworkPolicy localdate-db` | only `app=localdate-api` pods may reach 5432 |
 | `Deployment localdate-api` | 1 replica, `Recreate`, 768 Mi memory limit, 5 Gi PVC `localdate-photos` at `/data/photos` |
@@ -102,6 +102,31 @@ kubectl -n localdate rollout restart deployment/localdate-api
 `APP_BASE_URL` (origin the mailed links point at) and `EMAIL_FROM` live in the ConfigMap; the sender
 domain needs SPF/DKIM at the mail provider or the links land in spam. `EMAIL_DEV_LOG` (log links instead
 of sending) is for local development only — the release binary refuses to start with it.
+## Sign in with Google (optional)
+
+Without `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` the API runs with Google off
+(`GET /api/auth/providers` → `google: false`, the button is hidden). To turn it on:
+
+1. Google Cloud Console → APIs & Services → **OAuth consent screen**: app name, support email,
+   authorized domain `mmik.cz`; only the default `openid` scope is needed (no sensitive scopes, no
+   verification). Publish the app (status "In production"), otherwise only listed test users can log in.
+2. **Credentials → Create credentials → OAuth client ID**, type *Web application*.
+   Authorized redirect URI: `https://localdate.mmik.cz/api/auth/oauth/google/callback`
+   (= `{APP_BASE_URL}/api/auth/oauth/google/callback`; for local dev add
+   `http://localhost:5173/api/auth/oauth/google/callback`). No JavaScript origins are needed.
+3. Put both values into the Secret and restart:
+
+```sh
+kubectl -n localdate patch secret localdate --type merge \
+  -p '{"stringData":{"GOOGLE_CLIENT_ID":"<id>.apps.googleusercontent.com","GOOGLE_CLIENT_SECRET":"<secret>"}}'
+kubectl -n localdate rollout restart deployment/localdate-api
+```
+
+`APP_BASE_URL` (ConfigMap) must be the exact public origin, or Google refuses the redirect URI. The API
+refuses to start with only one of the two values. The pod needs outbound HTTPS to `oauth2.googleapis.com`
+and `www.googleapis.com` (token endpoint, signing keys). Rotating the client secret only needs the Secret
+updated; Google accounts stay linked (they are keyed by Google's account id, not the client).
+
 ## Web Push (optional)
 
 Without VAPID keys the API runs with push off (`GET /api/push/config` → `enabled: false`). To turn it

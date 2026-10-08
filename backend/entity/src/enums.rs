@@ -79,6 +79,27 @@ pub enum ReportResolution {
 pub enum IdentityProvider {
     #[sea_orm(string_value = "email")]
     Email,
+    #[sea_orm(string_value = "google")]
+    Google,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumIter, DeriveActiveEnum, Serialize, Deserialize)]
+#[sea_orm(
+    rs_type = "String",
+    db_type = "Enum",
+    enum_name = "oauth_grant_purpose"
+)]
+#[serde(rename_all = "snake_case")]
+pub enum OAuthGrantPurpose {
+    /// Callback code for a linked provider account → session.
+    #[sea_orm(string_value = "login")]
+    Login,
+    /// Callback code for an unknown provider account → sign-up token.
+    #[sea_orm(string_value = "signup_code")]
+    SignupCode,
+    /// Sign-up token → new account once the user picked a username.
+    #[sea_orm(string_value = "signup")]
+    Signup,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, EnumIter, DeriveActiveEnum, Serialize, Deserialize)]

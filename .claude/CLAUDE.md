@@ -25,7 +25,11 @@ waves, and chats after a mutual wave.
   verify/signup, `message` cs/en texts, `limit` (address, IP) + per-address limiter, `EmailService` = spawned bounded
   sends + `detach` (lookups after the response), in `AppState::email`, `None` = disabled; `limit` also has the separate `ResetLimiter`; `reset.rs` = password reset by
   email (`replace_password` = hash + `credentials_changed_at` + revoke sessions + delete push subscriptions + void mailed tokens, shared with `PUT /me/password`; both close
-  the account's sockets with 4401 after commit)), `mail.rs` (`Mailer` trait: lettre SMTP, dev log,
+  the account's sockets with 4401 after commit); `oauth/` = generic OIDC code flow (Google first): `config` per-provider
+  `OidcConfig` + env presets + `SubjectSource`, `OAuthService` registry `Provider → Oidc` in `AppState::oauth`, `cookie`
+  signed `ld_oauth` flow cookie + PKCE + `safe_redirect`, `oidc` client + single-flight/stale-tolerant JWKS cache +
+  ID token checks, `grant` one-time codes / sign-up tokens in `oauth_grant`, `notice` link notice mail, `flow`
+  start/link/callback/exchange/signup), `mail.rs` (`Mailer` trait: lettre SMTP, dev log,
   `MemoryMailer` for tests), `me/` (profile, photos + `image_proc`, filter, `identities` = linked login methods +
   email linking, `password` = change / first password, `DELETE /me`), `discovery/` (`geo` bands/haversine, `rules::mutually_visible` = spec,
   `duration` presets/12 h cap/end of day, `window`, `location` (location updates + area leave check), `nearby` = the **only runtime visibility SQL**,
@@ -54,13 +58,17 @@ waves, and chats after a mutual wave.
   `common/areas.rs`: `area`, `area_user`, `start_area_window`; `common/ws.rs`: WS client (`serve`, `ready_socket`, `next`);
   `common/replica.rs`: `app.replica()` = second API replica on the same DB (own pool + hub) for `tests/ws_replicas.rs`.
   `common/email.rs`: `TestApp::with_email()` (email on, mail captured in `outbox`), `mails_to`, `last_link`,
-  `email_signup`. `tests/password_reset.rs` / `password_change.rs` / `password_sessions.rs` (sockets, voided tokens) cover #18. `tests/visibility_agreement.rs` = SQL ↔ rule cross-check.
+  `email_signup`. `tests/password_reset.rs` / `password_change.rs` / `password_sessions.rs` (sockets, voided tokens) cover #18. `common/oauth.rs`: `TestApp::with_google()` + `FakeProvider` (local token/JWKS server, fixture
+  RSA key), `with_google_opts(email, tweak)`, `oauth_start`/`oauth_link`/`oauth_return`/`oauth_exchange`;
+  `tests/oauth_login.rs` / `oauth_link.rs` / `oauth_hardening.rs`.
+  `tests/visibility_agreement.rs` = SQL ↔ rule cross-check.
 - `frontend/src/`: `api/` (typed client with single-flight refresh, `ws.ts`, per-domain modules, `types.ts` mirrors
   docs/api.md; any `403 banned` or WS close `4403` → `onBanned` → logout + suspended notice on `/login`),
   `stores/` (auth incl. providers + email login, me, window, nearby, matches, safety, admin, areas, identities, push),
   `views/EmailAuthView.vue` (`/auth/email`: verify → login or username sign-up), `EmailLinkView.vue`
   (`/auth/email/link`, confirm linking), `ForgotPasswordView.vue` (`/auth/password/forgot`) + `PasswordResetView.vue`
-  (`/auth/password/reset`: preview → new password), `LinkedAccountsSection.vue` + `PasswordSection.vue` (Settings), `utils/redirect.ts` (`?redirect=` guard),
+  (`/auth/password/reset`: preview → new password), `OAuthDoneView.vue` (`/auth/oauth/done`: fragment → exchange →
+  login or username sign-up; `linked`/`error`), `api/oauth.ts`, `LinkedAccountsSection.vue` + `PasswordSection.vue` (Settings), `utils/redirect.ts` (`?redirect=` guard),
   `sw/` (custom service worker:
   `sw.ts` precache + push handlers, own `tsconfig.sw.json`; `push.ts` = the handlers as pure, tested functions),
   `utils/webPush.ts` (support/iOS detection + the only `PushManager`/`Notification` adapter),

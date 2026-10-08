@@ -3,11 +3,12 @@ export function tokenFromHash(hash: string): string {
   return new URLSearchParams(hash.replace(/^#/, '')).get('token') ?? ''
 }
 
-export type PendingKind = 'signup' | 'link' | 'reset'
+export type PendingKind = 'signup' | 'link' | 'reset' | 'oauthSignup'
 const KEYS: Record<PendingKind, string> = {
   signup: 'localdate.signupToken',
   link: 'localdate.linkToken',
   reset: 'localdate.resetToken',
+  oauthSignup: 'localdate.oauthSignupToken',
 }
 
 /**

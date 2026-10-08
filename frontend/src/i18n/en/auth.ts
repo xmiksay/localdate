@@ -37,7 +37,7 @@ const en: Messages<typeof cs> = {
     verified: 'Verified {date}',
     remove: 'Remove',
     empty: 'No linked accounts yet.',
-    noPassword: 'This account has no password — you log in by email.',
+    noPassword: 'This account has no password — you log in with a linked account.',
     addEmail: 'Add email',
     linked: 'Email {email} is now linked.',
     linkTitle: 'Link {email} to the account {username}?',

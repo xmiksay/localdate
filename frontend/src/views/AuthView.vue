@@ -2,6 +2,8 @@
 import { computed, onMounted, ref } from 'vue'
 import { useT } from '@/i18n/typed'
 import { useRoute, useRouter } from 'vue-router'
+import { oauthStartUrl } from '@/api/oauth'
+import type { OAuthProvider } from '@/api/types'
 import EmailLinkForm from '@/components/EmailLinkForm.vue'
 import SuspendedNotice from '@/components/SuspendedNotice.vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
@@ -10,7 +12,7 @@ import FormField from '@/components/ui/FormField.vue'
 import TextInput from '@/components/ui/TextInput.vue'
 import { useAuthStore } from '@/stores/auth'
 import { errorMessage } from '@/utils/errors'
-import { safeRedirect } from '@/utils/redirect'
+import { inAppPath, safeRedirect } from '@/utils/redirect'
 import { isValidPassword, isValidUsername } from '@/utils/validation'
 
 const props = defineProps<{ mode: 'login' | 'register' }>()
@@ -40,6 +42,11 @@ const passwordError = computed(() =>
     ? t('auth.invalidPassword')
     : undefined,
 )
+
+// A full navigation, not fetch: the server sets the flow cookie and redirects to the provider.
+function continueWith(provider: OAuthProvider) {
+  window.location.assign(oauthStartUrl(provider, inAppPath(route.query.redirect)))
+}
 
 async function submit() {
   submitted.value = true
@@ -113,6 +120,16 @@ async function submit() {
         {{ t('password.forgotLink') }}
       </RouterLink>
     </form>
+
+    <BaseButton
+      v-for="p in auth.oauthProviders"
+      :key="p"
+      variant="ghost"
+      block
+      @click="continueWith(p)"
+    >
+      {{ t('oauth.continue', { provider: t(`oauth.provider.${p}`) }) }}
+    </BaseButton>
 
     <section v-if="auth.emailEnabled" class="flex flex-col gap-3">
       <BaseButton v-if="!showEmail" variant="ghost" block @click="showEmail = true">

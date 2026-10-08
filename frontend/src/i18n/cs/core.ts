@@ -23,6 +23,7 @@ export default {
     invalid_token: 'Odkaz je neplatný nebo vypršel.',
     last_login_method: 'Je to tvůj jediný způsob přihlášení, odebrat ho nejde.',
     email_disabled: 'Přihlášení e-mailem teď není dostupné.',
+    provider_disabled: 'Tento způsob přihlášení teď není dostupný.',
     unauthorized: 'Přihlášení vypršelo, přihlas se znovu.',
     invalid_credentials: 'Nesprávné jméno nebo heslo.',
     invalid_refresh_token: 'Přihlášení vypršelo, přihlas se znovu.',

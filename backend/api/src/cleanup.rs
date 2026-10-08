@@ -56,6 +56,7 @@ pub struct CleanupCounts {
     pub tokens_deleted: u64,
     pub replicas_deleted: u64,
     pub email_tokens_deleted: u64,
+    pub oauth_grants_deleted: u64,
 }
 
 // Same effect as the lazy close in `discovery::window`, so an open window always has coords.
@@ -80,6 +81,8 @@ const DELETE_TOKENS: &str = "DELETE FROM refresh_token t WHERE t.expires_at <= $
 const DELETE_REPLICAS: &str = "DELETE FROM ws_replica WHERE seen_at <= $1";
 // Used or not, an expired email token can do nothing; deleting it also drops the address it held.
 const DELETE_EMAIL_TOKENS: &str = "DELETE FROM email_token WHERE expires_at <= $1";
+// Same for OAuth codes and sign-up tokens (the latter hold a provider account id).
+const DELETE_OAUTH_GRANTS: &str = "DELETE FROM oauth_grant WHERE expires_at <= $1";
 
 /// One cleanup pass at the database's `now()` moved by `shift` (zero in production; tests use
 /// it to jump ahead). `None` when another replica holds the lock (tick skipped).
@@ -104,6 +107,7 @@ pub async fn run_once(db: &DatabaseConnection, shift: Duration) -> Result<Option
         .await?,
         replicas_deleted: exec(&txn, DELETE_REPLICAS, [cut.replicas_seen_before.into()]).await?,
         email_tokens_deleted: exec(&txn, DELETE_EMAIL_TOKENS, [cut.now.into()]).await?,
+        oauth_grants_deleted: exec(&txn, DELETE_OAUTH_GRANTS, [cut.now.into()]).await?,
     };
     txn.commit().await.context("commit cleanup txn")?;
     Ok(Some(counts))
@@ -134,6 +138,7 @@ pub async fn run_forever(db: DatabaseConnection, every: StdDuration) {
                 refresh_tokens = c.tokens_deleted,
                 ws_replicas = c.replicas_deleted,
                 email_tokens = c.email_tokens_deleted,
+                oauth_grants = c.oauth_grants_deleted,
                 "cleanup removed expired data"
             ),
             Ok(Some(_)) => tracing::debug!("cleanup: nothing to do"),

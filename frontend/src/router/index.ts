@@ -53,6 +53,12 @@ const router = createRouter({
       component: () => import('@/views/PasswordResetView.vue'),
     },
     {
+      // Public: the OAuth callback lands here for login, sign-up and link alike.
+      path: '/auth/oauth/done',
+      name: 'oauth-done',
+      component: () => import('@/views/OAuthDoneView.vue'),
+    },
+    {
       path: '/onboarding',
       name: 'onboarding',
       component: () => import('@/views/OnboardingView.vue'),

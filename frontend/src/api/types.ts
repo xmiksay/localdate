@@ -43,6 +43,7 @@ export type ErrorCode =
   | 'rate_limited'
   | 'wave_limit'
   | 'email_disabled'
+  | 'provider_disabled'
   | 'internal'
 
 /** Client-side only codes, never sent by the server. */
@@ -75,6 +76,7 @@ export const ERROR_CODES: (ErrorCode | ClientErrorCode)[] = [
   'rate_limited',
   'wave_limit',
   'email_disabled',
+  'provider_disabled',
   'internal',
   'network',
   'unknown',
@@ -187,13 +189,16 @@ export interface Tokens {
   refresh_token: string
   user: User
 }
-export type IdentityProvider = 'email'
+/** Providers signed in through `/auth/oauth/{provider}`; the one list the UI iterates. */
+export const OAUTH_PROVIDERS = ['google'] as const
+export type OAuthProvider = (typeof OAUTH_PROVIDERS)[number]
+export type IdentityProvider = 'email' | OAuthProvider
 /** Language of a sent email; the server falls back to 'cs'. */
 export type MailLang = 'cs' | 'en'
 export interface Identity {
   id: string
   provider: IdentityProvider
-  /** email: the caller's own normalized address. */
+  /** email: the caller's own normalized address · OAuth: the provider's opaque id, never shown. */
   subject: string
   verified_at: string
   created_at: string
@@ -203,9 +208,23 @@ export interface IdentitiesResponse {
   identities: Identity[]
 }
 /** Login methods the server offers (`GET /auth/providers`). */
-export interface Providers {
-  email: boolean
-}
+export type Providers = { email: boolean } & Record<OAuthProvider, boolean>
+/** `POST /auth/oauth/exchange`: a session for a known account, or a token to pick a username. */
+export type OAuthExchange =
+  { session: Tokens } | { signup: { token: string; provider: OAuthProvider; expires_at: string } }
+/** `#error=` codes the OAuth callback hands to `/auth/oauth/done`. */
+export const OAUTH_ERRORS = [
+  'cancelled',
+  'invalid_state',
+  'oauth_failed',
+  'provider_disabled',
+  'banned',
+  'identity_taken',
+  'unauthorized',
+  'rate_limited',
+  'internal',
+] as const
+export type OAuthError = (typeof OAUTH_ERRORS)[number]
 export type EmailTokenPurpose = 'login' | 'signup' | 'link'
 /** What a mailed link would do (`POST /auth/email/preview`); never consumes the token. */
 export interface EmailPreview {

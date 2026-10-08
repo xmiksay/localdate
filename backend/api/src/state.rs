@@ -5,6 +5,7 @@ use sea_orm::DatabaseConnection;
 use tokio::sync::Semaphore;
 
 use crate::auth::email::{EmailLimiter, EmailService, ResetLimiter};
+use crate::auth::oauth::OAuthService;
 use crate::config::Config;
 use crate::push::Notifier;
 use crate::rate_limit::RateLimiter;
@@ -24,6 +25,8 @@ pub struct AppState {
     pub email: Option<EmailService>,
     pub email_limiter: EmailLimiter,
     pub reset_limiter: ResetLimiter,
+    /// OAuth providers (Google); each one is disabled unless configured.
+    pub oauth: Arc<OAuthService>,
 }
 
 /// Peak per decode is ~128 MiB (`image_proc::MAX_INPUT_PIXELS` × 4) plus resize buffers.
@@ -39,6 +42,7 @@ impl AppState {
             hub.clone(),
             config.vapid.as_ref(),
         )?);
+        let oauth = Arc::new(OAuthService::new(&config)?);
         Ok(Self {
             db,
             config: Arc::new(config),
@@ -49,6 +53,7 @@ impl AppState {
             email: None,
             email_limiter: EmailLimiter::default(),
             reset_limiter: ResetLimiter::default(),
+            oauth,
         })
     }
 
