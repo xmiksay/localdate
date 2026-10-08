@@ -51,6 +51,10 @@ Debug builds (clippy, tests) need no bundle: they read `frontend/dist` from disk
   The visibility rule lives in one SQL query (`discovery/nearby.rs`) used by `/nearby`, `POST /waves`
   and `/waves/incoming`; `discovery/rules.rs::mutually_visible` is the readable spec, and an
   integration test asserts both agree.
+- **Interest overlap** — each nearby profile carries `shared_interests` (viewer ∩ them). It only
+  ranks and highlights, never gates visibility: lists sort by shared count desc, then distance band,
+  newest window, `user_id` (`nearby::sort_for_display`, in Rust after the single visibility query;
+  the viewer's interests ride along in the batched `user_interest` lookup).
 - **Expired windows** are closed lazily (`ended_at` set, pending waves deleted) when next read;
   the cleanup job (below) closes them the same way, then deletes them a day later.
 - **Safety** — block (hides both ways, hides match, forbids messages), report

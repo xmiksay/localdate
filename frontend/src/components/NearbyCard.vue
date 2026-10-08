@@ -1,9 +1,14 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
+import { computed } from 'vue'
 import type { NearbyProfile } from '@/api/types'
+import { sharedFirst } from '@/utils/interests'
 
-defineProps<{ profile: NearbyProfile }>()
+const props = defineProps<{ profile: NearbyProfile }>()
 const { t } = useI18n()
+const chips = computed(() =>
+  sharedFirst(props.profile.interests, props.profile.shared_interests).slice(0, 4),
+)
 </script>
 
 <template>
@@ -31,15 +36,26 @@ const { t } = useI18n()
           {{ t(`wave.${profile.wave_state}`) }}
         </span>
       </div>
-      <p class="text-sm font-semibold text-coral">{{ t(`distance.${profile.distance_band}`) }}</p>
+      <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
+        <p class="text-sm font-semibold text-coral">
+          {{ t(`distance.${profile.distance_band}`) }}
+        </p>
+        <span
+          v-if="profile.shared_interests.length"
+          class="rounded-full bg-plum px-2.5 py-0.5 text-xs font-bold text-cream"
+        >
+          {{ t('nearby.sharedInterests', profile.shared_interests.length) }}
+        </span>
+      </div>
       <p class="text-sm text-muted">
         {{ profile.reasons.map((r) => t(`reason.${r}`)).join(' · ') }}
       </p>
-      <ul v-if="profile.interests.length" class="flex flex-wrap gap-1.5">
+      <ul v-if="chips.length" class="flex flex-wrap gap-1.5">
         <li
-          v-for="i in profile.interests.slice(0, 4)"
+          v-for="i in chips"
           :key="i.id"
-          class="rounded-full bg-cream px-2.5 py-0.5 text-xs font-medium text-plum ring-1 ring-line"
+          class="rounded-full px-2.5 py-0.5 text-xs font-medium ring-1"
+          :class="i.shared ? 'bg-plum/10 text-plum ring-plum' : 'bg-cream text-plum ring-line'"
         >
           {{ t(`interest.${i.key}`) }}
         </li>

@@ -19,6 +19,7 @@ const person = (id: string): NearbyProfile => ({
   gender: 'other',
   bio: '',
   interests: [],
+  shared_interests: [],
   photos: [],
   reasons: ['meet'],
   distance_band: 'lt_200m',

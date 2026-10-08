@@ -49,6 +49,7 @@ interface Window { id: string; kind: 'timed'; starts_at: string; ends_at: string
 interface NearbyProfile {
   user_id: string; display_name: string; age: number; gender: Gender; bio: string
   interests: Interest[]; photos: Photo[]; reasons: Reason[]
+  shared_interests: number[] /* Interest ids the viewer has too, ascending; [] = none */
   distance_band: DistanceBand; wave_state: WaveState; match_id: string | null
 }
 interface Message { id: string; match_id: string; sender_id: string; body: string; created_at: string }
@@ -103,7 +104,9 @@ Client updates location every 2 min or after moving > 100 m while a window is ac
 
 ## Nearby
 
-`GET /nearby` → `200 NearbyProfile[]`, sorted by distance band, then most recent window start.
+`GET /nearby` → `200 NearbyProfile[]`, sorted by number of `shared_interests` (most first), then
+distance band (nearest first), then most recent window start, then `user_id`.
+Shared interests only rank and highlight people — they never affect who is visible.
 Applies every rule in architecture.md "Mutual filters". Excludes self.
 
 Band = smallest of 200 / 500 / 1000 / 2000 / 5000 / 10000 m that the real distance is below.
@@ -113,7 +116,7 @@ Band = smallest of 200 / 500 / 1000 / 2000 / 5000 / 10000 m that the real distan
 | Method & path | Body | 2xx response |
 |---|---|---|
 | `POST /waves` | `{ to_user_id }` | `200 { matched: boolean, match_id: string \| null }` |
-| `GET /waves/incoming` | — | `200 NearbyProfile[]` — senders with a pending (unexpired) wave to me who are still visible |
+| `GET /waves/incoming` | — | `200 NearbyProfile[]` — senders with a pending (unexpired) wave to me who are still visible, same order as `/nearby` |
 | `GET /matches` | — | `200 MatchSummary[]` newest activity first, excluding blocked |
 | `GET /matches/{id}/messages?before=<message_id>&limit=50` | — | `200 Message[]` newest first, limit ≤ 100 |
 | `POST /matches/{id}/messages` | `{ body }` | `201 Message` |
