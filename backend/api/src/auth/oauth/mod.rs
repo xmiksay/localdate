@@ -1,4 +1,4 @@
-//! Sign in with an OAuth / OpenID Connect provider (docs/api.md "Sign in with Google"):
+//! Sign in with an OAuth / OpenID Connect provider (docs/api/auth.md "Sign in with Google"):
 //! server-side authorization code flow with PKCE, a signed flow cookie and one-time codes handed
 //! to the SPA through the URL fragment. Providers: Google, Telegram, Facebook; a new one is a `Provider`
 //! variant, an `IdentityProvider` enum value and its `OidcConfig` preset in `config::from_env`.

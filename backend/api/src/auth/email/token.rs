@@ -41,7 +41,7 @@ fn domain_ok(domain: &str) -> bool {
         })
 }
 
-/// Trim + lowercase, then a strict plain `local@domain` (charset in docs/api.md): no display
+/// Trim + lowercase, then a strict plain `local@domain` (charset in docs/api/auth.md): no display
 /// names, quotes, commas or brackets, so the stored subject is exactly the inbox mailed to and
 /// one inbox cannot hide behind many spellings. The result is what gets stored and sent to.
 pub fn normalize_email(raw: &str) -> Result<Address, AppError> {

@@ -1,5 +1,5 @@
 /**
- * Service-worker push handling as plain functions (docs/api.md "Push notifications" → PushPayload),
+ * Service-worker push handling as plain functions (docs/api/push.md → PushPayload),
  * so they run under Vitest without a worker scope.
  */
 

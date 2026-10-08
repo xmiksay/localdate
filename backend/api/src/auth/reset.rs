@@ -1,4 +1,4 @@
-//! Password reset: `/auth/password/*` (docs/api.md "Password reset"), and the password write
+//! Password reset: `/auth/password/*` (docs/api/auth.md "Password reset"), and the password write
 //! shared with `PUT /me/password`. Links go out by email and Telegram (`deliver`).
 
 mod deliver;

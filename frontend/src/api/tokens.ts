@@ -1,5 +1,5 @@
 // Plain module (not a store) so the API client has no dependency on Pinia.
-// localStorage is a deliberate product decision, see docs/architecture.md "Auth".
+// localStorage is a deliberate product decision, see docs/architecture/auth.md.
 const ACCESS = 'localdate.access'
 const REFRESH = 'localdate.refresh'
 

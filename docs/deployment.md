@@ -18,7 +18,7 @@ The NetworkPolicies only take effect if the cluster's CNI enforces them.
 
 Why one replica: photos live on the `ReadWriteOnce` PVC, which only one pod can mount; more replicas
 need shared photo storage (S3, #21). WebSocket push is not the blocker any more — replicas fan events
-out to each other through Postgres LISTEN/NOTIFY (architecture.md "Realtime"). Why `Recreate`: the photos PVC is
+out to each other through Postgres LISTEN/NOTIFY ([architecture/realtime-push.md](architecture/realtime-push.md#realtime)). Why `Recreate`: the photos PVC is
 `ReadWriteOnce`, so the old pod must release it before the new one starts (a few seconds of downtime
 per rollout). The PVCs use the cluster's default StorageClass; add `storageClassName` if there is none.
 

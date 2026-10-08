@@ -1,4 +1,4 @@
-//! SeaORM entities, one module per table (see docs/architecture.md "Data model").
+//! SeaORM entities, one module per table (see docs/architecture/data-model.md).
 
 pub mod area;
 pub mod block;

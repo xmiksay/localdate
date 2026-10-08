@@ -4,8 +4,8 @@ Meet people nearby right now — missed bus, waiting for a train, first day in a
 Open a time-boxed visibility window and see everyone around you whose filters match yours (and yours theirs).
 Wave; a mutual wave opens a chat. PWA, Rust backend.
 
-- Architecture & data model: [docs/architecture.md](docs/architecture.md)
-- API contract: [docs/api.md](docs/api.md)
+- Architecture & data model: [docs/architecture.md](docs/architecture.md) (index) + [docs/architecture/](docs/architecture/)
+- API contract: [docs/api.md](docs/api.md) (index) + [docs/api/](docs/api/)
 - Deployment (Docker image, Kubernetes, secrets, backups): [docs/deployment.md](docs/deployment.md)
 - Roadmap: [MVP epic #29](https://github.com/xmiksay/localdate/issues/29)
 

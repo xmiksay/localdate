@@ -1,4 +1,4 @@
-//! Email magic link: `/auth/providers` and `/auth/email/*` (docs/api.md "Login providers and
+//! Email magic link: `/auth/providers` and `/auth/email/*` (docs/api/auth.md "Login providers and
 //! email magic link"). Linking an address to an existing account lives in `me::identities`.
 
 mod flow;
