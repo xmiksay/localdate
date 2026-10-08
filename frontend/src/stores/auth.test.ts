@@ -1,11 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import * as authApi from '@/api/auth'
+import * as meApi from '@/api/me'
 import { ApiError, signalBanned } from '@/api/client'
 import { tokenStorage } from '@/api/tokens'
 import { useAuthStore } from './auth'
+import { usePushStore } from './push'
 
 vi.mock('@/api/auth')
+vi.mock('@/api/me')
 
 const tokens = {
   access_token: 'a1',
@@ -67,15 +70,22 @@ describe('auth store', () => {
   })
 
   it('login rejected as banned leaves the store suspended', async () => {
-    vi.mocked(authApi.login).mockImplementation(async () => {
-      // The real client signals before throwing; the API module is mocked here.
-      signalBanned()
-      throw new ApiError('banned', 403, 'banned')
-    })
+    // Anonymous calls do not signal bans in the client; the store flags it itself.
+    vi.mocked(authApi.login).mockRejectedValue(new ApiError('banned', 403, 'banned'))
     const s = useAuthStore()
     await expect(s.login({ username: 'bob', password: 'x'.repeat(10) })).rejects.toThrow()
     expect(s.isAuthed).toBe(false)
     expect(s.suspended).toBe(true)
+  })
+
+  it('email sign-in refused as banned is flagged too, other failures are not', async () => {
+    vi.mocked(authApi.emailVerify).mockRejectedValueOnce(new ApiError('banned', 403, 'banned'))
+    const s = useAuthStore()
+    await expect(s.emailVerify('tok')).rejects.toThrow()
+    expect(s.suspended).toBe(true)
+    vi.mocked(authApi.emailSignup).mockRejectedValueOnce(new ApiError('username_taken', 409, 'x'))
+    await expect(s.emailSignup('tok', 'bob')).rejects.toThrow()
+    expect(s.suspended).toBe(false)
   })
 
   it('a successful login clears the suspended flag', async () => {
@@ -159,5 +169,79 @@ describe('auth store', () => {
     await s.emailSignup('tok', ' Bob ')
     expect(authApi.emailSignup).toHaveBeenCalledWith({ token: 'tok', username: 'bob' })
     expect(s.isAuthed).toBe(true)
+  })
+
+  it('passwordForgot normalizes a username or an address and sends the UI language', async () => {
+    vi.mocked(authApi.passwordForgot).mockResolvedValue(undefined)
+    const s = useAuthStore()
+    await s.passwordForgot(' Bob ')
+    await s.passwordForgot(' Bob@Example.CZ ')
+    expect(vi.mocked(authApi.passwordForgot).mock.calls).toEqual([
+      [{ login: 'bob', lang: 'cs' }],
+      [{ login: 'bob@example.cz', lang: 'cs' }],
+    ])
+  })
+
+  it('passwordReset ends the local session, which the server just revoked', async () => {
+    vi.mocked(authApi.login).mockResolvedValue(tokens)
+    vi.mocked(authApi.passwordReset).mockResolvedValue(undefined)
+    const s = useAuthStore()
+    await s.login({ username: 'bob', password: 'x'.repeat(10) })
+    await s.passwordReset('tok', 'n'.repeat(10), 'bob')
+    expect(authApi.passwordReset).toHaveBeenCalledWith({ token: 'tok', new_password: 'nnnnnnnnnn' })
+    expect(s.isAuthed).toBe(false)
+    expect(tokenStorage.refresh()).toBeNull()
+  })
+
+  it('a refused passwordReset keeps the session', async () => {
+    vi.mocked(authApi.login).mockResolvedValue(tokens)
+    vi.mocked(authApi.passwordReset).mockRejectedValue(new ApiError('invalid_token', 400, 'x'))
+    const s = useAuthStore()
+    await s.login({ username: 'bob', password: 'x'.repeat(10) })
+    await expect(s.passwordReset('tok', 'n'.repeat(10), 'bob')).rejects.toThrow()
+    expect(s.isAuthed).toBe(true)
+  })
+
+  it("resetting another account's password keeps this session", async () => {
+    vi.mocked(authApi.login).mockResolvedValue(tokens)
+    vi.mocked(authApi.passwordReset).mockResolvedValue(undefined)
+    const s = useAuthStore()
+    await s.login({ username: 'bob', password: 'x'.repeat(10) })
+    await s.passwordReset('tok', 'n'.repeat(10), 'alice')
+    expect(s.isAuthed).toBe(true)
+    expect(tokenStorage.refresh()).toBe('r1')
+  })
+
+  it('changePassword swaps in the fresh session the server returns', async () => {
+    vi.mocked(meApi.putPassword).mockResolvedValue({
+      ...tokens,
+      access_token: 'a2',
+      refresh_token: 'r2',
+    })
+    const s = useAuthStore()
+    await s.changePassword('n'.repeat(10), 'old password')
+    await s.changePassword('m'.repeat(10))
+    expect(vi.mocked(meApi.putPassword).mock.calls).toEqual([
+      [{ current_password: 'old password', new_password: 'nnnnnnnnnn' }],
+      [{ current_password: undefined, new_password: 'mmmmmmmmmm' }],
+    ])
+    expect(tokenStorage.access()).toBe('a2')
+    expect(tokenStorage.refresh()).toBe('r2')
+  })
+
+  it('changePassword re-registers this device for push with the fresh session', async () => {
+    vi.mocked(meApi.putPassword).mockResolvedValue({ ...tokens, access_token: 'a2' })
+    const resync = vi.spyOn(usePushStore(), 'resync').mockImplementation(async () => {
+      // Runs with the new session: the server dropped every subscription of the account.
+      expect(tokenStorage.access()).toBe('a2')
+    })
+    await useAuthStore().changePassword('n'.repeat(10), 'old password')
+    expect(resync).toHaveBeenCalledWith('cs')
+  })
+
+  it('a failed resync does not fail the password change', async () => {
+    vi.mocked(meApi.putPassword).mockResolvedValue(tokens)
+    vi.spyOn(usePushStore(), 'resync').mockRejectedValue(new Error('offline'))
+    await expect(useAuthStore().changePassword('n'.repeat(10))).resolves.toBeUndefined()
   })
 })

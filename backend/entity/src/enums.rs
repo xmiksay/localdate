@@ -95,4 +95,6 @@ pub enum EmailTokenPurpose {
     Link,
     #[sea_orm(string_value = "signup")]
     Signup,
+    #[sea_orm(string_value = "password_reset")]
+    PasswordReset,
 }

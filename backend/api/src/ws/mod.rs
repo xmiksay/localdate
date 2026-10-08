@@ -15,8 +15,8 @@ use axum::extract::ws::{CloseFrame, Message, WebSocket, WebSocketUpgrade};
 use axum::response::Response;
 use axum::routing::get;
 use serde::Deserialize;
-use uuid::Uuid;
 
+use crate::auth::AuthUser;
 use crate::auth::extractor::{Account, account_status, verify_access};
 use crate::error::AppError;
 use crate::state::AppState;
@@ -52,14 +52,12 @@ async fn upgrade(ws: WebSocketUpgrade, State(state): State<AppState>) -> Respons
 }
 
 /// Waits for the auth frame; protocol pings/pongs before it are skipped by the stack.
-async fn authenticate(socket: &mut WebSocket, state: &AppState) -> Result<Uuid, AppError> {
+async fn authenticate(socket: &mut WebSocket, state: &AppState) -> Result<AuthUser, AppError> {
     loop {
         match socket.recv().await {
             Some(Ok(Message::Text(text))) => {
                 let token = auth_token(&text).ok_or(AppError::Unauthorized)?;
-                return Ok(verify_access(&state.db, &state.config.jwt_secret, &token)
-                    .await?
-                    .id);
+                return verify_access(&state.db, &state.config.jwt_secret, &token).await;
             }
             Some(Ok(Message::Ping(_) | Message::Pong(_))) => {}
             _ => return Err(AppError::Unauthorized),
@@ -85,21 +83,22 @@ fn refusal(account: &Account) -> Option<CloseReason> {
     match account {
         Account::Active { .. } => None,
         Account::Banned => Some(CloseReason::Banned),
-        Account::Missing => Some(CloseReason::Unauthorized),
+        Account::Missing | Account::Superseded => Some(CloseReason::Unauthorized),
     }
 }
 
 async fn session(mut socket: WebSocket, state: AppState) {
-    let user = match tokio::time::timeout(AUTH_TIMEOUT, authenticate(&mut socket, &state)).await {
-        Ok(Ok(user)) => user,
-        Ok(Err(AppError::Banned)) => return close(socket, CloseReason::Banned).await,
-        Ok(Err(AppError::Internal)) => return close(socket, CloseReason::Internal).await,
-        _ => return close(socket, CloseReason::Unauthorized).await,
-    };
+    let (user, issued_at) =
+        match tokio::time::timeout(AUTH_TIMEOUT, authenticate(&mut socket, &state)).await {
+            Ok(Ok(auth)) => (auth.id, auth.issued_at),
+            Ok(Err(AppError::Banned)) => return close(socket, CloseReason::Banned).await,
+            Ok(Err(AppError::Internal)) => return close(socket, CloseReason::Internal).await,
+            _ => return close(socket, CloseReason::Unauthorized).await,
+        };
 
     let (id, mut events) = state.hub.subscribe(user).await;
     // A ban committed between the auth check and `subscribe` disconnected nothing; re-check.
-    let refused = match account_status(&state.db, user).await {
+    let refused = match account_status(&state.db, user, issued_at).await {
         Ok(account) => refusal(&account),
         Err(_) => Some(CloseReason::Internal),
     };
@@ -135,7 +134,7 @@ async fn session(mut socket: WebSocket, state: AppState) {
                     break;
                 }
             },
-            _ = recheck.tick() => match account_status(&state.db, user).await {
+            _ = recheck.tick() => match account_status(&state.db, user, issued_at).await {
                 Ok(account) => if let Some(reason) = refusal(&account) {
                     state.hub.unsubscribe(user, id).await;
                     return close(socket, reason).await;

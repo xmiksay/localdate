@@ -1,5 +1,5 @@
 import { request } from './client'
-import type { Credentials, EmailPreview, MailLang, Providers, Tokens } from './types'
+import type { Credentials, EmailPreview, MailLang, Providers, ResetPreview, Tokens } from './types'
 
 export const register = (c: Credentials) =>
   request<Tokens>('/auth/register', { method: 'POST', body: c, anon: true })
@@ -17,3 +17,14 @@ export const emailVerify = (token: string) =>
   request<Tokens>('/auth/email/verify', { method: 'POST', body: { token }, anon: true })
 export const emailSignup = (body: { token: string; username: string }) =>
   request<Tokens>('/auth/email/signup', { method: 'POST', body, anon: true })
+
+export const passwordForgot = (body: { login: string; lang: MailLang }) =>
+  request<void>('/auth/password/forgot', { method: 'POST', body, anon: true })
+export const passwordResetPreview = (token: string) =>
+  request<ResetPreview>('/auth/password/reset/preview', {
+    method: 'POST',
+    body: { token },
+    anon: true,
+  })
+export const passwordReset = (body: { token: string; new_password: string }) =>
+  request<void>('/auth/password/reset', { method: 'POST', body, anon: true })

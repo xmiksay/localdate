@@ -23,9 +23,11 @@ waves, and chats after a mutual wave.
 - `backend/api/src/`: `auth/` (password, jwt, refresh rotation, `AuthUser` extractor, `session()` = new Tokens;
   `email/` = magic link: `token` single-use tokens + strict `normalize_email` → `lettre::Address`, `flow` preview/
   verify/signup, `message` cs/en texts, `limit` (address, IP) + per-address limiter, `EmailService` = spawned bounded
-  sends, in `AppState::email`, `None` = disabled), `mail.rs` (`Mailer` trait: lettre SMTP, dev log,
+  sends + `detach` (lookups after the response), in `AppState::email`, `None` = disabled; `limit` also has the separate `ResetLimiter`; `reset.rs` = password reset by
+  email (`replace_password` = hash + `credentials_changed_at` + revoke sessions + delete push subscriptions + void mailed tokens, shared with `PUT /me/password`; both close
+  the account's sockets with 4401 after commit)), `mail.rs` (`Mailer` trait: lettre SMTP, dev log,
   `MemoryMailer` for tests), `me/` (profile, photos + `image_proc`, filter, `identities` = linked login methods +
-  email linking, `DELETE /me`), `discovery/` (`geo` bands/haversine, `rules::mutually_visible` = spec,
+  email linking, `password` = change / first password, `DELETE /me`), `discovery/` (`geo` bands/haversine, `rules::mutually_visible` = spec,
   `duration` presets/12 h cap/end of day, `window`, `location` (location updates + area leave check), `nearby` = the **only runtime visibility SQL**,
   reused by waves, + shared-interest ranking), `areas/` (`GET /areas` containment, admin CRUD `/admin/areas`),
   `social/` (waves, matches, messages), `ws/` (`hub` = per-replica `LocalHub`, `bridge` = cross-replica `Hub` over Postgres LISTEN/NOTIFY (own listener
@@ -41,8 +43,10 @@ waves, and chats after a mutual wave.
   `admin/` (report queue, soft ban/unban, `set_admin` for the CLI), `error.rs`
   (`AppError`, `AppJson`, `parse_id`), `rate_limit.rs` (per-IP bucket; `TRUST_PROXY_HEADERS` keys on the
   first `X-Forwarded-For` entry), `retry.rs` (shared reconnect backoff). New domain = module with `router()` merged in `lib.rs`.
-  `AuthUser` loads the account on every request (deleted → 401, banned → 403 `banned`); `AdminUser` also
-  needs `is_admin`; `lock_unbanned` (`FOR SHARE`) guards window/wave/refresh writes against a concurrent ban.
+  `AuthUser` loads the account on every request (deleted or token `iat` before `credentials_changed_at` → 401,
+  banned → 403 `banned`; the WS re-check applies the same); `AdminUser` also
+  needs `is_admin`; `lock_unbanned` (`FOR SHARE`) guards window/wave/refresh writes against a concurrent ban;
+  `lock_user` (`FOR UPDATE`, same account mapping) for writes to the user row itself (password).
   `main.rs` is a clap CLI: no subcommand = serve, `admin grant|revoke <username>` (refuses with pending migrations).
 - `backend/api/tests/common/mod.rs`: `TestApp` harness (fresh DB per test, `register`, `onboard`, `open_window`,
   `visible_user`, `match_up`, `admin`, multipart helpers; `with_frontend::<F>()` serves a fixture bundle from `tests/fixtures/dist`;
@@ -50,19 +54,21 @@ waves, and chats after a mutual wave.
   `common/areas.rs`: `area`, `area_user`, `start_area_window`; `common/ws.rs`: WS client (`serve`, `ready_socket`, `next`);
   `common/replica.rs`: `app.replica()` = second API replica on the same DB (own pool + hub) for `tests/ws_replicas.rs`.
   `common/email.rs`: `TestApp::with_email()` (email on, mail captured in `outbox`), `mails_to`, `last_link`,
-  `email_signup`. `tests/visibility_agreement.rs` = SQL ↔ rule cross-check.
+  `email_signup`. `tests/password_reset.rs` / `password_change.rs` / `password_sessions.rs` (sockets, voided tokens) cover #18. `tests/visibility_agreement.rs` = SQL ↔ rule cross-check.
 - `frontend/src/`: `api/` (typed client with single-flight refresh, `ws.ts`, per-domain modules, `types.ts` mirrors
   docs/api.md; any `403 banned` or WS close `4403` → `onBanned` → logout + suspended notice on `/login`),
   `stores/` (auth incl. providers + email login, me, window, nearby, matches, safety, admin, areas, identities, push),
   `views/EmailAuthView.vue` (`/auth/email`: verify → login or username sign-up), `EmailLinkView.vue`
-  (`/auth/email/link`, confirm linking), `LinkedAccountsSection.vue` (Settings), `utils/redirect.ts` (`?redirect=` guard),
+  (`/auth/email/link`, confirm linking), `ForgotPasswordView.vue` (`/auth/password/forgot`) + `PasswordResetView.vue`
+  (`/auth/password/reset`: preview → new password), `LinkedAccountsSection.vue` + `PasswordSection.vue` (Settings), `utils/redirect.ts` (`?redirect=` guard),
   `sw/` (custom service worker:
   `sw.ts` precache + push handlers, own `tsconfig.sw.json`; `push.ts` = the handlers as pure, tested functions),
   `utils/webPush.ts` (support/iOS detection + the only `PushManager`/`Notification` adapter),
   `utils/visibility.ts` (closes the WS after 30 s hidden), `scripts/icons.sh` (`make icons`: PNG icons from SVG),
   `NotificationsSection.vue` (Settings opt-in), `composables/usePushSync.ts`, `views/AdminView.vue` (`/admin`, admins only:
   reports + areas tabs), `composables/` (geolocation sharing — `left_area` ends the window and sets the notice
-  shown by `WindowEndedNotice` in `AppLayout`; realtime), `i18n/cs.ts` (source of truth; `en.ts` typed against it;
+  shown by `WindowEndedNotice` in `AppLayout`; realtime), `i18n/cs/` (source of truth, one module per domain — core, auth, profile, discovery, moderation, notifications — merged in
+  `cs/index.ts`; each `en/<domain>.ts` is typed against its cs module via `Messages<T>` in `i18n/messages.ts`;
   `i18n/plural.ts` = Czech one/few/many rule; `i18n/typed.ts` `useT()` = key-checked `t`, use it instead of
   `useI18n`, enforced by ESLint), `utils/interests.ts` (`sharedFirst` chips, `byOverlapThenBand` client-side
   nearby order), `SharedInterestsBadge.vue`, `AreaPicker.vue` (area mode of the window start panel), `components/ui/`

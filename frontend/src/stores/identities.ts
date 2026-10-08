@@ -8,13 +8,26 @@ import { normalizeEmail } from '@/utils/validation'
 export const useIdentitiesStore = defineStore('identities', () => {
   const identities = ref<Identity[]>([])
   const hasPassword = ref(true)
+  /** `hasPassword` is only known after the first load. */
+  const loaded = ref(false)
   /** Address confirmed by the link flow, shown once as a success note in settings. */
   const justLinked = ref<string | null>(null)
 
-  async function load() {
-    const r = await identitiesApi.getIdentities()
-    identities.value = r.identities
-    hasPassword.value = r.has_password
+  let loading: Promise<void> | null = null
+
+  /** Several sections load on the same page; they share one request. */
+  function load() {
+    loading ??= identitiesApi
+      .getIdentities()
+      .then((r) => {
+        identities.value = r.identities
+        hasPassword.value = r.has_password
+        loaded.value = true
+      })
+      .finally(() => {
+        loading = null
+      })
+    return loading
   }
 
   async function linkEmail(email: string) {
@@ -36,8 +49,9 @@ export const useIdentitiesStore = defineStore('identities', () => {
   function reset() {
     identities.value = []
     hasPassword.value = true
+    loaded.value = false
     justLinked.value = null
   }
 
-  return { identities, hasPassword, justLinked, load, linkEmail, confirm, remove, reset }
+  return { identities, hasPassword, loaded, justLinked, load, linkEmail, confirm, remove, reset }
 })

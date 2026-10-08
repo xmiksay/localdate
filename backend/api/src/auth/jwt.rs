@@ -30,18 +30,29 @@ fn issue_at(secret: &str, user_id: Uuid, now: i64) -> Result<String> {
     .context("encoding access token")
 }
 
+/// What a valid access token says.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Access {
+    pub user: Uuid,
+    /// Unix seconds.
+    pub issued_at: i64,
+}
+
 /// `None` for any invalid, expired or tampered token.
-pub fn verify(secret: &str, token: &str) -> Option<Uuid> {
+pub fn verify(secret: &str, token: &str) -> Option<Access> {
     let mut validation = Validation::new(Algorithm::HS256);
     validation.leeway = 0;
-    validation.set_required_spec_claims(&["exp", "sub"]);
+    validation.set_required_spec_claims(&["exp", "sub", "iat"]);
     let data = decode::<Claims>(
         token,
         &DecodingKey::from_secret(secret.as_bytes()),
         &validation,
     )
     .ok()?;
-    data.claims.sub.parse().ok()
+    Some(Access {
+        user: data.claims.sub.parse().ok()?,
+        issued_at: data.claims.iat,
+    })
 }
 
 #[cfg(test)]
@@ -53,8 +64,15 @@ mod tests {
     #[test]
     fn roundtrip() {
         let id = Uuid::new_v4();
-        let token = issue(SECRET, id).unwrap();
-        assert_eq!(verify(SECRET, &token), Some(id));
+        let now = chrono::Utc::now().timestamp();
+        let token = issue_at(SECRET, id, now).unwrap();
+        assert_eq!(
+            verify(SECRET, &token),
+            Some(Access {
+                user: id,
+                issued_at: now
+            })
+        );
     }
 
     #[test]

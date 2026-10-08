@@ -109,10 +109,10 @@ Debug builds (clippy, tests) need no bundle: they read `frontend/dist` from disk
 
 | Table | Columns (all timestamps `timestamptz`) |
 |---|---|
-| `user` | id uuid PK, username text UNIQUE (lowercase, `[a-z0-9_]{3,32}`), password_hash text NULL (argon2id; NULL = account created by email, no password), created_at, is_admin bool (default false), banned_at NULL |
+| `user` | id uuid PK, username text UNIQUE (lowercase, `[a-z0-9_]{3,32}`), password_hash text NULL (argon2id; NULL = account created by email, no password), created_at, is_admin bool (default false), banned_at NULL, credentials_changed_at NULL (last password reset/change, whole seconds; older access tokens are refused) |
 | `refresh_token` | id uuid PK, user_id FK, token_hash text UNIQUE (sha256), family_id uuid, expires_at, revoked_at NULL, created_at |
 | `user_identity` | id uuid PK, user_id FK, provider enum(email; later telegram/google/facebook), subject text (email: validated, lowercased address), verified_at, created_at; UNIQUE (provider, subject) |
-| `email_token` | id uuid PK, token_hash text UNIQUE (sha256), purpose enum(login,link,signup), user_id FK NULL (CHECK: NULL iff signup), email text, expires_at (+15 min), used_at NULL, created_at |
+| `email_token` | id uuid PK, token_hash text UNIQUE (sha256), purpose enum(login,link,signup,password_reset), user_id FK NULL (CHECK: NULL iff signup), email text, expires_at (+15 min), used_at NULL, created_at |
 | `profile` | user_id PK/FK, display_name text (1–40), birth_date date, gender enum(male,female,other), bio text (≤ 500), updated_at |
 | `photo` | id uuid PK, user_id FK, file_name text, position smallint (0 = primary), created_at; max 6 per user |
 | `interest` | id serial PK, key text UNIQUE (i18n key suffix, seeded ~40) |
@@ -156,7 +156,7 @@ nearby query), plus `shift`.
 
 ## Auth
 
-Username + password (argon2id), or an **email magic link**; no password reset yet (#18).
+Username + password (argon2id), or an **email magic link**; a forgotten password is reset through a linked email.
 
 **Identity model.** A *login method* is the password (`user.password_hash`, optional) or a row in
 `user_identity` — `(provider, subject)` unique, so one address belongs to at most one account. Email is the
@@ -187,16 +187,46 @@ stranger's attempt neither works nor burns it. Linking an address that is alread
 instead of a link. Login and link mails name the target account. Limits (`auth/email/limit.rs`, in memory per
 replica; over them still `202`, nothing sent): 3 mails per (address, client IP) per 15 min — a flood from
 elsewhere cannot lock the owner out — and 10 per address per hour overall against mail-bombing; on top of the
-per-IP limiter on `start`, `signup` and `POST /me/identities/email`. Mail goes through the `mail::Mailer` trait
+per-IP limiter on `start`, `signup`, `/auth/password/forgot`, `POST /me/identities/email` and `PUT /me/password`. Mail goes through the `mail::Mailer` trait
 (lettre SMTP; `EMAIL_DEV_LOG` logs instead; `MemoryMailer` in tests); `AppState::email` is `None` when neither
 is configured, which makes the endpoints `503 email_disabled` and `GET /auth/providers` report `email: false`.
 Tokens are never logged outside dev-log mode.
 
+**Password reset** (`auth/reset.rs`). `POST /auth/password/forgot` takes a username or an address (an `@` decides),
+charges `ResetLimiter` (`auth/email/limit.rs`; a budget separate from the magic-link `EmailLimiter`, so neither
+drains the other: 3 per (input as typed, IP) / 15 min up front, 5 mails per account / hour once the account is
+known) and answers `202` at once; the account lookup and the sending run afterwards in `EmailService::detach`,
+so neither existence nor a linked email shows in the timing (`idle()` also waits for detached work, which is what
+tests poll). The link goes to every linked address (`linked_addresses`); Telegram (#14) adds its own delivery when
+it exists. Tokens are `email_token` rows with purpose `password_reset`, the same 15 min / single use / fragment
+link (`/auth/password/reset#token=…`) / non-consuming `preview` as the magic link, and `email::target` re-checks
+that the address is still linked (unlinking kills pending reset links). `reset` validates the password and peeks
+the token before spending argon2 time, then in one transaction consumes it, locks the user row `FOR UPDATE`
+(`extractor::lock_user`, the same account mapping as the per-request check: banned → `403`, token unspent) and
+runs `replace_password`: write the hash and `credentials_changed_at` (now, truncated to whole seconds), revoke
+every refresh token, delete every `push_subscription` of the user (log out everywhere includes a stolen device's
+notifications; after `PUT /me/password` the auth store calls `push.resync` so the caller's device re-subscribes), mark every unused `email_token` of the user
+used (a link mailed before must not undo the new password). After the commit `hub.disconnect(user,
+Unauthorized)` closes the account's sockets on every replica with `4401`. `PUT /me/password` (`me/password.rs`)
+verifies `current_password` outside the transaction (argon2 is slow), then under the same lock requires the
+stored hash to be unchanged since — a concurrent change is `401 invalid_credentials` — and reuses
+`replace_password` and the disconnect. Because the access JWT carries no refresh family, "every session but this
+one" cannot be told apart: it revokes all and returns a fresh session; the caller's socket closes too and
+reconnects with the returned access token. Older **access tokens** die at once: `verify_access` (HTTP, WS auth)
+and the WS periodic re-check compare the JWT `iat` with `credentials_changed_at` (`extractor::superseded`:
+refused iff `iat < changed_at`, both in whole seconds) and answer `401 unauthorized` / `4401`. The boundary is
+deliberate — a token from the change's own second is accepted, so the fresh session issued right after the change
+works without waiting; the price is that a token minted earlier in that same second survives. The client retries a
+`401` without refreshing when its stored tokens changed while the request was in flight, and a refresh refused
+after such a swap counts as done, so a password change does not log the caller out through a race. **Known trade-off:** a passwordless account can set its first password with nothing but a valid access
+token — there is no old password to ask for, and that session could already link an address.
+
 JWT HS256 access token (15 min, `sub` = user id) + opaque refresh token (30 days, stored hashed,
 rotated on every use; reuse of a revoked token revokes the whole family). The frontend keeps both in
 `localStorage` (accepted XSS trade-off — strict CSP mitigates). Every authenticated request (and WS auth)
-also loads the account by primary key (`auth::extractor::verify_access`): a deleted account gets 401 and a
-banned one `403 banned` at once, instead of the token living out its 15 minutes.
+also loads the account by primary key (`auth::extractor::verify_access`): a deleted account (or a token older
+than the last password change) gets 401 and a banned one `403 banned` at once, instead of the token living out
+its 15 minutes.
 Login/register rate-limited per client IP (in-memory token bucket, `rate_limit.rs`). The client IP is
 the peer address, or — with `TRUST_PROXY_HEADERS=true`, as in k8s — the first `X-Forwarded-For` entry
 (falling back to the peer when absent or unparsable); IPv6 is bucketed per /64. That is only sound because ingress-nginx, with its
@@ -328,7 +358,7 @@ and a 10 s timeout. `localdate-api vapid generate` / `make vapid-keys` prints a 
 | `BIND_ADDR` | `127.0.0.1:3000` | |
 | `CLEANUP_INTERVAL_SECS` | `300` | optional, default 300; period of the cleanup job |
 | `TRUST_PROXY_HEADERS` | `false` | optional (`true`/`false`/`1`/`0`), default false; rate-limit on `X-Forwarded-For` (see Auth) |
-| `APP_BASE_URL` | `https://localdate.mmik.cz` | required when email is on; mailed links point at `{APP_BASE_URL}/auth/email…` |
+| `APP_BASE_URL` | `https://localdate.mmik.cz` | required when email is on; mailed links point at `{APP_BASE_URL}/auth/email…` and `/auth/password/reset` |
 | `SMTP_URL` | `smtps://user:pass@smtp.example.com:465` | optional, secret; lettre URL, enables email |
 | `EMAIL_FROM` | `localdate <noreply@localdate.mmik.cz>` | required with `SMTP_URL` |
 | `EMAIL_DEV_LOG` | `true` | optional, debug builds only (release refuses to start): log mails incl. links instead of sending; exclusive with `SMTP_URL` |

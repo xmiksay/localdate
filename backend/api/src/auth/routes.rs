@@ -31,6 +31,7 @@ pub fn router() -> Router<AppState> {
         .route("/auth/refresh", post(refresh))
         .route("/auth/logout", post(logout))
         .merge(super::email::router())
+        .merge(super::reset::router())
 }
 
 #[derive(Deserialize)]
@@ -102,6 +103,7 @@ async fn register(
         created_at: Set(Utc::now().fixed_offset()),
         is_admin: Set(false),
         banned_at: Set(None),
+        credentials_changed_at: Set(None),
     }
     .insert(&state.db)
     .await
@@ -132,8 +134,8 @@ async fn login(
     let has_password = stored.is_some();
     let hash = stored.unwrap_or_else(|| DUMMY_HASH.clone());
     // Oversized passwords can't be valid; refuse before spending argon2 time on them.
-    let ok =
-        body.password.chars().count() <= 128 && password::verify_async(body.password, hash).await?;
+    let ok = body.password.chars().count() <= validation::MAX_PASSWORD_CHARS
+        && password::verify_async(body.password, hash).await?;
     let user = found
         .filter(|_| ok && has_password)
         .ok_or(AppError::InvalidCredentials)?;

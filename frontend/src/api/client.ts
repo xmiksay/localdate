@@ -61,9 +61,13 @@ function refreshTokens(): Promise<RefreshResult> {
         body: JSON.stringify({ refresh_token: refresh }),
       })
       if (!res.ok) {
-        if ((await parseError(res)).code !== 'banned') return 'failed'
-        signalBanned()
-        return 'banned'
+        if ((await parseError(res)).code === 'banned') {
+          signalBanned()
+          return 'banned'
+        }
+        // A password change swapped the session meanwhile (its old refresh token is revoked):
+        // the stored tokens are already the good ones.
+        return tokenStorage.refresh() !== refresh ? 'ok' : 'failed'
       }
       const t = (await res.json()) as Tokens
       tokenStorage.set(t.access_token, t.refresh_token)
@@ -134,11 +138,13 @@ async function send(path: string, o: RequestOptions): Promise<Response> {
 }
 
 export async function request<T>(path: string, o: RequestOptions = {}): Promise<T> {
+  const sentWith = o.anon ? null : tokenStorage.access()
   let res = await send(path, o)
   if (res.status === 401 && !o.anon) {
     const err = await parseError(res.clone())
     if (err.code === 'unauthorized') {
-      const refreshed = await refreshTokens()
+      // Tokens replaced while this was in flight (password change): retry with them, no refresh.
+      const refreshed = tokenStorage.access() !== sentWith ? 'ok' : await refreshTokens()
       if (refreshed === 'ok') {
         res = await send(path, o)
       } else if (refreshed === 'banned') {
@@ -153,7 +159,9 @@ export async function request<T>(path: string, o: RequestOptions = {}): Promise<
   }
   if (!res.ok) {
     const err = await parseError(res)
-    if (err.code === 'banned') signalBanned()
+    // Only a session's own request may end it; an anonymous one (a reset link opened while logged
+    // in as someone else) says nothing about the stored session.
+    if (err.code === 'banned' && !o.anon) signalBanned()
     throw err
   }
   // 204 and e.g. `201` from POST /reports carry no body.

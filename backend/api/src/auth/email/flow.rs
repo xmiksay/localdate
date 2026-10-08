@@ -31,7 +31,7 @@ pub(super) struct Preview {
 /// The account a live token leads to (`None` for sign-up), or `invalid_token` when following it
 /// could no longer work: the identity was removed, the account is gone, or (sign-up) the address
 /// became an account meanwhile.
-async fn target(
+pub(crate) async fn target(
     db: &impl ConnectionTrait,
     row: &email_token::Model,
 ) -> Result<Option<Uuid>, AppError> {
@@ -39,10 +39,12 @@ async fn target(
     match row.purpose {
         EmailTokenPurpose::Signup if identity.is_some() => Err(AppError::InvalidToken),
         EmailTokenPurpose::Signup => Ok(None),
-        EmailTokenPurpose::Login => match (row.user_id, identity) {
-            (Some(user), Some(i)) if i.user_id == user => Ok(Some(user)),
-            _ => Err(AppError::InvalidToken),
-        },
+        EmailTokenPurpose::Login | EmailTokenPurpose::PasswordReset => {
+            match (row.user_id, identity) {
+                (Some(user), Some(i)) if i.user_id == user => Ok(Some(user)),
+                _ => Err(AppError::InvalidToken),
+            }
+        }
         EmailTokenPurpose::Link => row.user_id.map(Some).ok_or(AppError::InvalidToken),
     }
 }
@@ -56,6 +58,7 @@ pub(super) async fn preview(
     state.email()?;
     let row = token::peek(&state.db, &body.token)
         .await?
+        .filter(|r| r.purpose != EmailTokenPurpose::PasswordReset)
         .ok_or(AppError::InvalidToken)?;
     let username = match target(&state.db, &row).await? {
         Some(id) => Some(
@@ -117,6 +120,7 @@ pub(super) async fn signup(
         created_at: Set(Utc::now().fixed_offset()),
         is_admin: Set(false),
         banned_at: Set(None),
+        credentials_changed_at: Set(None),
     }
     .insert(&txn)
     .await

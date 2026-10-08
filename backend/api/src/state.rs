@@ -4,7 +4,7 @@ use anyhow::Result;
 use sea_orm::DatabaseConnection;
 use tokio::sync::Semaphore;
 
-use crate::auth::email::{EmailLimiter, EmailService};
+use crate::auth::email::{EmailLimiter, EmailService, ResetLimiter};
 use crate::config::Config;
 use crate::push::Notifier;
 use crate::rate_limit::RateLimiter;
@@ -23,6 +23,7 @@ pub struct AppState {
     /// `None` = email disabled; set by `with_email` (main builds it from `Config::email`).
     pub email: Option<EmailService>,
     pub email_limiter: EmailLimiter,
+    pub reset_limiter: ResetLimiter,
 }
 
 /// Peak per decode is ~128 MiB (`image_proc::MAX_INPUT_PIXELS` × 4) plus resize buffers.
@@ -47,6 +48,7 @@ impl AppState {
             image_permits: Arc::new(Semaphore::new(IMAGE_DECODE_PERMITS)),
             email: None,
             email_limiter: EmailLimiter::default(),
+            reset_limiter: ResetLimiter::default(),
         })
     }
 

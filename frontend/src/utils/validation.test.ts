@@ -5,10 +5,13 @@ import {
   invalidAreaFields,
   isAdult,
   isValidEmail,
+  isValidLogin,
   isValidPassword,
   isValidUsername,
   moveItem,
+  newPasswordError,
   normalizeEmail,
+  normalizeLogin,
   normalizeUsername,
 } from './validation'
 
@@ -41,6 +44,30 @@ describe('credentials', () => {
     expect(isValidPassword('123456789')).toBe(false)
     expect(isValidPassword('1234567890')).toBe(true)
     expect(isValidPassword('x'.repeat(129))).toBe(false)
+  })
+})
+
+describe('new password', () => {
+  it('checks the policy before the repetition', () => {
+    expect(newPasswordError('short', 'short')).toBe('invalid')
+    expect(newPasswordError('x'.repeat(10), 'x'.repeat(11))).toBe('mismatch')
+    expect(newPasswordError('x'.repeat(10), 'x'.repeat(10))).toBeNull()
+  })
+
+  it('counts code points like the server', () => {
+    expect(isValidPassword('😀'.repeat(10))).toBe(true)
+    expect(isValidPassword('😀'.repeat(129))).toBe(false)
+  })
+})
+
+describe('forgot-password login', () => {
+  it('treats anything with @ as an address, the rest as a username', () => {
+    expect(normalizeLogin(' Eva@Example.CZ ')).toBe('eva@example.cz')
+    expect(normalizeLogin(' Eva_1 ')).toBe('eva_1')
+    expect(isValidLogin('eva@example.cz')).toBe(true)
+    expect(isValidLogin('Eva_1')).toBe(true)
+    expect(isValidLogin('eva@')).toBe(false)
+    expect(isValidLogin('a b')).toBe(false)
   })
 })
 

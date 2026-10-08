@@ -41,6 +41,18 @@ const router = createRouter({
       component: () => import('@/views/EmailLinkView.vue'),
     },
     {
+      path: '/auth/password/forgot',
+      name: 'password-forgot',
+      component: () => import('@/views/ForgotPasswordView.vue'),
+      meta: { guestOnly: true },
+    },
+    {
+      // Not guestOnly: a reset logs every session out anyway, so a logged-in visitor may use it.
+      path: '/auth/password/reset',
+      name: 'password-reset',
+      component: () => import('@/views/PasswordResetView.vue'),
+    },
+    {
       path: '/onboarding',
       name: 'onboarding',
       component: () => import('@/views/OnboardingView.vue'),

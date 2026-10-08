@@ -8,7 +8,14 @@ export const MAX_NAME = 40
 
 export const normalizeUsername = (s: string) => s.trim().toLowerCase()
 export const isValidUsername = (s: string) => USERNAME_RE.test(normalizeUsername(s))
-export const isValidPassword = (s: string) => s.length >= 10 && s.length <= 128
+// Code points, like the server's `chars().count()`.
+export const isValidPassword = (s: string) => [...s].length >= 10 && [...s].length <= 128
+
+/** What is wrong with a new password typed twice, if anything. */
+export function newPasswordError(password: string, confirm: string): 'invalid' | 'mismatch' | null {
+  if (!isValidPassword(password)) return 'invalid'
+  return password === confirm ? null : 'mismatch'
+}
 
 /** Whole years between an ISO date (YYYY-MM-DD) and `now`; null for malformed input. */
 export function ageFromBirthDate(iso: string, now: Date = new Date()): number | null {
@@ -99,3 +106,8 @@ export function isValidEmail(raw: string): boolean {
     /[a-z]/.test(labels[labels.length - 1])
   )
 }
+
+/** "Forgot password" takes a username or an address; the server tells them apart by the `@`. */
+export const normalizeLogin = (s: string) =>
+  s.includes('@') ? normalizeEmail(s) : normalizeUsername(s)
+export const isValidLogin = (s: string) => (s.includes('@') ? isValidEmail(s) : isValidUsername(s))
