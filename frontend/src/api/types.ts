@@ -32,6 +32,7 @@ export type ErrorCode =
   | 'left_area'
   | 'too_close_to_midnight'
   | 'area_in_use'
+  | 'push_disabled'
   | 'not_visible'
   | 'cannot_ban_admin'
   | 'already_resolved'
@@ -63,6 +64,7 @@ export const ERROR_CODES: (ErrorCode | ClientErrorCode)[] = [
   'left_area',
   'too_close_to_midnight',
   'area_in_use',
+  'push_disabled',
   'not_visible',
   'cannot_ban_admin',
   'already_resolved',
@@ -266,3 +268,20 @@ export type WsEvent =
   | { type: 'message'; message: Message }
   | { type: 'match'; match: MatchSummary }
   | { type: 'wave'; from_user_id: string }
+
+export interface PushConfig {
+  enabled: boolean
+  /** VAPID key, base64url: the `applicationServerKey` to subscribe with */
+  public_key: string | null
+}
+export type PushLang = 'cs' | 'en'
+export interface PushSubscriptionBody {
+  endpoint: string
+  keys: { p256dh: string; auth: string }
+  lang?: PushLang
+}
+export interface PushPrefs {
+  waves: boolean
+  matches: boolean
+  messages: boolean
+}

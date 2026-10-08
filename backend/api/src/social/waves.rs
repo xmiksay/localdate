@@ -124,8 +124,8 @@ pub async fn post_wave(
         Outcome::Existing(result) => result,
         Outcome::Waved => {
             state
-                .hub
-                .send(target, &ServerEvent::Wave { from_user_id: me });
+                .notify
+                .send(me, target, &ServerEvent::Wave { from_user_id: me });
             WaveResult {
                 matched: false,
                 match_id: None,
@@ -137,7 +137,7 @@ pub async fn post_wave(
                     .await?
                     .pop()
                 {
-                    state.hub.send(user, &ServerEvent::Match { summary });
+                    state.notify.send(me, user, &ServerEvent::Match { summary });
                 }
             }
             WaveResult {

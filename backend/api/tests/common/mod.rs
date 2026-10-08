@@ -17,6 +17,7 @@ use uuid::Uuid;
 pub mod areas;
 pub mod email;
 pub mod photos;
+pub mod push;
 pub mod replica;
 pub mod ws;
 
@@ -96,6 +97,9 @@ impl TestApp {
             trust_proxy_headers: false,
             ws_account_recheck: localdate_api::config::WS_ACCOUNT_RECHECK,
             email: None,
+            ws_ping_every: localdate_api::config::WS_PING_EVERY,
+            ws_idle_timeout: localdate_api::config::WS_IDLE_TIMEOUT,
+            vapid: None,
         };
         tweak(&mut config);
         let outbox = std::sync::Arc::new(localdate_api::mail::MemoryMailer::default());
@@ -214,10 +218,6 @@ impl TestApp {
         self.upload_photo(t, 8, 8).await;
     }
 
-    pub fn photo_path(&self, file_name: &str) -> std::path::PathBuf {
-        self.state.config.photo_dir.join(file_name)
-    }
-
     /// Two currently visible users wave at each other; returns the match id.
     pub async fn match_up(&self, a: &Tokens, b: &Tokens) -> String {
         self.post_as(
@@ -233,6 +233,8 @@ impl TestApp {
                 json!({ "to_user_id": a.user_id }),
             )
             .await;
+        // Both waves push in the background; a test that subscribes next must not catch them.
+        self.state.notify.settled().await;
         res["match_id"].as_str().expect("match id").to_owned()
     }
 

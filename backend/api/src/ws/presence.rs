@@ -91,8 +91,7 @@ pub async fn is_online(db: &DatabaseConnection, user: Uuid) -> Result<bool> {
 }
 
 async fn exec(db: &DatabaseConnection, sql: &str, values: Vec<Value>) -> Result<()> {
-    let stmt = Statement::from_sql_and_values(DbBackend::Postgres, sql, values);
-    db.execute(stmt)
+    crate::sql::exec(db, sql, values)
         .await
         .with_context(|| format!("ws presence: {sql}"))?;
     Ok(())

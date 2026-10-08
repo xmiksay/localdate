@@ -8,10 +8,12 @@ pub mod error;
 pub mod interests;
 pub mod mail;
 pub mod me;
+pub mod push;
 pub mod rate_limit;
 pub mod retry;
 pub mod safety;
 pub mod social;
+pub mod sql;
 pub mod state;
 pub mod web;
 pub mod ws;
@@ -43,6 +45,7 @@ pub fn app_with_frontend<F: RustEmbed + 'static>(state: AppState) -> Router {
         .merge(areas::router())
         .merge(discovery::router())
         .merge(social::router())
+        .merge(push::router())
         .merge(ws::router())
         // Without its own fallback the nested router would inherit the SPA one below.
         .fallback(|| async { error::AppError::NotFound });

@@ -26,9 +26,37 @@ pub struct Config {
     pub ws_account_recheck: Duration,
     /// Magic-link email; `None` disables every email feature (`503 email_disabled`).
     pub email: Option<EmailConfig>,
+    /// How often the server pings each WebSocket, and how long a socket may stay silent (no pong,
+    /// no frame at all) before it is closed. A half-open socket would otherwise keep its user
+    /// "online" and so suppress Web Push. Fixed in `from_env`; tests shorten them.
+    pub ws_ping_every: Duration,
+    pub ws_idle_timeout: Duration,
+    /// Web Push identity; `None` (no VAPID keys set) turns push off.
+    pub vapid: Option<VapidConfig>,
+}
+
+/// Raw `VAPID_*` values; `push::vapid::Vapid::from_config` checks that they fit together.
+#[derive(Clone)]
+pub struct VapidConfig {
+    pub public_key: String,
+    pub private_key: String,
+    pub subject: String,
+}
+
+/// `Config` is `Debug`; the private key must never reach a log line through it.
+impl std::fmt::Debug for VapidConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("VapidConfig")
+            .field("public_key", &self.public_key)
+            .field("private_key", &"<redacted>")
+            .field("subject", &self.subject)
+            .finish()
+    }
 }
 
 pub const WS_ACCOUNT_RECHECK: Duration = Duration::from_secs(60);
+pub const WS_PING_EVERY: Duration = Duration::from_secs(25);
+pub const WS_IDLE_TIMEOUT: Duration = Duration::from_secs(60);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EmailConfig {
@@ -86,6 +114,13 @@ impl Config {
                 non_empty(std::env::var("APP_BASE_URL").ok()),
                 cfg!(debug_assertions),
             )?,
+            ws_ping_every: WS_PING_EVERY,
+            ws_idle_timeout: WS_IDLE_TIMEOUT,
+            vapid: vapid(
+                std::env::var("VAPID_PUBLIC_KEY").ok(),
+                std::env::var("VAPID_PRIVATE_KEY").ok(),
+                std::env::var("VAPID_SUBJECT").ok(),
+            )?,
         })
     }
 }
@@ -138,6 +173,24 @@ fn email_config(
         from,
         transport,
     }))
+}
+
+/// Both keys or neither (empty counts as unset, as an optional k8s Secret key leaves it); with keys
+/// the subject is required.
+fn vapid(
+    public_key: Option<String>,
+    private_key: Option<String>,
+    subject: Option<String>,
+) -> Result<Option<VapidConfig>> {
+    match (non_empty(public_key), non_empty(private_key)) {
+        (None, None) => Ok(None),
+        (Some(public_key), Some(private_key)) => Ok(Some(VapidConfig {
+            public_key,
+            private_key,
+            subject: non_empty(subject).context("VAPID_SUBJECT is required with VAPID keys")?,
+        })),
+        _ => bail!("set both VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY, or neither"),
+    }
 }
 
 /// Unset means false; anything but a recognised boolean is an error rather than a silent false.
@@ -226,5 +279,33 @@ mod tests {
         for bad in ["", "yes", "on", "2"] {
             assert!(flag(Some(bad.into())).is_err(), "{bad}");
         }
+    }
+
+    #[test]
+    fn vapid_needs_both_keys_and_a_subject() {
+        let some = |s: &str| Some(s.to_owned());
+        assert!(vapid(None, None, None).expect("off").is_none());
+        assert!(
+            vapid(some(""), some(" "), some("mailto:x@y"))
+                .expect("off")
+                .is_none()
+        );
+        let on = vapid(some("pub"), some("priv"), some("mailto:x@y")).expect("on");
+        assert_eq!(on.map(|v| v.subject), some("mailto:x@y"));
+        assert!(vapid(some("pub"), None, some("mailto:x@y")).is_err());
+        assert!(vapid(None, some("priv"), None).is_err());
+        assert!(vapid(some("pub"), some("priv"), None).is_err());
+    }
+
+    #[test]
+    fn vapid_debug_never_shows_the_private_key() {
+        let config = VapidConfig {
+            public_key: "public-part".into(),
+            private_key: "very-secret-part".into(),
+            subject: "mailto:x@y".into(),
+        };
+        let shown = format!("{config:?}");
+        assert!(shown.contains("public-part") && shown.contains("<redacted>"));
+        assert!(!shown.contains("very-secret-part"));
     }
 }

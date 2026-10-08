@@ -6,6 +6,7 @@ import { tokenStorage } from '@/api/tokens'
 import type { Credentials, Tokens, User } from '@/api/types'
 import { mailLang } from '@/i18n'
 import { normalizeEmail, normalizeUsername } from '@/utils/validation'
+import { usePushStore } from './push'
 
 export const useAuthStore = defineStore('auth', () => {
   const accessToken = ref<string | null>(tokenStorage.access())
@@ -75,6 +76,8 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   async function logout() {
+    // While the tokens still work: afterwards the server could not be told to forget this device.
+    await usePushStore().forgetDevice()
     const refresh = tokenStorage.refresh()
     clear()
     if (refresh) await authApi.logout(refresh).catch(() => undefined)

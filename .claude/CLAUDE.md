@@ -30,7 +30,10 @@ waves, and chats after a mutual wave.
   reused by waves, + shared-interest ranking), `areas/` (`GET /areas` containment, admin CRUD `/admin/areas`),
   `social/` (waves, matches, messages), `ws/` (`hub` = per-replica `LocalHub`, `bridge` = cross-replica `Hub` over Postgres LISTEN/NOTIFY (own listener
   connection), `publisher` (bounded ordered NOTIFY queue, Close ops retried),
-  `envelope` wire format + `presence` (`Hub::is_online`, `ws_presence`/`ws_replica`), session (re-reads the account every 60 s); `Hub::disconnect` on ban), `cleanup.rs` (retention
+  `envelope` wire format + `presence` (`Hub::is_online`, `ws_presence`/`ws_replica`), session (re-reads the account every 60 s); `Hub::disconnect` on ban), `push/` (Web Push: `Notifier::send` =
+  the **only** wave/match/message emit point — WS, then a background push to offline recipients; `PushSender`
+  trait (tests: `tests/common/push.rs` recorder), endpoint allowlist, VAPID, HMAC topics, subscription/prefs
+  routes), `sql.rs` (`exec` for raw statements), `cleanup.rs` (retention
   job spawned from `main`; tests call `run_once(db, shift)`), `web.rs` (router fallback serving the `rust-embed`ded
   `frontend/dist`: files, SPA `index.html` fallback, cache headers/ETag, traversal guard; `/api` has its
   own JSON 404 fallback so it never gets the shell; `build.rs` rebuilds on dist changes and refuses a
@@ -50,9 +53,14 @@ waves, and chats after a mutual wave.
   `email_signup`. `tests/visibility_agreement.rs` = SQL ↔ rule cross-check.
 - `frontend/src/`: `api/` (typed client with single-flight refresh, `ws.ts`, per-domain modules, `types.ts` mirrors
   docs/api.md; any `403 banned` or WS close `4403` → `onBanned` → logout + suspended notice on `/login`),
-  `stores/` (auth incl. providers + email login, me, window, nearby, matches, safety, admin, areas, identities),
+  `stores/` (auth incl. providers + email login, me, window, nearby, matches, safety, admin, areas, identities, push),
   `views/EmailAuthView.vue` (`/auth/email`: verify → login or username sign-up), `EmailLinkView.vue`
-  (`/auth/email/link`, confirm linking), `LinkedAccountsSection.vue` (Settings), `utils/redirect.ts` (`?redirect=` guard), `views/AdminView.vue` (`/admin`, admins only:
+  (`/auth/email/link`, confirm linking), `LinkedAccountsSection.vue` (Settings), `utils/redirect.ts` (`?redirect=` guard),
+  `sw/` (custom service worker:
+  `sw.ts` precache + push handlers, own `tsconfig.sw.json`; `push.ts` = the handlers as pure, tested functions),
+  `utils/webPush.ts` (support/iOS detection + the only `PushManager`/`Notification` adapter),
+  `utils/visibility.ts` (closes the WS after 30 s hidden), `scripts/icons.sh` (`make icons`: PNG icons from SVG),
+  `NotificationsSection.vue` (Settings opt-in), `composables/usePushSync.ts`, `views/AdminView.vue` (`/admin`, admins only:
   reports + areas tabs), `composables/` (geolocation sharing — `left_area` ends the window and sets the notice
   shown by `WindowEndedNotice` in `AppLayout`; realtime), `i18n/cs.ts` (source of truth; `en.ts` typed against it;
   `i18n/plural.ts` = Czech one/few/many rule; `i18n/typed.ts` `useT()` = key-checked `t`, use it instead of
@@ -70,6 +78,7 @@ make build             # npm run build, then cargo build --release (binary embed
 make lint              # check-pins (Dockerfile vs toolchain pins), cargo fmt --check, clippy -D warnings, eslint, vue-tsc
 make test              # test-unit (cargo --lib/--bins + vitest) + test-integration (cargo tests/)
 make migrate
+make vapid-keys        # fresh VAPID pair for Web Push (VAPID_* env; unset = push off)
 make admin-grant ADMIN=<username>   # / admin-revoke — moderator role via `localdate-api admin …`
 make image             # docker build -t localdate:dev .
 make deploy            # kubectl apply -f deploy/k8s.yml (current context!)

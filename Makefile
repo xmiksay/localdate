@@ -10,7 +10,7 @@ endif
 BE := cd backend &&
 FE := cd frontend &&
 
-.PHONY: help install build lint check-pins fmt test test-unit test-integration migrate run-api run-web admin-grant admin-revoke image deploy clean
+.PHONY: help install build lint check-pins fmt test test-unit test-integration migrate run-api run-web admin-grant admin-revoke vapid-keys icons image deploy clean
 
 help: ## List targets
 	@grep -hE '^[a-z-]+:.*##' Makefile | awk -F':.*## ' '{printf "  %-18s %s\n", $$1, $$2}'
@@ -63,6 +63,12 @@ admin-grant: ## Make ADMIN=<username> an admin (DATABASE_URL)
 admin-revoke: ## Take the admin role from ADMIN=<username>
 	@test -n "$(ADMIN)" || { echo "usage: make admin-revoke ADMIN=<username>"; exit 1; }
 	$(BE) cargo run -p localdate-api -- admin revoke $(ADMIN)
+
+vapid-keys: ## Print a fresh VAPID key pair for Web Push (put both in .env / the k8s Secret)
+	$(BE) cargo run -q -p localdate-api -- vapid generate
+
+icons: ## Regenerate the PNG app/notification icons from the SVGs (needs rsvg-convert)
+	frontend/scripts/icons.sh
 
 image: ## Build the container image localdate:dev
 	docker build -t localdate:dev .

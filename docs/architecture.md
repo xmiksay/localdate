@@ -126,6 +126,8 @@ Debug builds (clippy, tests) need no bundle: they read `frontend/dist` from disk
 | `block` | (blocker_id, blocked_id) PK, created_at |
 | `ws_replica` | replica_id uuid PK, seen_at (heartbeat, DB `now()`) |
 | `ws_presence` | (replica_id FK → ws_replica ON DELETE CASCADE, socket_id bigint) PK, user_id FK, connected_at; one row per open WebSocket; index on user_id |
+| `push_subscription` | id uuid PK, user_id FK, endpoint text UNIQUE, p256dh text, auth text (base64url), user_agent text NULL, lang text (`cs`/`en`, CHECK), created_at (= last registration), last_success_at NULL, failure_count int (consecutive rejections, default 0); index on user_id |
+| `push_prefs` | user_id PK/FK, waves bool, matches bool, messages bool (all default true; no row = all true) |
 | `report` | id uuid PK, reporter_id FK NULL (**ON DELETE SET NULL** — evidence outlives the reporter's account), reported_id FK, reason enum(spam,harassment,fake,underage,other), note text NULL, created_at, resolved_at NULL, resolved_by FK NULL (ON DELETE SET NULL), resolution enum(dismissed,banned) NULL (CHECK: set together with resolved_at); partial index on reported_id of open reports |
 
 `reason` enum: `date`, `meet`. All user FKs `ON DELETE CASCADE` except the two `report` ones marked above;
@@ -255,9 +257,66 @@ of API replicas; no config beyond `DATABASE_URL`.
   of vanished sockets (failed delete, aborted session) are dropped, missing rows (failed insert, replica
   purged after a long outage) restored. A crashed replica's rows stop counting after 90 s and the cleanup
   job deletes them. The replica id is random per process, so there is nothing of its own to clear at startup.
+- **Liveness** — presence must not outlive a dead peer, or a sleeping phone would count as online and
+  get no push. The server pings every socket every 25 s and closes one that has sent nothing (not even a
+  pong) for 60 s (`Config::ws_ping_every` / `ws_idle_timeout`), which removes its presence row. The client
+  closes its socket after the page has been hidden for 30 s (`utils/visibility.ts`) and reconnects when
+  it becomes visible; `ready` then refetches what it missed.
 - **Graceful shutdown** (`Hub::shutdown`, run when SIGTERM/ctrl-c arrives, before axum drains): closes
   local sockets with `1001` (clients reconnect, to another replica if there is one), stops the heartbeat
   and waits for it so it cannot re-register the replica, then deletes the replica row (presence cascades).
+
+## Push notifications
+
+Web Push (RFC 8030 + aes128gcm RFC 8291 + VAPID RFC 8292), optional: on only when `VAPID_PUBLIC_KEY`
+and `VAPID_PRIVATE_KEY` are set (both or neither; a public key that does not match the private one
+is a startup error). Crypto is `web-push-native` (pure RustCrypto, no OpenSSL), which only builds the
+request. `reqwest` (rustls + ring, the stack sqlx already uses) sends it with redirects off, https only
+and a 10 s timeout. `localdate-api vapid generate` / `make vapid-keys` prints a fresh pair.
+
+- **One emit point** — `push::Notifier::send(actor, user, event)` (`AppState::notify`) replaces direct
+  `Hub::send` for wave / match / message. It delivers over the WebSocket hub as before, then — unless
+  `user == actor` — spawns a background task and returns, so the request path never waits on push.
+  The task runs the cheapest checks first: a message whose coalescing slot is still taken (below) stops
+  before any query, then a user without subscriptions stops after one. After that it skips missing or
+  banned accounts, a preference turned off (`push_prefs`), and a recipient with an open socket on any
+  replica (`Hub::is_online`, the `ws_presence` rows). Otherwise it sends to every subscription of the
+  user, at most 16 sends in flight per replica (semaphore).
+  Blocks and bans need no extra check here: the events are never emitted across them (visibility SQL,
+  `participant_match`).
+- **Coalescing** — at most one message push per (recipient, match) per 60 s, in memory per replica,
+  so with several replicas a burst can push once per replica. Collapse on the device: notification
+  `tag` per kind / match. Collapse at the push service: the RFC 8030 `Topic` header (`wave`, or for
+  messages an HMAC-SHA256 of the match id, base64url cut to 32 chars, keyed by a key derived from the
+  VAPID private key — the push service sees the header, so it must not carry the raw id). The service
+  keeps only the newest undelivered push per topic.
+- **Payload** — generic text in the subscription's `lang` (no names, no message bodies), the in-app
+  route and the tag (docs/api.md "Push notifications"). TTL 1 h for waves and matches, 24 h for
+  messages. The VAPID token is signed separately with a 12 h expiry, because push services reject
+  tokens valid for more than 24 h. Its `aud` is the endpoint's origin with a lowercased host (services
+  compare it literally), while the stored endpoint stays exactly as the browser sent it.
+- **Outcomes** — 2xx sets `last_success_at` and resets `failure_count`. 404/410 deletes the
+  subscription. Any other 4xx except 429 (and a stored subscription that cannot be encrypted for)
+  increments `failure_count`, and 3 in a row delete it. 429, 5xx and network errors only get logged,
+  with the endpoint host only (the full endpoint URL is a bearer capability).
+- **SSRF** — the server POSTs to client-supplied URLs, so subscribing accepts only https endpoints on the
+  default port on an allowlist of push-service hosts (`push::endpoint`). Redirects are not followed.
+- **Subscriptions** — upserted by endpoint (a browser re-registered by another account moves to it),
+  at most 10 per user (oldest registration dropped). An explicit logout first `DELETE`s the device's
+  subscription with the still-valid token, then unsubscribes in the browser, then clears the tokens.
+  A session lost any other way (failed refresh, ban) keeps the browser subscription, so push does not
+  silently stop when a token expires. The next login's resync re-posts it, which moves it to whoever
+  logged in.
+- **Client** — custom service worker (`frontend/src/sw/sw.ts`, vite-plugin-pwa `injectManifest`):
+  Workbox precache + SPA navigation fallback (deny `/api`, `/media`) as before, plus `push` →
+  `showNotification` and `notificationclick` → focus an open tab of the same origin and route it
+  (`postMessage`), or open a window. Routes are resolved against the origin and must stay on it
+  (backslashes and control characters refused). Notifications use `icon-192.png` and the monochrome
+  `badge-96.png`, PNGs generated from SVG by `make icons`. Settings has the opt-in (permission is
+  requested on the click itself), per-kind toggles and opt-out. iOS gets Web Push only as a home-screen
+  app, so Safari tabs see an install hint instead. `usePushSync` re-posts an existing subscription on
+  app start and on language change. Endpoints can rotate, and the server keeps the device language.
+  It never subscribes on its own.
 
 ## Configuration (env)
 
@@ -273,6 +332,8 @@ of API replicas; no config beyond `DATABASE_URL`.
 | `SMTP_URL` | `smtps://user:pass@smtp.example.com:465` | optional, secret; lettre URL, enables email |
 | `EMAIL_FROM` | `localdate <noreply@localdate.mmik.cz>` | required with `SMTP_URL` |
 | `EMAIL_DEV_LOG` | `true` | optional, debug builds only (release refuses to start): log mails incl. links instead of sending; exclusive with `SMTP_URL` |
+| `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` | from `make vapid-keys` | optional (Secret); both or neither; unset = Web Push off |
+| `VAPID_SUBJECT` | `https://localdate.mmik.cz` | `mailto:` or `https://` contact; required when the keys are set |
 | `RUST_LOG` | `info,sqlx=warn,localdate_api=debug` | sqlx logs every query at info |
 
 Frontend dev server (Vite, :5173) proxies `/api` and `/media` (incl. WS) to `BIND_ADDR`.
@@ -285,7 +346,8 @@ Frontend dev server (Vite, :5173) proxies `/api` and `/media` (incl. WS) to `BIN
 
 - embedded file → served with its MIME type and an ETag (`If-None-Match` → 304);
   `assets/*` (Vite content-hashed) get `Cache-Control: public, max-age=31536000, immutable`,
-  everything else (`index.html`, `sw.js`, `workbox-*.js`, `registerSW.js`, manifest, icons) `no-cache`;
+  everything else (`index.html`, `sw.js` — the custom service worker with Workbox bundled in —,
+  `registerSW.js`, manifest, icons) `no-cache`;
 - no such file, last path segment has an extension → 404;
 - otherwise (client-side route such as `/nearby`) → `index.html`, `no-cache`.
 
