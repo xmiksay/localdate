@@ -72,3 +72,30 @@ export function invalidAreaFields(a: {
   }
   return bad
 }
+
+export const EMAIL_MAX = 254
+
+export const normalizeEmail = (s: string) => s.trim().toLowerCase()
+
+const EMAIL_LOCAL_RE = /^[a-z0-9._+-]{1,64}$/
+const EMAIL_LABEL_RE = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/
+
+/**
+ * The server's rule (docs/api.md, "Email address"), kept identical: the address is mailed to as is,
+ * so display names, quotes, commas or extra recipients must never get through.
+ */
+export function isValidEmail(raw: string): boolean {
+  const s = normalizeEmail(raw)
+  if (s.length > EMAIL_MAX) return false
+  const parts = s.split('@')
+  if (parts.length !== 2) return false
+  const [local, domain] = parts
+  if (!EMAIL_LOCAL_RE.test(local)) return false
+  if (local.startsWith('.') || local.endsWith('.') || local.includes('..')) return false
+  const labels = domain.split('.')
+  return (
+    labels.length >= 2 &&
+    labels.every((l) => EMAIL_LABEL_RE.test(l)) &&
+    /[a-z]/.test(labels[labels.length - 1])
+  )
+}

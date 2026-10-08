@@ -15,6 +15,8 @@ use tower::ServiceExt;
 use uuid::Uuid;
 
 pub mod areas;
+pub mod email;
+pub mod photos;
 pub mod replica;
 pub mod ws;
 
@@ -24,6 +26,8 @@ pub struct TestApp {
     pub router: Router,
     pub state: AppState,
     pub db: DatabaseConnection,
+    /// Every email the app sent; only wired in by `with_email` (otherwise email is disabled).
+    pub outbox: std::sync::Arc<localdate_api::mail::MemoryMailer>,
     admin_url: String,
     db_name: String,
     _photo_dir: tempfile::TempDir,
@@ -37,21 +41,21 @@ pub struct Tokens {
 
 impl TestApp {
     pub async fn new() -> Self {
-        Self::try_new(localdate_api::app, |_| {})
+        Self::try_new(localdate_api::app, |_| {}, false)
             .await
             .expect("test app setup")
     }
 
     /// Like `new`, but serving the embedded fixture bundle `F` instead of `frontend/dist`.
     pub async fn with_frontend<F: rust_embed::RustEmbed + 'static>() -> Self {
-        Self::try_new(localdate_api::app_with_frontend::<F>, |_| {})
+        Self::try_new(localdate_api::app_with_frontend::<F>, |_| {}, false)
             .await
             .expect("test app setup")
     }
 
     /// Like `new`, with the test `Config` adjusted by `tweak` (e.g. to enable the rate limiter).
     pub async fn with_config(tweak: impl FnOnce(&mut Config)) -> Self {
-        Self::try_new(localdate_api::app, tweak)
+        Self::try_new(localdate_api::app, tweak, false)
             .await
             .expect("test app setup")
     }
@@ -59,6 +63,7 @@ impl TestApp {
     async fn try_new(
         build: fn(AppState) -> Router,
         tweak: impl FnOnce(&mut Config),
+        email: bool,
     ) -> Result<Self> {
         // Walks up from the crate dir to the workspace-root .env; real env vars win.
         dotenvy::dotenv().ok();
@@ -90,14 +95,21 @@ impl TestApp {
             cleanup_interval: std::time::Duration::from_secs(300),
             trust_proxy_headers: false,
             ws_account_recheck: localdate_api::config::WS_ACCOUNT_RECHECK,
+            email: None,
         };
         tweak(&mut config);
-        let state = AppState::new(db.clone(), config).await?;
+        let outbox = std::sync::Arc::new(localdate_api::mail::MemoryMailer::default());
+        let service =
+            localdate_api::auth::email::EmailService::new(outbox.clone(), email::BASE_URL.into());
+        let state = AppState::new(db.clone(), config)
+            .await?
+            .with_email(email.then_some(service));
         let router = build(state.clone());
         Ok(Self {
             router,
             state,
             db,
+            outbox,
             admin_url,
             db_name,
             _photo_dir: photo_dir,
@@ -170,54 +182,6 @@ impl TestApp {
     pub async fn post_as(&self, path: &str, token: &str, body: Value) -> (StatusCode, Value) {
         self.request(Method::POST, path, Some(token), Some(body))
             .await
-    }
-
-    /// POSTs `bytes` as multipart field `field` (filename `upload.bin`).
-    pub async fn post_multipart(
-        &self,
-        path: &str,
-        token: &str,
-        field: &str,
-        bytes: &[u8],
-    ) -> (StatusCode, Value) {
-        let boundary = "localdate-test-boundary";
-        let mut body = format!(
-            "--{boundary}\r\nContent-Disposition: form-data; name=\"{field}\"; filename=\"upload.bin\"\r\nContent-Type: application/octet-stream\r\n\r\n"
-        )
-        .into_bytes();
-        body.extend_from_slice(bytes);
-        body.extend_from_slice(format!("\r\n--{boundary}--\r\n").as_bytes());
-        let req = Request::builder()
-            .method(Method::POST)
-            .uri(path)
-            .header(header::AUTHORIZATION, format!("Bearer {token}"))
-            .header(
-                header::CONTENT_TYPE,
-                format!("multipart/form-data; boundary={boundary}"),
-            )
-            .body(Body::from(body))
-            .expect("build request");
-        let resp = self.router.clone().oneshot(req).await.expect("infallible");
-        let status = resp.status();
-        let bytes = resp.into_body().collect().await.expect("body").to_bytes();
-        (
-            status,
-            serde_json::from_slice(&bytes).unwrap_or(Value::Null),
-        )
-    }
-
-    /// Uploads a generated PNG; returns the created photo.
-    pub async fn upload_photo(&self, t: &Tokens, width: u32, height: u32) -> Value {
-        let (status, body) = self
-            .post_multipart(
-                "/api/me/photos",
-                &t.access_token,
-                "file",
-                &png_bytes(width, height),
-            )
-            .await;
-        assert_eq!(status, StatusCode::CREATED, "photo upload failed: {body}");
-        body
     }
 
     /// Gives the user a profile, the default filter and one photo, i.e. makes them visible-capable.
@@ -338,14 +302,6 @@ pub async fn count(app: &TestApp, query: &str) -> i64 {
         .expect("count query")
         .expect("one row");
     row.try_get_by_index(0).expect("count column")
-}
-
-pub fn png_bytes(width: u32, height: u32) -> Vec<u8> {
-    let mut buf = std::io::Cursor::new(Vec::new());
-    image::RgbImage::new(width, height)
-        .write_to(&mut buf, image::ImageFormat::Png)
-        .expect("encode png");
-    buf.into_inner()
 }
 
 pub fn tokens_from(body: &Value) -> Tokens {

@@ -3,8 +3,9 @@ use std::net::{IpAddr, Ipv6Addr, SocketAddr};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use axum::extract::{ConnectInfo, Extension, Request};
+use axum::extract::{ConnectInfo, Extension, FromRequestParts, Request};
 use axum::http::HeaderMap;
+use axum::http::request::Parts;
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 
@@ -71,7 +72,7 @@ impl RateLimiter {
     }
 }
 
-fn bucket_key(ip: IpAddr) -> IpAddr {
+pub(crate) fn bucket_key(ip: IpAddr) -> IpAddr {
     match ip.to_canonical() {
         IpAddr::V6(v6) => IpAddr::V6(Ipv6Addr::from(
             u128::from(v6) & 0xffff_ffff_ffff_ffff_0000_0000_0000_0000,
@@ -95,6 +96,26 @@ fn client_ip(
         .flatten()
         .and_then(|v| v.split(',').next()?.trim().parse().ok());
     forwarded.or(peer)
+}
+
+/// The caller's rate-limit address ([`client_ip`], then [`bucket_key`]); `None` without a socket
+/// (only in `oneshot` tests).
+pub struct ClientIp(pub Option<IpAddr>);
+
+impl FromRequestParts<crate::state::AppState> for ClientIp {
+    type Rejection = std::convert::Infallible;
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &crate::state::AppState,
+    ) -> Result<Self, Self::Rejection> {
+        let peer = parts
+            .extensions
+            .get::<ConnectInfo<SocketAddr>>()
+            .map(|ConnectInfo(addr)| addr.ip());
+        let ip = client_ip(&parts.headers, peer, state.limiter.trust_proxy_headers);
+        Ok(Self(ip.map(bucket_key)))
+    }
 }
 
 /// Route middleware; the limiter arrives as an `Extension` layered in `app()`.

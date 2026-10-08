@@ -6,6 +6,7 @@ pub mod config;
 pub mod discovery;
 pub mod error;
 pub mod interests;
+pub mod mail;
 pub mod me;
 pub mod rate_limit;
 pub mod retry;

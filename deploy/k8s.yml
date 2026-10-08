@@ -19,6 +19,9 @@ data:
   # ingress-nginx overwrites X-Forwarded-For with the real client IP (default config), so the
   # login/register rate limiter keys on it instead of on the ingress pod's address.
   TRUST_PROXY_HEADERS: "true"
+  # Email magic link: only active once the Secret has SMTP_URL; links point at APP_BASE_URL.
+  APP_BASE_URL: https://localdate.mmik.cz
+  EMAIL_FROM: localdate <noreply@localdate.mmik.cz>
 ---
 # ---------------------------------------------------------------- Postgres
 apiVersion: v1
@@ -188,6 +191,13 @@ spec:
                 secretKeyRef:
                   name: localdate
                   key: JWT_SECRET
+            # Optional: without it the API runs with email disabled (503 email_disabled).
+            - name: SMTP_URL
+              valueFrom:
+                secretKeyRef:
+                  name: localdate
+                  key: SMTP_URL
+                  optional: true
             - name: POSTGRES_PASSWORD
               valueFrom:
                 secretKeyRef:

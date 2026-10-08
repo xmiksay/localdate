@@ -18,6 +18,7 @@ export const AREA_KINDS: AreaKind[] = ['city_centre', 'train_station', 'venue', 
 
 export type ErrorCode =
   | 'validation'
+  | 'invalid_token'
   | 'unauthorized'
   | 'invalid_credentials'
   | 'invalid_refresh_token'
@@ -25,6 +26,7 @@ export type ErrorCode =
   | 'banned'
   | 'not_found'
   | 'username_taken'
+  | 'last_login_method'
   | 'no_active_window'
   | 'outside_area'
   | 'left_area'
@@ -39,6 +41,7 @@ export type ErrorCode =
   | 'unsupported_image'
   | 'rate_limited'
   | 'wave_limit'
+  | 'email_disabled'
   | 'internal'
 
 /** Client-side only codes, never sent by the server. */
@@ -46,6 +49,7 @@ export type ClientErrorCode = 'network' | 'unknown'
 
 export const ERROR_CODES: (ErrorCode | ClientErrorCode)[] = [
   'validation',
+  'invalid_token',
   'unauthorized',
   'invalid_credentials',
   'invalid_refresh_token',
@@ -53,6 +57,7 @@ export const ERROR_CODES: (ErrorCode | ClientErrorCode)[] = [
   'banned',
   'not_found',
   'username_taken',
+  'last_login_method',
   'no_active_window',
   'outside_area',
   'left_area',
@@ -67,6 +72,7 @@ export const ERROR_CODES: (ErrorCode | ClientErrorCode)[] = [
   'unsupported_image',
   'rate_limited',
   'wave_limit',
+  'email_disabled',
   'internal',
   'network',
   'unknown',
@@ -178,6 +184,33 @@ export interface Tokens {
   access_token: string
   refresh_token: string
   user: User
+}
+export type IdentityProvider = 'email'
+/** Language of a sent email; the server falls back to 'cs'. */
+export type MailLang = 'cs' | 'en'
+export interface Identity {
+  id: string
+  provider: IdentityProvider
+  /** email: the caller's own normalized address. */
+  subject: string
+  verified_at: string
+  created_at: string
+}
+export interface IdentitiesResponse {
+  has_password: boolean
+  identities: Identity[]
+}
+/** Login methods the server offers (`GET /auth/providers`). */
+export interface Providers {
+  email: boolean
+}
+export type EmailTokenPurpose = 'login' | 'signup' | 'link'
+/** What a mailed link would do (`POST /auth/email/preview`); never consumes the token. */
+export interface EmailPreview {
+  purpose: EmailTokenPurpose
+  /** login: the account it logs into · link: the account that asked · signup: null */
+  username: string | null
+  email: string
 }
 export interface MeResponse {
   user: User

@@ -1,4 +1,4 @@
-import { createRouter, createWebHistory } from 'vue-router'
+import { createRouter, createWebHistory, type RouteLocationNormalized } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useMeStore } from '@/stores/me'
 
@@ -27,6 +27,18 @@ const router = createRouter({
       component: () => import('@/views/AuthView.vue'),
       props: { mode: 'register' },
       meta: { guestOnly: true },
+    },
+    {
+      // Not guestOnly: the view itself decides what an already logged-in visitor sees.
+      path: '/auth/email',
+      name: 'email-auth',
+      component: () => import('@/views/EmailAuthView.vue'),
+    },
+    {
+      // Not requiresAuth: the guard's redirect would put the token into a query string.
+      path: '/auth/email/link',
+      name: 'email-link',
+      component: () => import('@/views/EmailLinkView.vue'),
     },
     {
       path: '/onboarding',
@@ -72,19 +84,23 @@ const router = createRouter({
   ],
 })
 
+/** Unauthenticated access: protected routes go to login and come back afterwards. */
+const guestAccess = (to: RouteLocationNormalized) =>
+  to.meta.requiresAuth ? { name: 'login', query: { redirect: to.fullPath } } : true
+
 router.beforeEach(async (to) => {
   const auth = useAuthStore()
   const me = useMeStore()
 
-  if (!auth.isAuthed) {
-    return to.meta.requiresAuth ? { name: 'login' } : true
-  }
+  if (!auth.isAuthed) return guestAccess(to)
 
   if (!me.loaded) {
     try {
       await me.load()
     } catch {
-      // Auth loss clears the token; a network failure keeps it and lands on login.
+      // Auth loss clears the token: treat the visit as a guest's (a magic link must still open).
+      if (!auth.isAuthed) return guestAccess(to)
+      // A network failure keeps the token and lands on login.
       return to.meta.guestOnly ? true : { name: 'login' }
     }
   }

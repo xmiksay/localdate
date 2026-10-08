@@ -4,9 +4,11 @@ import {
   checkPhotoFile,
   invalidAreaFields,
   isAdult,
+  isValidEmail,
   isValidPassword,
   isValidUsername,
   moveItem,
+  normalizeEmail,
   normalizeUsername,
 } from './validation'
 
@@ -39,6 +41,57 @@ describe('credentials', () => {
     expect(isValidPassword('123456789')).toBe(false)
     expect(isValidPassword('1234567890')).toBe(true)
     expect(isValidPassword('x'.repeat(129))).toBe(false)
+  })
+})
+
+describe('email', () => {
+  it('trims and lowercases', () => {
+    expect(normalizeEmail('  Eva@Example.CZ ')).toBe('eva@example.cz')
+  })
+  it('accepts plain addresses', () => {
+    for (const ok of [' Eva@Example.cz ', 'a.b+tag@mail.example.com', 'x_-1@a-b.c0.cz']) {
+      expect(isValidEmail(ok)).toBe(true)
+    }
+  })
+  it('rejects display names, quotes, lists and extra recipients', () => {
+    for (const bad of ['n<victim@b.cz>', '"a"@b.cz', 'a,b@c.cz', 'a@b.cz,c@d.cz', 'x <a@b.cz>']) {
+      expect(isValidEmail(bad)).toBe(false)
+    }
+  })
+  it('rejects bad dots, hyphens, @ counts and single-label domains', () => {
+    for (const bad of [
+      '',
+      'eva',
+      '@b.cz',
+      'a@b@c.cz',
+      'eva@localhost',
+      'a@-b.cz',
+      'a@b-.cz',
+      'a@b..cz',
+      'a@b.cz.',
+      '.a@b.cz',
+      'a.@b.cz',
+      'a..b@c.cz',
+      'e va@b.cz',
+      'a%b@c.cz',
+      'a@1.2.3.4',
+      'a@b.123',
+    ]) {
+      expect(isValidEmail(bad)).toBe(false)
+    }
+  })
+  it('caps the local part at 64 and labels at 63 characters', () => {
+    expect(isValidEmail(`${'x'.repeat(64)}@b.cz`)).toBe(true)
+    expect(isValidEmail(`${'x'.repeat(65)}@b.cz`)).toBe(false)
+    expect(isValidEmail(`a@${'b'.repeat(63)}.cz`)).toBe(true)
+    expect(isValidEmail(`a@${'b'.repeat(64)}.cz`)).toBe(false)
+  })
+  it('caps the whole address at 254 characters', () => {
+    const label = 'd'.repeat(63)
+    const at254 = `${'x'.repeat(64)}@${label}.${label}.${'d'.repeat(61)}`
+    expect(at254).toHaveLength(254)
+    expect(isValidEmail(at254)).toBe(true)
+    expect(isValidEmail(`${at254.slice(0, -2)}dd.cz`)).toBe(false)
   })
 })
 

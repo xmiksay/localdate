@@ -1,5 +1,7 @@
-//! Username + password auth: argon2id, HS256 access JWT, rotating opaque refresh tokens.
+//! Auth: username + password (argon2id) or an email magic link; HS256 access JWT and rotating
+//! opaque refresh tokens either way.
 
+pub mod email;
 pub mod extractor;
 pub mod jwt;
 pub mod password;
@@ -8,4 +10,5 @@ mod routes;
 pub mod validation;
 
 pub use extractor::{AdminUser, AuthUser};
+pub(crate) use routes::{Tokens, session};
 pub use routes::{UserDto, router};

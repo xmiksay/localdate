@@ -105,4 +105,59 @@ describe('auth store', () => {
     await s.logout()
     expect(s.suspended).toBe(false)
   })
+
+  it('loadProviders reflects the server and treats failure as disabled', async () => {
+    const s = useAuthStore()
+    expect(s.emailEnabled).toBe(false)
+    vi.mocked(authApi.getProviders).mockResolvedValue({ email: true })
+    await s.loadProviders()
+    expect(s.emailEnabled).toBe(true)
+    vi.mocked(authApi.getProviders).mockRejectedValue(new Error('offline'))
+    await s.loadProviders()
+    expect(s.emailEnabled).toBe(false)
+  })
+
+  it('emailStart normalizes the address and sends the UI language', async () => {
+    vi.mocked(authApi.emailStart).mockResolvedValue(undefined)
+    await useAuthStore().emailStart('  Eva@Example.CZ ')
+    expect(authApi.emailStart).toHaveBeenCalledWith({ email: 'eva@example.cz', lang: 'cs' })
+  })
+
+  it('emailPreview passes the token through without touching the session', async () => {
+    const preview = { purpose: 'login' as const, username: 'bob', email: 'bob@example.cz' }
+    vi.mocked(authApi.emailPreview).mockResolvedValue(preview)
+    const s = useAuthStore()
+    await expect(s.emailPreview('tok')).resolves.toEqual(preview)
+    expect(authApi.emailPreview).toHaveBeenCalledWith('tok')
+    expect(s.isAuthed).toBe(false)
+  })
+
+  it('emailVerify stores tokens and clears an old ban notice', async () => {
+    vi.mocked(authApi.emailVerify).mockResolvedValue(tokens)
+    const s = useAuthStore()
+    s.markBanned()
+    await s.emailVerify('tok')
+    expect(s.isAuthed).toBe(true)
+    expect(s.suspended).toBe(false)
+    expect(tokenStorage.refresh()).toBe('r1')
+  })
+
+  it('emailVerify rejected as banned leaves the store suspended', async () => {
+    vi.mocked(authApi.emailVerify).mockImplementation(async () => {
+      signalBanned()
+      throw new ApiError('banned', 403, 'banned')
+    })
+    const s = useAuthStore()
+    await expect(s.emailVerify('tok')).rejects.toMatchObject({ code: 'banned' })
+    expect(s.isAuthed).toBe(false)
+    expect(s.suspended).toBe(true)
+  })
+
+  it('emailSignup normalizes the username and stores tokens', async () => {
+    vi.mocked(authApi.emailSignup).mockResolvedValue(tokens)
+    const s = useAuthStore()
+    await s.emailSignup('tok', ' Bob ')
+    expect(authApi.emailSignup).toHaveBeenCalledWith({ token: 'tok', username: 'bob' })
+    expect(s.isAuthed).toBe(true)
+  })
 })

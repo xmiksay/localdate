@@ -6,6 +6,7 @@ import router from './router'
 import { useAdminStore } from './stores/admin'
 import { useAreasStore } from './stores/areas'
 import { useAuthStore } from './stores/auth'
+import { useIdentitiesStore } from './stores/identities'
 import { useMatchesStore } from './stores/matches'
 import { useMeStore } from './stores/me'
 import { useNearbyStore } from './stores/nearby'
@@ -32,6 +33,7 @@ watch(
     useMatchesStore().reset()
     useAdminStore().reset()
     useAreasStore().reset()
+    useIdentitiesStore().reset()
     if (router.currentRoute.value.meta.requiresAuth) router.replace({ name: 'login' })
   },
 )

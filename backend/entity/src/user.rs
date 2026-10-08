@@ -7,7 +7,8 @@ pub struct Model {
     pub id: Uuid,
     #[sea_orm(unique)]
     pub username: String,
-    pub password_hash: String,
+    /// `None` for accounts created through an identity (email, later OAuth).
+    pub password_hash: Option<String>,
     pub created_at: DateTimeWithTimeZone,
     pub is_admin: bool,
     pub banned_at: Option<DateTimeWithTimeZone>,
@@ -25,6 +26,8 @@ pub enum Relation {
     Filter,
     #[sea_orm(has_many = "super::visibility_window::Entity")]
     VisibilityWindow,
+    #[sea_orm(has_many = "super::user_identity::Entity")]
+    UserIdentity,
 }
 
 impl Related<super::refresh_token::Entity> for Entity {
@@ -50,6 +53,12 @@ impl Related<super::filter::Entity> for Entity {
 impl Related<super::visibility_window::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::VisibilityWindow.def()
+    }
+}
+
+impl Related<super::user_identity::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::UserIdentity.def()
     }
 }
 

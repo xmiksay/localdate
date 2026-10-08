@@ -1,4 +1,5 @@
 import { createI18n } from 'vue-i18n'
+import type { MailLang } from '@/api/types'
 import cs from './cs'
 import en from './en'
 import { czechPlural } from './plural'
@@ -34,3 +35,6 @@ export function setLocale(l: Locale) {
     /* preference just won't persist */
   }
 }
+
+/** Language for server-sent emails: the one the user is reading the app in. */
+export const mailLang = (): MailLang => (i18n.global.locale.value === 'en' ? 'en' : 'cs')
