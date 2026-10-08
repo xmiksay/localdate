@@ -9,7 +9,7 @@ use sea_orm::{
     ColumnTrait, Condition, ConnectionTrait, DbBackend, EntityTrait, QueryFilter, QueryOrder, Set,
     Statement,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use super::messages::MessageDto;
@@ -19,14 +19,14 @@ use crate::me::media_url;
 use crate::safety::blocked_with;
 use crate::state::AppState;
 
-#[derive(Serialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct OtherDto {
     pub user_id: Uuid,
     pub display_name: String,
     pub photo_url: Option<String>,
 }
 
-#[derive(Serialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct MatchSummaryDto {
     pub match_id: Uuid,
     pub created_at: DateTime<Utc>,

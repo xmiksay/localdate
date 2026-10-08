@@ -241,6 +241,9 @@ Client connects, then sends `{ "type": "auth", "token": "<access_token>" }` with
 Invalid/expired token or timeout → server closes with code `4401` (client refreshes the token before reconnecting).
 A banned account → `4403`, both at auth time and for open sockets when the ban happens (client logs out,
 no reconnect). A server-side failure while checking the account → `1011` (client retries with backoff).
+`1012` → the server may have missed events for this socket (its cross-replica listener reconnected); the
+client waits its backoff plus a random 0–5 s, reconnects and on `ready` refetches the match list and the
+open chat thread. `1001` → the server is shutting down; the client reconnects with its usual backoff.
 Server → client events:
 
 ```ts

@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use anyhow::Result;
 use sea_orm::DatabaseConnection;
 use tokio::sync::Semaphore;
 
@@ -21,14 +22,16 @@ pub struct AppState {
 const IMAGE_DECODE_PERMITS: usize = 2;
 
 impl AppState {
-    pub fn new(db: DatabaseConnection, config: Config) -> Self {
+    /// Also starts this replica's WebSocket bridge (listener, publisher, heartbeat tasks).
+    pub async fn new(db: DatabaseConnection, config: Config) -> Result<Self> {
         let limiter = RateLimiter::new(config.rate_limit, config.trust_proxy_headers);
-        Self {
+        let hub = Hub::start(db.clone(), &config.database_url).await?;
+        Ok(Self {
             db,
             config: Arc::new(config),
             limiter,
-            hub: Arc::new(Hub::default()),
+            hub,
             image_permits: Arc::new(Semaphore::new(IMAGE_DECODE_PERMITS)),
-        }
+        })
     }
 }

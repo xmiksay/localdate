@@ -154,3 +154,24 @@ describe('matches store websocket events', () => {
     expect(s.hasUnread).toBe(false)
   })
 })
+
+describe('matches store resync', () => {
+  it('refetches the list and the open thread without duplicating messages', async () => {
+    vi.mocked(socialApi.getMessages).mockResolvedValueOnce([msg(2), msg(1)])
+    const s = useMatchesStore()
+    await s.loadMessages('m1')
+    s.setActive('m1')
+    vi.mocked(socialApi.getMatches).mockResolvedValue([match('m1')])
+    vi.mocked(socialApi.getMessages).mockResolvedValueOnce([msg(3), msg(2), msg(1)])
+    await s.resync()
+    expect(s.matches.map((m) => m.match_id)).toEqual(['m1'])
+    expect(s.messages.m1.map((m) => m.id)).toEqual(['msg-0001', 'msg-0002', 'msg-0003'])
+  })
+
+  it('only refetches the list when no chat is open', async () => {
+    const s = useMatchesStore()
+    await s.resync()
+    expect(socialApi.getMatches).toHaveBeenCalledOnce()
+    expect(socialApi.getMessages).not.toHaveBeenCalled()
+  })
+})

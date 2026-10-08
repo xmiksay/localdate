@@ -7,6 +7,7 @@ mod m20260101_000004_social;
 mod m20261008_000005_cleanup_retention;
 mod m20261008_000006_moderation;
 mod m20261008_000007_areas;
+mod m20261008_000008_ws_presence;
 
 /// Append-only: never edit a shipped migration, add a new one at the end of the list.
 pub struct Migrator;
@@ -22,6 +23,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20261008_000005_cleanup_retention::Migration),
             Box::new(m20261008_000006_moderation::Migration),
             Box::new(m20261008_000007_areas::Migration),
+            Box::new(m20261008_000008_ws_presence::Migration),
         ]
     }
 }

@@ -13,8 +13,8 @@ export function useRealtime() {
   const client = createWsClient({
     getToken: freshAccessToken,
     onEvent: (ev) => {
-      // After a reconnect we may have missed events; resync the list.
-      if (ev.type === 'ready') void matches.loadMatches().catch(() => undefined)
+      // After a reconnect we may have missed events; resync the list and the open chat.
+      if (ev.type === 'ready') void matches.resync().catch(() => undefined)
       else matches.applyEvent(ev)
     },
     onBanned: signalBanned,

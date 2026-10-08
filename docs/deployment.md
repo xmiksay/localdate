@@ -16,8 +16,9 @@ Production runs on the k8s cluster behind ingress-nginx + cert-manager (`letsenc
 
 The NetworkPolicies only take effect if the cluster's CNI enforces them.
 
-Why one replica: WebSocket push uses an in-process hub, so events for a user connected to another
-replica would be lost; multi-replica needs the fan-out from #22. Why `Recreate`: the photos PVC is
+Why one replica: photos live on the `ReadWriteOnce` PVC, which only one pod can mount; more replicas
+need shared photo storage (S3, #21). WebSocket push is not the blocker any more — replicas fan events
+out to each other through Postgres LISTEN/NOTIFY (architecture.md "Realtime"). Why `Recreate`: the photos PVC is
 `ReadWriteOnce`, so the old pod must release it before the new one starts (a few seconds of downtime
 per rollout). The PVCs use the cluster's default StorageClass; add `storageClassName` if there is none.
 

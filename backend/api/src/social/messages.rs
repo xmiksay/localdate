@@ -23,7 +23,7 @@ const DEFAULT_LIMIT: u64 = 50;
 const MAX_LIMIT: u64 = 100;
 const MAX_BODY_CHARS: usize = 2000;
 
-#[derive(Serialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct MessageDto {
     pub id: Uuid,
     pub match_id: Uuid,
