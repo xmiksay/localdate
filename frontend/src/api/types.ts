@@ -214,6 +214,15 @@ export interface EmailPreview {
   username: string | null
   email: string
 }
+/** Who a password-reset link is for (`POST /auth/password/reset/preview`); never consumes it. */
+export interface ResetPreview {
+  username: string
+}
+/** `PUT /me/password`; `current_password` only when the account already has a password. */
+export interface PasswordChange {
+  current_password?: string
+  new_password: string
+}
 export interface MeResponse {
   user: User
   profile: Profile | null

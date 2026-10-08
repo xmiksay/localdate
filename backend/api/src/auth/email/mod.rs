@@ -6,7 +6,9 @@ mod limit;
 pub mod message;
 pub mod token;
 
+use std::future::Future;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use axum::extract::State;
@@ -23,7 +25,8 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::Semaphore;
 use uuid::Uuid;
 
-pub use limit::EmailLimiter;
+pub(crate) use flow::target;
+pub use limit::{EmailLimiter, ResetLimiter};
 use message::{Kind, Lang};
 
 use crate::error::{AppError, AppJson};
@@ -45,6 +48,17 @@ pub struct EmailService {
     /// PWA origin without trailing slash (`APP_BASE_URL`).
     base_url: String,
     permits: Arc<Semaphore>,
+    /// Work started by [`EmailService::detach`] that has not finished yet.
+    detached: Arc<AtomicUsize>,
+}
+
+/// Decrements the detached counter however the task ends (a panic included).
+struct DetachGuard(Arc<AtomicUsize>);
+
+impl Drop for DetachGuard {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::SeqCst);
+    }
 }
 
 impl EmailService {
@@ -53,6 +67,7 @@ impl EmailService {
             mailer,
             base_url,
             permits: Arc::new(Semaphore::new(MAIL_CONCURRENCY)),
+            detached: Arc::default(),
         }
     }
 
@@ -67,12 +82,7 @@ impl EmailService {
         token: Option<&str>,
         username: Option<&str>,
     ) {
-        let path = if kind == Kind::Link {
-            "/auth/email/link"
-        } else {
-            "/auth/email"
-        };
-        let link = token.map(|t| format!("{}{path}#token={t}", self.base_url));
+        let link = token.map(|t| format!("{}{}#token={t}", self.base_url, kind.path()));
         let email = message::render(kind, lang, to, link.as_deref(), username);
         let permit =
             match tokio::time::timeout(SLOT_WAIT, self.permits.clone().acquire_owned()).await {
@@ -94,9 +104,20 @@ impl EmailService {
         });
     }
 
-    /// No send in flight (tests wait for this before reading the outbox).
+    /// Runs `work` (lookups that end in [`send`](Self::send)) after the response has gone out.
+    pub fn detach(&self, work: impl Future<Output = ()> + Send + 'static) {
+        self.detached.fetch_add(1, Ordering::SeqCst);
+        let guard = DetachGuard(self.detached.clone());
+        tokio::spawn(async move {
+            work.await;
+            drop(guard);
+        });
+    }
+
+    /// No send or detached work in flight (tests wait for this before reading the outbox).
     pub fn idle(&self) -> bool {
-        self.permits.available_permits() == MAIL_CONCURRENCY
+        self.detached.load(Ordering::SeqCst) == 0
+            && self.permits.available_permits() == MAIL_CONCURRENCY
     }
 }
 

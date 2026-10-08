@@ -68,6 +68,35 @@ describe('api client', () => {
     expect(tokenStorage.refresh()).toBe('new-r')
   })
 
+  it('retries without refreshing when the tokens were replaced meanwhile', async () => {
+    fetchMock.mockImplementation(async (_url: string, init: RequestInit) => {
+      const auth = (init.headers as Record<string, string>).Authorization
+      if (auth === 'Bearer old-a') {
+        // A password change answers while this request is in flight.
+        tokenStorage.set('swapped-a', 'swapped-r')
+        return err(401, 'unauthorized')
+      }
+      return json(200, { ok: 1 })
+    })
+    expect(await get('/me')).toEqual({ ok: 1 })
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual(['/api/me', '/api/me'])
+    expect(authLost).not.toHaveBeenCalled()
+  })
+
+  it('a refresh refused after the session was swapped meanwhile still succeeds', async () => {
+    fetchMock.mockImplementation(async (url: string, init: RequestInit) => {
+      if (url === '/api/auth/refresh') {
+        tokenStorage.set('swapped-a', 'swapped-r')
+        return err(401, 'invalid_refresh_token')
+      }
+      const auth = (init.headers as Record<string, string>).Authorization
+      return auth === 'Bearer swapped-a' ? json(200, { ok: 1 }) : err(401, 'unauthorized')
+    })
+    expect(await get('/me')).toEqual({ ok: 1 })
+    expect(authLost).not.toHaveBeenCalled()
+    expect(tokenStorage.refresh()).toBe('swapped-r')
+  })
+
   it('deduplicates concurrent refreshes', async () => {
     fetchMock.mockImplementation(async (url: string, init: RequestInit) => {
       if (url === '/api/auth/refresh') return json(200, tokens)
@@ -103,13 +132,13 @@ describe('api client', () => {
     expect(banned).toHaveBeenCalledOnce()
   })
 
-  it('signals a ban on anonymous requests too (login)', async () => {
-    tokenStorage.clear()
+  it("does not end the stored session for an anonymous ban (e.g. someone else's reset link)", async () => {
     fetchMock.mockResolvedValue(err(403, 'banned'))
     await expect(
-      request('/auth/login', { method: 'POST', body: {}, anon: true }),
-    ).rejects.toMatchObject({ code: 'banned' })
-    expect(banned).toHaveBeenCalledOnce()
+      request('/auth/password/reset', { method: 'POST', body: {}, anon: true }),
+    ).rejects.toMatchObject({ code: 'banned', status: 403 })
+    expect(banned).not.toHaveBeenCalled()
+    expect(tokenStorage.access()).not.toBeNull()
   })
 
   it('does not treat other 403s as a ban', async () => {

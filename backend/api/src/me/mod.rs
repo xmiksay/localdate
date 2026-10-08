@@ -1,8 +1,9 @@
-//! The caller's own account: `/me`, profile, photos, filter and linked identities.
+//! The caller's own account: `/me`, profile, photos, filter, password and linked identities.
 
 mod filter;
 mod identities;
 mod image_proc;
+mod password;
 mod photos;
 mod profile;
 
@@ -32,6 +33,7 @@ pub fn router() -> Router<AppState> {
         )
         .merge(photos::router())
         .merge(identities::router())
+        .merge(password::router())
 }
 
 #[derive(Serialize)]

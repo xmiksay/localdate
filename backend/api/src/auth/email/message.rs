@@ -27,6 +27,18 @@ pub enum Kind {
     Link,
     /// Linking an address that already belongs to an account: no link, just a heads-up.
     AlreadyLinked,
+    PasswordReset,
+}
+
+impl Kind {
+    /// Where the mailed link points in the PWA.
+    pub fn path(self) -> &'static str {
+        match self {
+            Self::Link => "/auth/email/link",
+            Self::PasswordReset => "/auth/password/reset",
+            Self::Login | Self::Signup | Self::AlreadyLinked => "/auth/email",
+        }
+    }
 }
 
 struct Texts {
@@ -76,6 +88,16 @@ fn texts(kind: Kind, lang: Lang) -> Texts {
             "Someone tried to link this address to a localdate account, but it already belongs to one. \
              You can log in with it via “Log in with email”.",
             "",
+        ),
+        (PasswordReset, Cs) => (
+            "Obnovení hesla do localdate",
+            "Někdo požádal o nové heslo k tvému účtu. Nastavíš si ho tímto odkazem:",
+            "Nastavit nové heslo",
+        ),
+        (PasswordReset, En) => (
+            "Reset your localdate password",
+            "Someone asked for a new password for your account. Set one with this link:",
+            "Set a new password",
         ),
     };
     let outro = match lang {
@@ -184,12 +206,15 @@ mod tests {
 
     #[test]
     fn every_kind_and_lang_has_text() {
-        for kind in [Kind::Login, Kind::Signup, Kind::Link] {
+        for kind in [Kind::Login, Kind::Signup, Kind::Link, Kind::PasswordReset] {
             for lang in [Lang::Cs, Lang::En] {
                 let e = render(kind, lang, to(), Some("https://a.cz/x"), None);
                 assert!(!e.subject.is_empty() && e.text.contains("https://a.cz/x"));
             }
         }
+        assert_eq!(Kind::PasswordReset.path(), "/auth/password/reset");
+        assert_eq!(Kind::Link.path(), "/auth/email/link");
+        assert_eq!(Kind::Signup.path(), "/auth/email");
         let notice = render(Kind::AlreadyLinked, Lang::Cs, to(), None, None);
         assert!(!notice.text.contains("http"));
     }

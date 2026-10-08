@@ -1,5 +1,14 @@
 import { del, get, put, request } from './client'
-import type { Filter, Interest, MeResponse, Photo, Profile, ProfileInput } from './types'
+import type {
+  Filter,
+  Interest,
+  MeResponse,
+  PasswordChange,
+  Photo,
+  Profile,
+  ProfileInput,
+  Tokens,
+} from './types'
 
 export const getMe = () => get<MeResponse>('/me')
 export const deleteMe = () => del('/me')
@@ -17,3 +26,5 @@ export const putPhotoOrder = (photo_ids: string[]) =>
 
 export const getFilter = () => get<Filter>('/me/filter')
 export const putFilter = (f: Filter) => put<Filter>('/me/filter', f)
+
+export const putPassword = (body: PasswordChange) => put<Tokens>('/me/password', body)

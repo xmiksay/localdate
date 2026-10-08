@@ -23,6 +23,9 @@ describe('pendingToken', () => {
     pendingToken.clear('link')
     expect(pendingToken.get('link')).toBeNull()
     expect(pendingToken.get('signup')).toBe('s1')
+    pendingToken.set('reset', 'r1')
+    expect(pendingToken.get('reset')).toBe('r1')
+    expect(pendingToken.get('signup')).toBe('s1')
   })
   it('survives unavailable storage', () => {
     const boom = () => {

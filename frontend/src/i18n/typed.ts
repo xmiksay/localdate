@@ -5,7 +5,7 @@ type Leaves<T, P extends string = ''> = {
   [K in keyof T & string]: T[K] extends string ? `${P}${K}` : Leaves<T[K], `${P}${K}.`>
 }[keyof T & string]
 
-/** Every message path in cs.ts, the source of truth (e.g. `'nearby.title'`). */
+/** Every message path in `i18n/cs/`, the source of truth (e.g. `'nearby.title'`). */
 export type MessageKey = Leaves<typeof cs>
 
 type Named = Record<string, unknown>

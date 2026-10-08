@@ -4,7 +4,8 @@ Base path `/api`, JSON bodies, `Authorization: Bearer <access_token>` on everyth
 `/auth/*`, `/interests` and `/push/config`. Timestamps RFC 3339 UTC. IDs are UUID strings unless noted.
 
 Every authenticated request checks the account: a deleted account gets `401 unauthorized`,
-a banned one `403 banned` — the 15-minute access token is no grace period.
+a banned one `403 banned`, and an access token issued before the account's last password reset or change
+`401 unauthorized` — the 15-minute access token is no grace period.
 
 ## Errors
 
@@ -14,12 +15,12 @@ Internal/DB errors are logged and returned as `500 internal` with a generic mess
 | Status | code | When |
 |---|---|---|
 | 400 | `validation` | body fails validation (`message` says which field) |
-| 400 | `invalid_token` | email token unknown, expired, already used, of another purpose, or (link confirm) issued to another account |
-| 401 | `unauthorized` | missing/invalid/expired access token |
-| 401 | `invalid_credentials` | login failed |
+| 400 | `invalid_token` | email token unknown, expired, already used, of another purpose, or (link confirm) issued to another account; also password-reset tokens |
+| 401 | `unauthorized` | missing/invalid/expired access token, or one issued before the last password reset/change |
+| 401 | `invalid_credentials` | login failed; `PUT /me/password` with a wrong `current_password` |
 | 401 | `invalid_refresh_token` | refresh token unknown, expired or revoked |
 | 403 | `forbidden` | not a participant / blocked / match partner banned; `/admin/*` for non-admins |
-| 403 | `banned` | account suspended: any authenticated request, login (after a correct password), refresh |
+| 403 | `banned` | account suspended: any authenticated request, login (after a correct password), refresh, password reset |
 | 404 | `not_found` | |
 | 409 | `username_taken` | register, `POST /auth/email/signup` |
 | 409 | `last_login_method` | `DELETE /me/identities/{id}` would leave the account with no password and no identity |
@@ -36,9 +37,9 @@ Internal/DB errors are logged and returned as `500 internal` with a generic mess
 | 422 | `profile_incomplete` | window start without profile + filter + ≥ 1 photo |
 | 422 | `photo_limit` | 7th photo |
 | 422 | `unsupported_image` | not decodable jpeg/png/webp, > 10 MB, an edge > 10 000 px or > 32 Mi pixels (~33 MP) |
-| 429 | `rate_limited` | per-IP throttle: login, register, `/auth/email/start`, `/auth/email/signup`, `POST /me/identities/email` |
+| 429 | `rate_limited` | per-IP throttle: login, register, `/auth/email/start`, `/auth/email/signup`, `/auth/password/forgot`, `POST /me/identities/email`, `PUT /me/password` |
 | 429 | `wave_limit` | > 20 waves in one window |
-| 503 | `email_disabled` | any email endpoint while the server has no mailer (`GET /auth/providers` → `email: false`) |
+| 503 | `email_disabled` | any email endpoint while the server has no mailer (`GET /auth/providers` → `email: false`), incl. `/auth/password/forgot` |
 
 ## Shared types
 
@@ -153,6 +154,37 @@ consumed — consumption, account check and session creation are one transaction
 stays usable for another name). The new account then goes through onboarding like a registered one
 (birth date, 18+ check). A second sign-up for an address that already got an account → `400 invalid_token`.
 
+### Password reset
+
+| Method & path | Body | 2xx response |
+|---|---|---|
+| `POST /auth/password/forgot` | `{ login, lang?: MailLang }` — `login` is a username or an email address | `202` (empty) — always |
+| `POST /auth/password/reset/preview` | `{ token }` | `200 { username: string }` — never consumes the token |
+| `POST /auth/password/reset` | `{ token, new_password }` | `204` |
+
+`login` containing `@` is validated as an email address, anything else as a username (`400 validation` for a
+malformed one — that says nothing about whether it exists). The answer is `202` whether or not there is such an
+account, and it is sent **before** the account is even looked up, so its timing reveals nothing either. Then:
+an email address that is a linked email identity gets a reset link; a username gets one at every email address
+linked to that account. Accounts without a linked email get nothing (Telegram delivery comes with #14) — the UI
+says "if the account has a linked email…". `503 email_disabled` while the server has no mailer. Limits, a
+budget of their own (asking for resets never uses up an inbox's magic-link mails, nor the other way round); over
+them still `202` and nothing sent: 3 requests per (username or address as typed, client IP) per 15 min, and 5
+reset mails per account per hour however they were asked for.
+
+The link is `{APP_BASE_URL}/auth/password/reset#token=…` (fragment, as above), names the account
+(`pro účet <username>`), and its token (purpose `password_reset`) is valid 15 min, single use. Opening it spends
+nothing: the page calls `preview` and shows "Nastavit nové heslo pro <username>". `reset` checks the password
+policy of register (`400 validation`, token unspent), then in one transaction consumes the token, sets the new
+password, **ends every session** of the account — refresh tokens revoked, and access tokens issued before
+it refused from then on (`401 unauthorized`, WebSocket `4401`), every push subscription of the account deleted
+(a possibly stolen device stops getting notifications) — and voids every other unused mailed token of the account (login, link, reset) — a link sent
+before must not undo or bypass the new password. After the commit the account's WebSockets are closed with
+`4401`. It returns no tokens — the user logs in normally afterwards. Banned account → `403 banned`, token
+unspent. `preview` / `reset` → `400 invalid_token` for unknown, expired, used or other-purpose tokens, and when
+the address was unlinked from the account since the mail went out. Reset tokens are refused by
+`/auth/email/preview` and `/auth/email/verify` (`400 invalid_token`), login tokens by the reset endpoints.
+
 ## Me / profile
 
 | Method & path | Body | 2xx response |
@@ -166,6 +198,7 @@ stays usable for another name). The new account then goes through onboarding lik
 | `PUT /me/photos/order` | `{ photo_ids: string[] }` (must be exactly the user's photos) | `200 Photo[]` |
 | `GET /me/filter` | — | `200 Filter` (defaults if never saved: 2000 m, [], 18, 99, [date, meet], 60) |
 | `PUT /me/filter` | `Filter` | `200 Filter` |
+| `PUT /me/password` | `{ current_password?: string, new_password }` | `200 Tokens` — a fresh session; every other one is logged out |
 | `GET /me/identities` | — | `200 { has_password: boolean, identities: Identity[] }` (oldest first) |
 | `POST /me/identities/email` | `{ email, lang?: MailLang }` | `202` (empty) — always |
 | `POST /me/identities/email/confirm` | `{ token }` | `201 Identity` |
@@ -178,6 +211,21 @@ never reveals whose it is. Same validation, limits, fragment links, `preview` an
 `confirm` must come from the account that requested the link: another account's token, or an expired / used
 one → `400 invalid_token` (a wrong account does not consume it). If the address got linked elsewhere in the
 meantime → `400 invalid_token`.
+
+Password change: `new_password` follows the register policy (`400 validation`). An account that has a password
+must send the right `current_password` (missing → `400 validation`, wrong → `401 invalid_credentials`); an
+account without one (created by email) sets its first password without it (`current_password` ignored), after
+which `has_password` is `true`. Every refresh token of the account is revoked — the access JWT does not say
+which session made the call, so instead of guessing, the response carries new `Tokens` for the caller, who
+replaces both tokens; other devices fall back to login. Like a reset it voids the account's unused mailed tokens
+and refuses every older access token, closing the WebSockets with `4401` — the caller's own too, which
+reconnects with the returned access token — and deletes the account's push subscriptions; the caller's client
+re-registers its own device with the new session (the usual resync). Precision is whole seconds: a token issued in the same second as the
+change still counts as newer (that is how the returned one stays valid), so only an access token minted earlier
+within that very second outlives it. A client request that gets `401` with the old token while the answer is still
+on its way retries with the new tokens instead of refreshing. A concurrent change between the check and the write → `401 invalid_credentials`.
+Known trade-off: setting a *first* password needs only a valid access token (there is no old password to ask
+for), so a stolen session of an email-only account can add one; the same session could already link an address.
 
 Validation: display_name 1–40, bio ≤ 500, interest_ids ≤ 10 and existing, age_min ≤ age_max,
 reasons non-empty.
@@ -309,6 +357,7 @@ Ban: sets `banned_at` (kept if already banned), revokes every refresh token, end
 
 Client connects, then sends `{ "type": "auth", "token": "<access_token>" }` within 10 s.
 Invalid/expired token or timeout → server closes with code `4401` (client refreshes the token before reconnecting).
+A password reset or change also closes the account's open sockets with `4401`.
 A banned account → `4403`, both at auth time and for open sockets when the ban happens (client logs out,
 no reconnect). A server-side failure while checking the account → `1011` (client retries with backoff).
 `1012` → the server may have missed events for this socket (its cross-replica listener reconnected); the

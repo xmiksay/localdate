@@ -12,6 +12,8 @@ pub struct Model {
     pub created_at: DateTimeWithTimeZone,
     pub is_admin: bool,
     pub banned_at: Option<DateTimeWithTimeZone>,
+    /// Last password reset/change, whole seconds; access tokens issued before it are refused.
+    pub credentials_changed_at: Option<DateTimeWithTimeZone>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

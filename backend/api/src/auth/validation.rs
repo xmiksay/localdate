@@ -1,7 +1,9 @@
 use crate::error::AppError;
 
 const USERNAME_LEN: std::ops::RangeInclusive<usize> = 3..=32;
-const PASSWORD_LEN: std::ops::RangeInclusive<usize> = 10..=128;
+/// Longest valid password; login and password change refuse longer input before argon2 runs.
+pub const MAX_PASSWORD_CHARS: usize = 128;
+const PASSWORD_LEN: std::ops::RangeInclusive<usize> = 10..=MAX_PASSWORD_CHARS;
 
 /// Trim + lowercase, then enforce `[a-z0-9_]{3,32}`.
 pub fn normalize_username(raw: &str) -> Result<String, AppError> {

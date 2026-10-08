@@ -105,6 +105,13 @@ async function submit() {
       <BaseButton type="submit" block :loading="busy">
         {{ isRegister ? t('auth.registerSubmit') : t('auth.loginSubmit') }}
       </BaseButton>
+      <RouterLink
+        v-if="!isRegister && auth.emailEnabled"
+        :to="{ name: 'password-forgot' }"
+        class="self-center text-sm font-semibold text-coral underline"
+      >
+        {{ t('password.forgotLink') }}
+      </RouterLink>
     </form>
 
     <section v-if="auth.emailEnabled" class="flex flex-col gap-3">

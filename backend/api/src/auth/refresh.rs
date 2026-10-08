@@ -114,7 +114,7 @@ pub async fn rotate(db: &DatabaseConnection, presented: &str) -> Result<(Uuid, S
     Ok((row.user_id, next))
 }
 
-/// Every live token of `user` (ban).
+/// Every live token of `user` (ban, password reset or change).
 pub async fn revoke_all(db: &impl ConnectionTrait, user: Uuid) -> Result<(), AppError> {
     refresh_token::Entity::update_many()
         .col_expr(

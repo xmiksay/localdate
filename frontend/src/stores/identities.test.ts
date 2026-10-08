@@ -29,7 +29,20 @@ describe('identities store', () => {
     const s = useIdentitiesStore()
     await s.load()
     expect(s.hasPassword).toBe(false)
+    expect(s.loaded).toBe(true)
     expect(s.identities.map((i) => i.id)).toEqual(['a'])
+  })
+
+  it('concurrent loads share one request', async () => {
+    vi.mocked(identitiesApi.getIdentities).mockResolvedValue({
+      has_password: true,
+      identities: [],
+    })
+    const s = useIdentitiesStore()
+    await Promise.all([s.load(), s.load()])
+    expect(identitiesApi.getIdentities).toHaveBeenCalledOnce()
+    await s.load()
+    expect(identitiesApi.getIdentities).toHaveBeenCalledTimes(2)
   })
 
   it('linkEmail normalizes the address and sends the UI language', async () => {
@@ -67,7 +80,9 @@ describe('identities store', () => {
     s.identities = [identity('a')]
     s.hasPassword = false
     s.justLinked = 'x@y.cz'
+    s.loaded = true
     s.reset()
+    expect(s.loaded).toBe(false)
     expect(s.identities).toEqual([])
     expect(s.hasPassword).toBe(true)
     expect(s.justLinked).toBeNull()

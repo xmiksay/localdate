@@ -1,11 +1,13 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import * as authApi from '@/api/auth'
-import { setAuthHooks } from '@/api/client'
+import * as meApi from '@/api/me'
+import { ApiError, setAuthHooks } from '@/api/client'
 import { tokenStorage } from '@/api/tokens'
 import type { Credentials, Tokens, User } from '@/api/types'
-import { mailLang } from '@/i18n'
-import { normalizeEmail, normalizeUsername } from '@/utils/validation'
+import { i18n, mailLang } from '@/i18n'
+import { normalizeEmail, normalizeLogin, normalizeUsername } from '@/utils/validation'
+import { toPushLang } from '@/utils/webPush'
 import { usePushStore } from './push'
 
 export const useAuthStore = defineStore('auth', () => {
@@ -37,16 +39,26 @@ export const useAuthStore = defineStore('auth', () => {
 
   setAuthHooks({ onTokens: applyTokens, onAuthLost: clear, onBanned: markBanned })
 
-  async function login(c: Credentials) {
+  /**
+   * Starts a session from an anonymous call. The API client does not signal bans for anonymous
+   * requests, so a sign-in refused as banned is flagged here, for the notice on the login screen.
+   */
+  async function signIn(call: () => Promise<Tokens>) {
     // A new attempt (maybe another account) must show its own outcome, not the old ban.
     suspended.value = false
-    applyTokens(await authApi.login({ ...c, username: normalizeUsername(c.username) }))
+    try {
+      applyTokens(await call())
+    } catch (e) {
+      if (e instanceof ApiError && e.code === 'banned') markBanned()
+      throw e
+    }
   }
 
-  async function register(c: Credentials) {
-    suspended.value = false
-    applyTokens(await authApi.register({ ...c, username: normalizeUsername(c.username) }))
-  }
+  const login = (c: Credentials) =>
+    signIn(() => authApi.login({ ...c, username: normalizeUsername(c.username) }))
+
+  const register = (c: Credentials) =>
+    signIn(() => authApi.register({ ...c, username: normalizeUsername(c.username) }))
 
   /** Whether the server can send login emails; false until known, so the option never flashes. */
   const emailEnabled = ref(false)
@@ -65,14 +77,35 @@ export const useAuthStore = defineStore('auth', () => {
 
   const emailPreview = (token: string) => authApi.emailPreview(token)
 
-  async function emailVerify(token: string) {
-    suspended.value = false
-    applyTokens(await authApi.emailVerify(token))
+  const emailVerify = (token: string) => signIn(() => authApi.emailVerify(token))
+
+  const emailSignup = (token: string, username: string) =>
+    signIn(() => authApi.emailSignup({ token, username: normalizeUsername(username) }))
+
+  async function passwordForgot(login: string) {
+    await authApi.passwordForgot({ login: normalizeLogin(login), lang: mailLang() })
   }
 
-  async function emailSignup(token: string, username: string) {
-    suspended.value = false
-    applyTokens(await authApi.emailSignup({ token, username: normalizeUsername(username) }))
+  const passwordResetPreview = (token: string) => authApi.passwordResetPreview(token)
+
+  /**
+   * Every session of the reset account ends on the server; drop the local one only if it is that
+   * account (`username` from the preview), not when the link was for someone else.
+   */
+  async function passwordReset(token: string, newPassword: string, username: string) {
+    await authApi.passwordReset({ token, new_password: newPassword })
+    if (user.value?.username === username) clear()
+  }
+
+  /** The server revokes every session and hands this one fresh tokens. */
+  async function changePassword(newPassword: string, currentPassword?: string) {
+    applyTokens(
+      await meApi.putPassword({ current_password: currentPassword, new_password: newPassword }),
+    )
+    // The change deleted every push subscription of the account; put this device's back.
+    void usePushStore()
+      .resync(toPushLang(i18n.global.locale.value))
+      .catch(() => undefined)
   }
 
   async function logout() {
@@ -94,6 +127,10 @@ export const useAuthStore = defineStore('auth', () => {
     emailPreview,
     emailVerify,
     emailSignup,
+    passwordForgot,
+    passwordResetPreview,
+    passwordReset,
+    changePassword,
     login,
     register,
     logout,
