@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import { useI18n } from 'vue-i18n'
+import { useT } from '@/i18n/typed'
 import AvatarImage from '@/components/ui/AvatarImage.vue'
 import ErrorNote from '@/components/ui/ErrorNote.vue'
 import PageHeading from '@/components/ui/PageHeading.vue'
@@ -9,7 +9,7 @@ import { useMatchesStore } from '@/stores/matches'
 import { errorMessage } from '@/utils/errors'
 import { formatMessageTime } from '@/utils/time'
 
-const { t, locale } = useI18n()
+const { t, locale } = useT()
 const auth = useAuthStore()
 const store = useMatchesStore()
 const failure = ref<string | null>(null)

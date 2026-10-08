@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { useI18n } from 'vue-i18n'
+import { interestKey, useT } from '@/i18n/typed'
 import { useRouter } from 'vue-router'
 import MatchMoment from '@/components/MatchMoment.vue'
 import PhotoCarousel from '@/components/PhotoCarousel.vue'
+import SharedInterestsBadge from '@/components/SharedInterestsBadge.vue'
 import UserActionsMenu from '@/components/UserActionsMenu.vue'
 import WaveButton from '@/components/WaveButton.vue'
 import ErrorNote from '@/components/ui/ErrorNote.vue'
@@ -12,7 +13,7 @@ import { errorMessage } from '@/utils/errors'
 import { sharedFirst } from '@/utils/interests'
 
 const props = defineProps<{ userId: string }>()
-const { t } = useI18n()
+const { t } = useT()
 const router = useRouter()
 const nearby = useNearbyStore()
 
@@ -87,15 +88,10 @@ const leave = () => router.replace({ name: 'nearby' })
     </section>
 
     <section v-if="interests.length">
-      <h2 class="mb-1.5 flex items-center gap-2 text-sm font-semibold text-plum">
-        {{ t('person.interests') }}
-        <span
-          v-if="profile.shared_interests.length"
-          class="rounded-full bg-plum px-2.5 py-0.5 text-xs font-bold text-cream"
-        >
-          {{ t('nearby.sharedInterests', profile.shared_interests.length) }}
-        </span>
-      </h2>
+      <div class="mb-1.5 flex items-center gap-2">
+        <h2 class="text-sm font-semibold text-plum">{{ t('person.interests') }}</h2>
+        <SharedInterestsBadge :count="profile.shared_interests.length" />
+      </div>
       <ul class="flex flex-wrap gap-2">
         <li
           v-for="i in interests"
@@ -107,7 +103,7 @@ const leave = () => router.replace({ name: 'nearby' })
               : 'bg-paper font-medium text-plum ring-line'
           "
         >
-          <span v-if="i.shared" aria-hidden="true">★ </span>{{ t(`interest.${i.key}`) }}
+          <span v-if="i.shared" aria-hidden="true">★ </span>{{ t(interestKey(i.key)) }}
           <span v-if="i.shared" class="sr-only">({{ t('person.sharedMark') }})</span>
         </li>
       </ul>

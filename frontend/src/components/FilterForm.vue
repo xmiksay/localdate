@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, reactive, ref } from 'vue'
-import { useI18n } from 'vue-i18n'
+import { useT } from '@/i18n/typed'
 import { GENDERS, REASONS, WINDOW_MINUTES, type Gender, type Reason } from '@/api/types'
 import { DEFAULT_FILTER, useMeStore } from '@/stores/me'
 import { errorMessage } from '@/utils/errors'
@@ -13,7 +13,7 @@ import TextInput from './ui/TextInput.vue'
 defineProps<{ submitLabel: string }>()
 const emit = defineEmits<{ saved: [] }>()
 
-const { t } = useI18n()
+const { t } = useT()
 const me = useMeStore()
 
 const form = reactive({ ...DEFAULT_FILTER, ...me.filter })

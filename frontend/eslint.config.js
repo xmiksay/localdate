@@ -15,7 +15,22 @@ export default tseslint.config(
       globals: { ...globals.browser, ...globals.node },
       parserOptions: { parser: tseslint.parser },
     },
-    rules: { '@typescript-eslint/no-explicit-any': 'error' },
+    rules: {
+      '@typescript-eslint/no-explicit-any': 'error',
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            {
+              name: 'vue-i18n',
+              importNames: ['useI18n'],
+              message: "Use useT() from '@/i18n/typed' so message keys are type-checked.",
+            },
+          ],
+        },
+      ],
+    },
   },
+  { files: ['src/i18n/typed.ts'], rules: { 'no-restricted-imports': 'off' } },
   prettier,
 )

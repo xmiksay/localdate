@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { useI18n } from 'vue-i18n'
+import { useT } from '@/i18n/typed'
 import { REPORT_REASONS, type ReportReason } from '@/api/types'
 import { useSafetyStore } from '@/stores/safety'
 import { errorMessage } from '@/utils/errors'
@@ -12,7 +12,7 @@ const MAX_NOTE = 1000
 const props = defineProps<{ userId: string; name: string }>()
 const emit = defineEmits<{ close: []; done: [] }>()
 
-const { t } = useI18n()
+const { t } = useT()
 const safety = useSafetyStore()
 const reason = ref<ReportReason>('spam')
 const note = ref('')

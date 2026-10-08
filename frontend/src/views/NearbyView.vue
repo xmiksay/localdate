@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref, watch } from 'vue'
-import { useI18n } from 'vue-i18n'
+import { useT } from '@/i18n/typed'
 import MatchMoment from '@/components/MatchMoment.vue'
 import NearbyCard from '@/components/NearbyCard.vue'
 import WaveButton from '@/components/WaveButton.vue'
@@ -15,7 +15,7 @@ import { errorMessage } from '@/utils/errors'
 
 const REFRESH_MS = 60_000
 
-const { t } = useI18n()
+const { t } = useT()
 const win = useWindowStore()
 const nearby = useNearbyStore()
 

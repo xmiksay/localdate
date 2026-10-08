@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import { useI18n } from 'vue-i18n'
+import { useT } from '@/i18n/typed'
 import BaseButton from './ui/BaseButton.vue'
 import BaseDialog from './ui/BaseDialog.vue'
 
 defineProps<{ matchId: string }>()
 const emit = defineEmits<{ close: [] }>()
-const { t } = useI18n()
+const { t } = useT()
 </script>
 
 <template>

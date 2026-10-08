@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { useI18n } from 'vue-i18n'
+import { useT } from '@/i18n/typed'
 import { WINDOW_MINUTES, type WindowMinutes } from '@/api/types'
 import { useWindowStore } from '@/stores/window'
 import { errorMessage } from '@/utils/errors'
@@ -8,7 +8,7 @@ import { formatCountdown } from '@/utils/time'
 import BaseButton from './ui/BaseButton.vue'
 import ErrorNote from './ui/ErrorNote.vue'
 
-const { t } = useI18n()
+const { t } = useT()
 const win = useWindowStore()
 
 const picking = ref(false)

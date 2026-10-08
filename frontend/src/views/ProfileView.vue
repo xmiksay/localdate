@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { useI18n } from 'vue-i18n'
+import { useT } from '@/i18n/typed'
 import PhotoManager from '@/components/PhotoManager.vue'
 import ProfileForm from '@/components/ProfileForm.vue'
 import PageHeading from '@/components/ui/PageHeading.vue'
 
-const { t } = useI18n()
+const { t } = useT()
 </script>
 
 <template>

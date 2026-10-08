@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { useI18n } from 'vue-i18n'
+import { useT } from '@/i18n/typed'
 import { useRouter } from 'vue-router'
 import BaseButton from '@/components/ui/BaseButton.vue'
 import ErrorNote from '@/components/ui/ErrorNote.vue'
@@ -11,7 +11,7 @@ import { errorMessage } from '@/utils/errors'
 import { isValidPassword, isValidUsername } from '@/utils/validation'
 
 const props = defineProps<{ mode: 'login' | 'register' }>()
-const { t } = useI18n()
+const { t } = useT()
 const router = useRouter()
 const auth = useAuthStore()
 

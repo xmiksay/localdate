@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { useI18n } from 'vue-i18n'
+import { useT } from '@/i18n/typed'
 import { useAuthStore } from '@/stores/auth'
 import { useSafetyStore } from '@/stores/safety'
 import { errorMessage } from '@/utils/errors'
@@ -9,7 +9,7 @@ import ErrorNote from './ui/ErrorNote.vue'
 import FormField from './ui/FormField.vue'
 import TextInput from './ui/TextInput.vue'
 
-const { t } = useI18n()
+const { t } = useT()
 const auth = useAuthStore()
 const safety = useSafetyStore()
 

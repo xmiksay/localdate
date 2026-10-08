@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { useI18n } from 'vue-i18n'
+import { interestKey, useT } from '@/i18n/typed'
 import { computed } from 'vue'
 import type { NearbyProfile } from '@/api/types'
+import SharedInterestsBadge from '@/components/SharedInterestsBadge.vue'
 import { sharedFirst } from '@/utils/interests'
 
 const props = defineProps<{ profile: NearbyProfile }>()
-const { t } = useI18n()
+const { t } = useT()
 const chips = computed(() =>
   sharedFirst(props.profile.interests, props.profile.shared_interests).slice(0, 4),
 )
@@ -40,12 +41,7 @@ const chips = computed(() =>
         <p class="text-sm font-semibold text-coral">
           {{ t(`distance.${profile.distance_band}`) }}
         </p>
-        <span
-          v-if="profile.shared_interests.length"
-          class="rounded-full bg-plum px-2.5 py-0.5 text-xs font-bold text-cream"
-        >
-          {{ t('nearby.sharedInterests', profile.shared_interests.length) }}
-        </span>
+        <SharedInterestsBadge :count="profile.shared_interests.length" />
       </div>
       <p class="text-sm text-muted">
         {{ profile.reasons.map((r) => t(`reason.${r}`)).join(' · ') }}
@@ -57,7 +53,8 @@ const chips = computed(() =>
           class="rounded-full px-2.5 py-0.5 text-xs font-medium ring-1"
           :class="i.shared ? 'bg-plum/10 text-plum ring-plum' : 'bg-cream text-plum ring-line'"
         >
-          {{ t(`interest.${i.key}`) }}
+          <span v-if="i.shared" aria-hidden="true">★ </span>{{ t(interestKey(i.key)) }}
+          <span v-if="i.shared" class="sr-only">({{ t('person.sharedMark') }})</span>
         </li>
       </ul>
     </div>

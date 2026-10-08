@@ -4,6 +4,7 @@ import * as windowApi from '@/api/window'
 import * as socialApi from '@/api/social'
 import { ApiError } from '@/api/client'
 import type { NearbyProfile, WaveResult, WaveState } from '@/api/types'
+import { byOverlapThenBand } from '@/utils/interests'
 import { useWindowStore } from './window'
 
 export const useNearbyStore = defineStore('nearby', () => {
@@ -57,7 +58,7 @@ export const useNearbyStore = defineStore('nearby', () => {
     try {
       const r = await socialApi.sendWave(userId)
       if (known && !people.value.some((p) => p.user_id === userId)) {
-        people.value = [...people.value, { ...known }]
+        people.value = [...people.value, { ...known }].sort(byOverlapThenBand)
       }
       applyWave(userId, r)
       await win.load().catch(() => undefined)
