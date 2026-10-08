@@ -6,6 +6,7 @@ use tokio::sync::Semaphore;
 
 use crate::auth::email::{EmailLimiter, EmailService};
 use crate::config::Config;
+use crate::push::Notifier;
 use crate::rate_limit::RateLimiter;
 use crate::ws::Hub;
 
@@ -15,6 +16,8 @@ pub struct AppState {
     pub config: Arc<Config>,
     pub limiter: RateLimiter,
     pub hub: Arc<Hub>,
+    /// Wave / match / message delivery: WebSocket, plus Web Push for offline recipients.
+    pub notify: Arc<Notifier>,
     /// Concurrent photo decodes (`IMAGE_DECODE_PERMITS`); sized with the pod memory limit.
     pub image_permits: Arc<Semaphore>,
     /// `None` = email disabled; set by `with_email` (main builds it from `Config::email`).
@@ -30,11 +33,17 @@ impl AppState {
     pub async fn new(db: DatabaseConnection, config: Config) -> Result<Self> {
         let limiter = RateLimiter::new(config.rate_limit, config.trust_proxy_headers);
         let hub = Hub::start(db.clone(), &config.database_url).await?;
+        let notify = Arc::new(Notifier::new(
+            db.clone(),
+            hub.clone(),
+            config.vapid.as_ref(),
+        )?);
         Ok(Self {
             db,
             config: Arc::new(config),
             limiter,
             hub,
+            notify,
             image_permits: Arc::new(Semaphore::new(IMAGE_DECODE_PERMITS)),
             email: None,
             email_limiter: EmailLimiter::default(),

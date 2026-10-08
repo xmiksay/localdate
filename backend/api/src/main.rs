@@ -29,6 +29,17 @@ enum Command {
         #[command(subcommand)]
         action: AdminAction,
     },
+    /// Web Push (VAPID) keys
+    Vapid {
+        #[command(subcommand)]
+        action: VapidAction,
+    },
+}
+
+#[derive(Subcommand)]
+enum VapidAction {
+    /// Print a fresh key pair as VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY lines
+    Generate,
 }
 
 #[derive(Subcommand)]
@@ -51,6 +62,13 @@ async fn main() -> Result<()> {
     match cli.command {
         None => serve().await,
         Some(Command::Admin { action }) => admin(action).await,
+        Some(Command::Vapid {
+            action: VapidAction::Generate,
+        }) => {
+            let (public_key, private_key) = localdate_api::push::vapid::generate();
+            println!("VAPID_PUBLIC_KEY={public_key}\nVAPID_PRIVATE_KEY={private_key}");
+            Ok(())
+        }
     }
 }
 

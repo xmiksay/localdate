@@ -19,11 +19,14 @@ chrono = { version = "0.4", features = ["serde"] }
 chrono-tz = "0.10"
 clap = { version = "4", features = ["derive"] }
 dotenvy = "0.15"
+hmac = "0.12"
 http-body-util = "0.1"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
 jsonwebtoken = "9"
 lettre = { version = "0.11", default-features = false, features = ["builder", "hostname", "pool", "smtp-transport", "tokio1-rustls-tls"] }
 percent-encoding = "2"
+# Default features would pull hyper-tls/OpenSSL or aws-lc; rustls+ring is what sqlx already uses.
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 rust-embed = { version = "8.11", features = ["mime-guess"] }
 sea-orm = { version = "1.1", features = ["sqlx-postgres", "runtime-tokio-rustls", "macros", "with-uuid", "with-chrono", "postgres-array"] }
 sea-orm-migration = { version = "1.1", features = ["sqlx-postgres", "runtime-tokio-rustls"] }
@@ -36,9 +39,12 @@ tokio = { version = "1", features = ["full"] }
 tower = { version = "0.5", features = ["util"] }
 tower-http = { version = "0.6", features = ["trace", "fs"] }
 tracing = "0.1"
+# Pure RustCrypto RFC 8291/8292 (no OpenSSL); builds the request, reqwest sends it.
+web-push-native = "0.5"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
 tokio-tungstenite = "0.29"
+url = "2"
 uuid = { version = "1", features = ["v4", "serde"] }
 
 # Argon2 is unusably slow unoptimised; keep it fast in dev/test builds.

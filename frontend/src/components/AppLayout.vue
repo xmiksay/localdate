@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted } from 'vue'
 import { useLocationSharing } from '@/composables/useGeolocation'
+import { usePushSync } from '@/composables/usePushSync'
 import { useRealtime } from '@/composables/useRealtime'
 import { useMatchesStore } from '@/stores/matches'
 import { useWindowStore } from '@/stores/window'
@@ -10,6 +11,7 @@ import WindowEndedNotice from './WindowEndedNotice.vue'
 // Mounted only for authed + onboarded routes, so these live exactly as long as the session.
 useRealtime()
 useLocationSharing()
+usePushSync()
 const win = useWindowStore()
 const matches = useMatchesStore()
 onMounted(() => {

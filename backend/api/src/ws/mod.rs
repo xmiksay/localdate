@@ -117,8 +117,24 @@ async fn session(mut socket: WebSocket, state: AppState) {
         tokio::time::Instant::now() + state.config.ws_account_recheck,
         state.config.ws_account_recheck,
     );
+    let mut ping = tokio::time::interval_at(
+        tokio::time::Instant::now() + state.config.ws_ping_every,
+        state.config.ws_ping_every,
+    );
+    let mut last_heard = tokio::time::Instant::now();
     loop {
         tokio::select! {
+            _ = ping.tick() => {
+                // Silence past the timeout means a dead peer (sleeping phone, dropped network):
+                // closing drops the presence row, so the user reads as offline and gets pushes.
+                if last_heard.elapsed() > state.config.ws_idle_timeout {
+                    tracing::debug!("ws peer silent past idle timeout; closing");
+                    break;
+                }
+                if socket.send(Message::Ping(Default::default())).await.is_err() {
+                    break;
+                }
+            },
             _ = recheck.tick() => match account_status(&state.db, user).await {
                 Ok(account) => if let Some(reason) = refusal(&account) {
                     state.hub.unsubscribe(user, id).await;
@@ -142,7 +158,7 @@ async fn session(mut socket: WebSocket, state: AppState) {
             frame = socket.recv() => match frame {
                 // Pings are answered by the protocol layer; other client frames are ignored.
                 Some(Ok(Message::Close(_))) | Some(Err(_)) | None => break,
-                Some(Ok(_)) => {}
+                Some(Ok(_)) => last_heard = tokio::time::Instant::now(),
             },
         }
     }

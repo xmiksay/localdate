@@ -6,8 +6,8 @@ Production runs on the k8s cluster behind ingress-nginx + cert-manager (`letsenc
 
 | Object | What |
 |---|---|
-| `ConfigMap localdate` | non-secret env (`BIND_ADDR`, `PHOTO_DIR`, `RUST_LOG`, `CLEANUP_INTERVAL_SECS`, `TRUST_PROXY_HEADERS=true`, `APP_BASE_URL`, `EMAIL_FROM`) |
-| `Secret localdate` | `POSTGRES_PASSWORD`, `JWT_SECRET`, optional `SMTP_URL` — **not in git**, created by hand (below) |
+| `ConfigMap localdate` | non-secret env (`BIND_ADDR`, `PHOTO_DIR`, `RUST_LOG`, `CLEANUP_INTERVAL_SECS`, `TRUST_PROXY_HEADERS=true`, `APP_BASE_URL`, `EMAIL_FROM`, `VAPID_SUBJECT`) |
+| `Secret localdate` | `POSTGRES_PASSWORD`, `JWT_SECRET`, optional `SMTP_URL`, optional `VAPID_PUBLIC_KEY` + `VAPID_PRIVATE_KEY` — **not in git**, created by hand (below) |
 | `StatefulSet localdate-db` + headless `Service` | Postgres 18, 5 Gi PVC `data-localdate-db-0` |
 | `NetworkPolicy localdate-db` | only `app=localdate-api` pods may reach 5432 |
 | `Deployment localdate-api` | 1 replica, `Recreate`, 768 Mi memory limit, 5 Gi PVC `localdate-photos` at `/data/photos` |
@@ -102,6 +102,24 @@ kubectl -n localdate rollout restart deployment/localdate-api
 `APP_BASE_URL` (origin the mailed links point at) and `EMAIL_FROM` live in the ConfigMap; the sender
 domain needs SPF/DKIM at the mail provider or the links land in spam. `EMAIL_DEV_LOG` (log links instead
 of sending) is for local development only — the release binary refuses to start with it.
+## Web Push (optional)
+
+Without VAPID keys the API runs with push off (`GET /api/push/config` → `enabled: false`). To turn it
+on, generate a pair once, add both keys to the existing Secret and restart:
+
+```sh
+make vapid-keys    # prints VAPID_PUBLIC_KEY=… and VAPID_PRIVATE_KEY=…
+kubectl -n localdate patch secret localdate --type merge \
+  -p '{"stringData":{"VAPID_PUBLIC_KEY":"<public>","VAPID_PRIVATE_KEY":"<private>"}}'
+kubectl -n localdate rollout restart deployment/localdate-api
+```
+
+The API refuses to start when only one key is set or the public key does not belong to the private
+one. `VAPID_SUBJECT` (ConfigMap) is the contact push services see. Keep the keys stable: rotating them
+invalidates every browser subscription. A client renews its subscription on its next start only if it
+still holds one with permission granted. The pod needs outbound HTTPS to the push services
+(`fcm.googleapis.com`, `updates.push.services.mozilla.com`, `*.push.apple.com`, `*.notify.windows.com`);
+the NetworkPolicies only restrict ingress, so that works as is.
 
 ## Updates and migrations
 

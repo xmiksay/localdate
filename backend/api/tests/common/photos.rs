@@ -56,6 +56,10 @@ impl TestApp {
         assert_eq!(status, StatusCode::CREATED, "photo upload failed: {body}");
         body
     }
+
+    pub fn photo_path(&self, file_name: &str) -> std::path::PathBuf {
+        self.state.config.photo_dir.join(file_name)
+    }
 }
 
 pub fn png_bytes(width: u32, height: u32) -> Vec<u8> {

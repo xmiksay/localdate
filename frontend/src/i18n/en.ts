@@ -128,6 +128,24 @@ const en: Messages<typeof cs> = {
     linkInvalid: 'The link has expired or belongs to another account.',
     toSettings: 'Back to settings',
   },
+  push: {
+    title: 'Notifications',
+    intro:
+      "When the app isn't open, we'll let you know about waves, new matches and messages. Notifications never contain names or message text.",
+    enable: 'Turn on notifications',
+    disable: 'Turn off notifications on this device',
+    enabledHere: 'Notifications are on for this device.',
+    kinds: 'Notify me about',
+    waves: 'Waves',
+    matches: 'New matches',
+    messages: 'Messages',
+    denied:
+      'Notifications are blocked in your browser. Allow them for this site in the browser settings.',
+    unsupported: "This browser doesn't support notifications.",
+    unavailable: 'Notifications are not available on this server.',
+    iosInstall:
+      'On iPhone and iPad, notifications only work in the app added to the home screen: in Safari tap Share → Add to Home Screen and open localdate from there.',
+  },
   settings: {
     title: 'Settings',
     filter: 'Filter',
@@ -310,6 +328,7 @@ const en: Messages<typeof cs> = {
     left_area: 'You left the area, visibility ended.',
     too_close_to_midnight: 'Less than 30 minutes left until midnight, pick a fixed duration.',
     area_in_use: 'The area is in use and cannot be deleted. Deactivate it instead.',
+    push_disabled: 'Notifications are not enabled on this server.',
     not_visible: 'This person is no longer in range.',
     cannot_ban_admin: 'An admin cannot be banned.',
     already_resolved: 'Someone already resolved this report.',

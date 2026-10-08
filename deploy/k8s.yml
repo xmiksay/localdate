@@ -22,6 +22,8 @@ data:
   # Email magic link: only active once the Secret has SMTP_URL; links point at APP_BASE_URL.
   APP_BASE_URL: https://localdate.mmik.cz
   EMAIL_FROM: localdate <noreply@localdate.mmik.cz>
+  # Web Push contact sent to push services; the keys themselves are in the Secret (optional).
+  VAPID_SUBJECT: https://localdate.mmik.cz
 ---
 # ---------------------------------------------------------------- Postgres
 apiVersion: v1
@@ -197,6 +199,19 @@ spec:
                 secretKeyRef:
                   name: localdate
                   key: SMTP_URL
+                  optional: true
+            # Optional: without them the API starts with Web Push turned off.
+            - name: VAPID_PUBLIC_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: localdate
+                  key: VAPID_PUBLIC_KEY
+                  optional: true
+            - name: VAPID_PRIVATE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: localdate
+                  key: VAPID_PRIVATE_KEY
                   optional: true
             - name: POSTGRES_PASSWORD
               valueFrom:

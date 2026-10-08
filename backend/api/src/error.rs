@@ -41,6 +41,8 @@ pub enum AppError {
     TooCloseToMidnight,
     #[error("area is referenced by windows, deactivate it instead")]
     AreaInUse,
+    #[error("push notifications are not configured on this server")]
+    PushDisabled,
     #[error("you must be at least 18 years old")]
     Underage,
     #[error("profile, filter and at least one photo are required")]
@@ -85,7 +87,8 @@ impl AppError {
             | Self::LeftArea
             | Self::TooCloseToMidnight
             | Self::AreaInUse
-            | Self::LastLoginMethod => StatusCode::CONFLICT,
+            | Self::LastLoginMethod
+            | Self::PushDisabled => StatusCode::CONFLICT,
             Self::Underage
             | Self::ProfileIncomplete
             | Self::PhotoLimit
@@ -114,6 +117,7 @@ impl AppError {
             Self::LeftArea => "left_area",
             Self::TooCloseToMidnight => "too_close_to_midnight",
             Self::AreaInUse => "area_in_use",
+            Self::PushDisabled => "push_disabled",
             Self::Underage => "underage",
             Self::ProfileIncomplete => "profile_incomplete",
             Self::PhotoLimit => "photo_limit",
@@ -221,6 +225,7 @@ mod tests {
             (AppError::LeftArea, 409, "left_area"),
             (AppError::TooCloseToMidnight, 409, "too_close_to_midnight"),
             (AppError::AreaInUse, 409, "area_in_use"),
+            (AppError::PushDisabled, 409, "push_disabled"),
             (AppError::Underage, 422, "underage"),
             (AppError::ProfileIncomplete, 422, "profile_incomplete"),
             (AppError::PhotoLimit, 422, "photo_limit"),

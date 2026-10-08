@@ -26,6 +26,8 @@ make run-web                  # PWA on http://localhost:5173
 | `make test` | `test-unit` (Rust lib/bin + Vitest) and `test-integration` (Rust, fresh DB per test) |
 | `make fmt` | format everything |
 | `make migrate` | apply migrations to `DATABASE_URL` |
+| `make icons` | regenerate the committed PNG icons (`frontend/public/*.png`) from the SVGs (needs `rsvg-convert`) |
+| `make vapid-keys` | print a fresh VAPID key pair (`VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY`) to turn on Web Push |
 | `make admin-grant ADMIN=<username>` / `make admin-revoke ADMIN=<username>` | give / take the moderator role (`localdate-api admin grant\|revoke <username>`; exits non-zero for an unknown user or pending migrations — run `make migrate` first) |
 | `make build` | frontend bundle, then the release `localdate-api` binary that embeds it (single deployable: API + PWA) |
 | `make image` | container image `localdate:dev` |

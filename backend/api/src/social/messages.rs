@@ -147,7 +147,8 @@ pub async fn send(
     let dto = MessageDto::from(row);
     // The sender gets it too so their other tabs update; clients dedupe by id.
     for user in [auth.id, other_user(&m, auth.id)] {
-        state.hub.send(
+        state.notify.send(
+            auth.id,
             user,
             &ServerEvent::Message {
                 message: dto.clone(),

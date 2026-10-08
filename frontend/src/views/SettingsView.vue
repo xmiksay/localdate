@@ -2,6 +2,7 @@
 import { useT } from '@/i18n/typed'
 import FilterForm from '@/components/FilterForm.vue'
 import LinkedAccountsSection from '@/components/LinkedAccountsSection.vue'
+import NotificationsSection from '@/components/NotificationsSection.vue'
 import SafetySection from '@/components/SafetySection.vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
 import PageHeading from '@/components/ui/PageHeading.vue'
@@ -49,6 +50,7 @@ const me = useMeStore()
     </section>
 
     <LinkedAccountsSection />
+    <NotificationsSection />
 
     <SafetySection />
 

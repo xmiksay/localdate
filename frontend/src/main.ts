@@ -10,6 +10,8 @@ import { useIdentitiesStore } from './stores/identities'
 import { useMatchesStore } from './stores/matches'
 import { useMeStore } from './stores/me'
 import { useNearbyStore } from './stores/nearby'
+import { usePushStore } from './stores/push'
+import { navigateTarget } from './sw/push'
 import { useWindowStore } from './stores/window'
 import { reloadAfterPreloadError } from './utils/preloadReload'
 import './assets/main.css'
@@ -34,9 +36,16 @@ watch(
     useAdminStore().reset()
     useAreasStore().reset()
     useIdentitiesStore().reset()
+    usePushStore().reset()
     if (router.currentRoute.value.meta.requiresAuth) router.replace({ name: 'login' })
   },
 )
+
+// A notification click on an already open tab: the service worker asks it to route there.
+navigator.serviceWorker?.addEventListener('message', (event) => {
+  const url = navigateTarget(event.data, window.location.origin)
+  if (url) void router.push(url)
+})
 
 window.addEventListener('vite:preloadError', (event) => {
   const reloading = reloadAfterPreloadError(

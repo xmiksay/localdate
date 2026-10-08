@@ -9,6 +9,8 @@ pub mod matches;
 pub mod message;
 pub mod photo;
 pub mod profile;
+pub mod push_prefs;
+pub mod push_subscription;
 pub mod refresh_token;
 pub mod report;
 pub mod user;
