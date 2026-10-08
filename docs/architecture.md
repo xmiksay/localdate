@@ -19,7 +19,9 @@ Deployment target is Kubernetes (manifests are a follow-up issue). Local dev use
 host Postgres; there is no docker-compose.
 
 The release `localdate-api` binary is the whole deployable: `make build` builds `frontend/dist`
-first and `rust-embed` compiles it into the binary (debug builds read it from disk instead).
+first and `rust-embed` compiles it into the binary. `backend/api/build.rs` makes cargo rebuild the
+crate whenever `frontend/dist` changes and refuses a release build without `frontend/dist/index.html`.
+Debug builds (clippy, tests) need no bundle: they read `frontend/dist` from disk at request time.
 
 ## Core concepts
 
@@ -110,7 +112,8 @@ Frontend dev server (Vite, :5173) proxies `/api` and `/media` (incl. WS) to `BIN
 ## Serving the PWA
 
 `web.rs` is the router fallback, so `/api/*` (which has its own JSON `not_found` fallback) and
-`/media/*` always win. For other GET/HEAD requests:
+`/media/*` always win. For other GET/HEAD requests the path is percent-decoded and refused with
+404 if it contains `.`/`..`/empty segments, `\` or NUL (debug builds read from disk). Then:
 
 - embedded file → served with its MIME type and an ETag (`If-None-Match` → 304);
   `assets/*` (Vite content-hashed) get `Cache-Control: public, max-age=31536000, immutable`,
@@ -118,5 +121,8 @@ Frontend dev server (Vite, :5173) proxies `/api` and `/media` (incl. WS) to `BIN
 - no such file, last path segment has an extension → 404;
 - otherwise (client-side route such as `/nearby`) → `index.html`, `no-cache`.
 
-Other methods → 405. A binary built without `frontend/dist` (`#[allow_missing]`, e.g. CI) answers
-404 to every non-API path.
+Other methods → 405. A debug binary without `frontend/dist` (`#[allow_missing]`, e.g. CI) answers
+404 to every path outside `/api` and `/media`, and logs a warning at startup.
+
+The frontend reloads once when a lazy chunk fails to load (`vite:preloadError`), which is what a
+tab opened before a deploy hits; a 10 s `sessionStorage` guard prevents reload loops.

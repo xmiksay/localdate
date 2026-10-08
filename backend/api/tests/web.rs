@@ -4,6 +4,7 @@ use axum::body::Body;
 use axum::http::{HeaderMap, Method, Request, StatusCode, header};
 use common::TestApp;
 use http_body_util::BodyExt;
+use localdate_api::web::{IMMUTABLE, NO_CACHE};
 use rust_embed::RustEmbed;
 use tower::ServiceExt;
 
@@ -16,8 +17,6 @@ struct Fixture;
 #[folder = "tests/fixtures/no-such-dist"]
 #[allow_missing = true]
 struct Missing;
-
-const IMMUTABLE: &str = "public, max-age=31536000, immutable";
 
 async fn send(
     app: &TestApp,
@@ -56,11 +55,11 @@ async fn serves_files_with_mime_and_cache_policy() {
 
     let (status, headers, _) = send(&app, Method::GET, "/sw.js", None).await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(h(&headers, header::CACHE_CONTROL), "no-cache");
+    assert_eq!(h(&headers, header::CACHE_CONTROL), NO_CACHE);
 
     let (status, headers, _) = send(&app, Method::GET, "/manifest.webmanifest", None).await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(h(&headers, header::CACHE_CONTROL), "no-cache");
+    assert_eq!(h(&headers, header::CACHE_CONTROL), NO_CACHE);
     assert_eq!(
         h(&headers, header::CONTENT_TYPE),
         "application/manifest+json"
@@ -75,7 +74,7 @@ async fn spa_routes_fall_back_to_index_but_missing_files_404() {
         let (status, headers, body) = send(&app, Method::GET, path, None).await;
         assert_eq!(status, StatusCode::OK, "{path}");
         assert!(h(&headers, header::CONTENT_TYPE).starts_with("text/html"));
-        assert_eq!(h(&headers, header::CACHE_CONTROL), "no-cache", "{path}");
+        assert_eq!(h(&headers, header::CACHE_CONTROL), NO_CACHE, "{path}");
         assert!(body.contains("fixture"), "{path}");
     }
 
@@ -83,8 +82,7 @@ async fn spa_routes_fall_back_to_index_but_missing_files_404() {
     assert_eq!(status, StatusCode::OK);
     assert!(body.is_empty());
 
-    // The last one would resolve to this test file if debug-mode disk reads allowed traversal.
-    for path in ["/assets/gone-123.js", "/favicon.ico", "/../../web.rs"] {
+    for path in ["/assets/gone-123.js", "/favicon.ico"] {
         let (status, _, _) = send(&app, Method::GET, path, None).await;
         assert_eq!(status, StatusCode::NOT_FOUND, "{path}");
     }
@@ -114,6 +112,24 @@ async fn backend_prefixes_never_get_the_spa_shell() {
 }
 
 #[tokio::test]
+async fn traversal_is_refused_even_when_it_would_land_on_a_real_file() {
+    let app = TestApp::with_frontend::<Fixture>().await;
+    // Each of these resolves to an existing file (fixture `sw.js`, or this test file) if unchecked.
+    for path in [
+        "/assets/../sw.js",
+        "/assets/%2e%2e/sw.js",
+        "/../../web.rs",
+        "/%2e%2e/%2e%2e/web.rs",
+        "/./sw.js",
+        "//sw.js",
+    ] {
+        let (status, _, body) = send(&app, Method::GET, path, None).await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "{path}");
+        assert!(body.is_empty(), "{path}");
+    }
+}
+
+#[tokio::test]
 async fn matching_etag_revalidates_with_304() {
     let app = TestApp::with_frontend::<Fixture>().await;
     let (_, headers, _) = send(&app, Method::GET, "/nearby", None).await;
@@ -123,7 +139,7 @@ async fn matching_etag_revalidates_with_304() {
     let (status, headers, body) = send(&app, Method::GET, "/", Some(&etag)).await;
     assert_eq!(status, StatusCode::NOT_MODIFIED);
     assert!(body.is_empty());
-    assert_eq!(h(&headers, header::CACHE_CONTROL), "no-cache");
+    assert_eq!(h(&headers, header::CACHE_CONTROL), NO_CACHE);
 
     let (status, _, _) = send(&app, Method::GET, "/sw.js", Some(&etag)).await;
     assert_eq!(status, StatusCode::OK);
