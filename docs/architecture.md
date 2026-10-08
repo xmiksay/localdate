@@ -111,7 +111,8 @@ Debug builds (clippy, tests) need no bundle: they read `frontend/dist` from disk
 |---|---|
 | `user` | id uuid PK, username text UNIQUE (lowercase, `[a-z0-9_]{3,32}`), password_hash text NULL (argon2id; NULL = account created by email, no password), created_at, is_admin bool (default false), banned_at NULL, credentials_changed_at NULL (last password reset/change, whole seconds; older access tokens are refused) |
 | `refresh_token` | id uuid PK, user_id FK, token_hash text UNIQUE (sha256), family_id uuid, expires_at, revoked_at NULL, created_at |
-| `user_identity` | id uuid PK, user_id FK, provider enum(email; later telegram/google/facebook), subject text (email: validated, lowercased address), verified_at, created_at; UNIQUE (provider, subject) |
+| `user_identity` | id uuid PK, user_id FK, provider enum(email, google; later telegram/facebook), subject text (email: validated, lowercased address; google: the account's `sub`), verified_at, created_at; UNIQUE (provider, subject) |
+| `oauth_grant` | id uuid PK, token_hash text UNIQUE (sha256), purpose enum(login, signup_code, signup), provider identity_provider, subject text, user_id FK NULL (CHECK: set iff login), binding text NULL (sha256 of the flow state; CHECK: NULL iff signup), expires_at (codes +60 s, signup +15 min), used_at NULL, created_at |
 | `email_token` | id uuid PK, token_hash text UNIQUE (sha256), purpose enum(login,link,signup,password_reset), user_id FK NULL (CHECK: NULL iff signup), email text, expires_at (+15 min), used_at NULL, created_at |
 | `profile` | user_id PK/FK, display_name text (1–40), birth_date date, gender enum(male,female,other), bio text (≤ 500), updated_at |
 | `photo` | id uuid PK, user_id FK, file_name text, position smallint (0 = primary), created_at; max 6 per user |
@@ -151,16 +152,18 @@ nearby query), plus `shift`.
 | `visibility_window` row | deleted 24 h after it ended (`LEAST(ends_at, ended_at)`) |
 | `refresh_token` | deleted once expired, or once revoked > 7 days ago **and** its family has no live token — while a family is live, replaying any of its revoked tokens still revokes it |
 | `email_token` | deleted once expired, used or not (drops the address it held) |
+| `oauth_grant` | deleted once expired, used or not |
 | `match`, `message` | kept until account deletion |
 | `ws_replica` (+ its `ws_presence` rows by cascade) | deleted once `seen_at` is ≥ 90 s old (replica died without deregistering) |
 
 ## Auth
 
-Username + password (argon2id), or an **email magic link**; a forgotten password is reset through a linked email.
+Username + password (argon2id), an **email magic link**, or **Sign in with Google**; a forgotten password is
+reset through a linked email.
 
 **Identity model.** A *login method* is the password (`user.password_hash`, optional) or a row in
-`user_identity` — `(provider, subject)` unique, so one address belongs to at most one account. Email is the
-only provider now; Telegram/Google/Facebook (#14, #15, #17) add an enum value and their own verify step,
+`user_identity` — `(provider, subject)` unique, so one address belongs to at most one account. Email and Google
+are the providers now; Telegram/Facebook (#14, #17) add an enum value and their own verify step,
 everything else (listing, unlinking, "last login method" guard, `session()` issuing Tokens) is shared.
 An account always keeps at least one method: `DELETE /me/identities/{id}` locks the user row
 `FOR UPDATE` and refuses (`409 last_login_method`) to remove the last identity of a passwordless account.
@@ -220,6 +223,42 @@ works without waiting; the price is that a token minted earlier in that same sec
 `401` without refreshing when its stored tokens changed while the request was in flight, and a refresh refused
 after such a swap counts as done, so a password change does not log the caller out through a race. **Known trade-off:** a passwordless account can set its first password with nothing but a valid access
 token — there is no old password to ask for, and that session could already link an address.
+
+**OAuth / OpenID Connect** (`auth/oauth/`). Providers are generic: `config.rs` holds one `OidcConfig` per
+provider (endpoints, accepted issuers, scope, `SubjectSource`, JWKS cache time; presets read from env in
+`config::from_env`), `OAuthService` keeps a registry `Provider → Oidc` of the configured ones (absent =
+`provider_disabled`, `GET /auth/providers` → `false`), and every redirect URI is
+`{APP_BASE_URL}/api/auth/oauth/{provider}/callback`. A new provider (Telegram next, Facebook #17) is a `Provider`
+variant + `identity_provider` enum value + preset; `SubjectSource::IdTokenClaim(name)` reads the account id from
+the verified ID token (a string as is, an integer in decimal — Telegram's `id`), and a userinfo-style resolver
+for providers without a usable ID token slots in as another variant. Google: scope `openid`, subject `sub`.
+
+Server-side authorization code flow: `start` (login; a plain browser navigation) or `link` (a
+bearer-authenticated `POST` that returns the provider URL) sets the `ld_oauth` cookie — HttpOnly, SameSite=Lax,
+`Path=/api/auth/oauth`, 10 min, `Secure` when `APP_BASE_URL` is https — holding provider, mode, `state`, PKCE
+verifier, `nonce`, the in-app redirect and (link) the user id, the starting access token's `iat` and the mail
+language, HMAC-SHA256-signed with a key derived from `JWT_SECRET` (`cookie.rs`). The callback checks the cookie
+signature and expiry, compares `state` in constant time, exchanges the code with the verifier (`oidc.rs`,
+reqwest, no redirects, 10 s timeout) and validates the ID token with `jsonwebtoken`: RS256 only, key by `kid`
+from the provider's JWKS, `iss`, `aud` = client id, `exp`, `nonce`, and `azp` = client id when present. JWKS
+cache: keys are used for the provider's cache time (Google 1 h); an unknown `kid` refetches at most once a
+minute; refetches are single-flight (one download for a burst of callbacks); a failed refetch keeps using the
+stale set (logged at warn) rather than locking everyone out. Only the account id is used — the email is neither
+requested nor stored, so a changed or unverified address can never take over an account.
+
+Link mode attaches the identity in the callback (user row `FOR SHARE`; someone else's → `identity_taken`, own →
+no-op; a password reset/change committed after the starting token's `iat` → `unauthorized`, like that token)
+and then mails a "new sign-in method linked" notice to every linked email address (`notice.rs`, detached, no
+token). Login mode never puts tokens in a URL: it stores a one-time code (`oauth_grant`, 60 s, sha256,
+`binding` = sha256 of the flow `state`) and redirects to `/auth/oauth/done#code=…`; the SPA's `exchange` must
+present the same cookie, which defeats login CSRF via a planted code, and gets a session (consume + ban check +
+identity re-check + session in one transaction, so a ban since the callback reads `banned`) or, for an unknown
+account id, a 15-minute sign-up token for the username step (`signup`, same transaction pattern as email
+sign-up). All callback errors redirect to `/auth/oauth/done#error=<code>`. Rate limiting counts flows at
+`start` (inside the handler, so a refusal still lands on the done page) and `link`/`signup` (`limit_by_ip`);
+the callback is never limited, as refusing it would waste the provider's single-use code. Logout also clears
+the flow cookie. Tests run the whole flow against a local fake provider (`tests/common/oauth.rs`, fixture RSA
+key + JWKS, JWKS hit counter / outage switch).
 
 JWT HS256 access token (15 min, `sub` = user id) + opaque refresh token (30 days, stored hashed,
 rotated on every use; reuse of a revoked token revokes the whole family). The frontend keeps both in
@@ -358,10 +397,11 @@ and a 10 s timeout. `localdate-api vapid generate` / `make vapid-keys` prints a 
 | `BIND_ADDR` | `127.0.0.1:3000` | |
 | `CLEANUP_INTERVAL_SECS` | `300` | optional, default 300; period of the cleanup job |
 | `TRUST_PROXY_HEADERS` | `false` | optional (`true`/`false`/`1`/`0`), default false; rate-limit on `X-Forwarded-For` (see Auth) |
-| `APP_BASE_URL` | `https://localdate.mmik.cz` | required when email is on; mailed links point at `{APP_BASE_URL}/auth/email…` and `/auth/password/reset` |
+| `APP_BASE_URL` | `https://localdate.mmik.cz` | required when email or Google is on; mailed links point at `{APP_BASE_URL}/auth/email…` and `/auth/password/reset`, the Google redirect URI is `{APP_BASE_URL}/api/auth/oauth/google/callback` |
 | `SMTP_URL` | `smtps://user:pass@smtp.example.com:465` | optional, secret; lettre URL, enables email |
 | `EMAIL_FROM` | `localdate <noreply@localdate.mmik.cz>` | required with `SMTP_URL` |
 | `EMAIL_DEV_LOG` | `true` | optional, debug builds only (release refuses to start): log mails incl. links instead of sending; exclusive with `SMTP_URL` |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | from Google Cloud Console | optional (Secret); both or neither; unset = Google login off |
 | `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` | from `make vapid-keys` | optional (Secret); both or neither; unset = Web Push off |
 | `VAPID_SUBJECT` | `https://localdate.mmik.cz` | `mailto:` or `https://` contact; required when the keys are set |
 | `RUST_LOG` | `info,sqlx=warn,localdate_api=debug` | sqlx logs every query at info |

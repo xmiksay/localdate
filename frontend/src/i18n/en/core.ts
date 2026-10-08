@@ -26,6 +26,7 @@ const en: Messages<typeof cs> = {
     invalid_token: 'This link is invalid or has expired.',
     last_login_method: 'This is your only way to log in, so it cannot be removed.',
     email_disabled: 'Email login is not available right now.',
+    provider_disabled: 'This sign-in method is not available right now.',
     unauthorized: 'Your session expired, please log in again.',
     invalid_credentials: 'Wrong username or password.',
     invalid_refresh_token: 'Your session expired, please log in again.',

@@ -15,14 +15,14 @@ Internal/DB errors are logged and returned as `500 internal` with a generic mess
 | Status | code | When |
 |---|---|---|
 | 400 | `validation` | body fails validation (`message` says which field) |
-| 400 | `invalid_token` | email token unknown, expired, already used, of another purpose, or (link confirm) issued to another account; also password-reset tokens |
+| 400 | `invalid_token` | email token unknown, expired, already used, of another purpose, or (link confirm) issued to another account; also password-reset tokens; OAuth code / sign-up token likewise (or exchanged without the browser's flow cookie) |
 | 401 | `unauthorized` | missing/invalid/expired access token, or one issued before the last password reset/change |
 | 401 | `invalid_credentials` | login failed; `PUT /me/password` with a wrong `current_password` |
 | 401 | `invalid_refresh_token` | refresh token unknown, expired or revoked |
 | 403 | `forbidden` | not a participant / blocked / match partner banned; `/admin/*` for non-admins |
 | 403 | `banned` | account suspended: any authenticated request, login (after a correct password), refresh, password reset |
 | 404 | `not_found` | |
-| 409 | `username_taken` | register, `POST /auth/email/signup` |
+| 409 | `username_taken` | register, `POST /auth/email/signup`, `POST /auth/oauth/signup` |
 | 409 | `last_login_method` | `DELETE /me/identities/{id}` would leave the account with no password and no identity |
 | 409 | `no_active_window` | `/nearby`, `/waves`, `/me/location`, `PATCH /me/window` without own active window |
 | 409 | `outside_area` | `POST /me/window` with `kind: 'area'` from a point outside the area's circle |
@@ -37,9 +37,10 @@ Internal/DB errors are logged and returned as `500 internal` with a generic mess
 | 422 | `profile_incomplete` | window start without profile + filter + ≥ 1 photo |
 | 422 | `photo_limit` | 7th photo |
 | 422 | `unsupported_image` | not decodable jpeg/png/webp, > 10 MB, an edge > 10 000 px or > 32 Mi pixels (~33 MP) |
-| 429 | `rate_limited` | per-IP throttle: login, register, `/auth/email/start`, `/auth/email/signup`, `/auth/password/forgot`, `POST /me/identities/email`, `PUT /me/password` |
+| 429 | `rate_limited` | per-IP throttle: login, register, `/auth/email/start`, `/auth/email/signup`, `/auth/password/forgot`, `POST /me/identities/email`, `PUT /me/password`, `/auth/oauth/{provider}/start` · `/link`, `/auth/oauth/signup` (never the callback: refusing it would waste the provider's code; its flow was counted at start) |
 | 429 | `wave_limit` | > 20 waves in one window |
 | 503 | `email_disabled` | any email endpoint while the server has no mailer (`GET /auth/providers` → `email: false`), incl. `/auth/password/forgot` |
+| 503 | `provider_disabled` | `POST /auth/oauth/{provider}/link` while that provider is not configured (`GET /auth/providers` → `google: false`) |
 
 ## Shared types
 
@@ -87,10 +88,12 @@ interface MatchSummary {
   last_message: Message | null
 }
 interface Tokens { access_token: string; refresh_token: string; user: User }
-type IdentityProvider = 'email'   // later: 'telegram' | 'google' | 'facebook'
+type IdentityProvider = 'email' | 'google'   // later: 'telegram' | 'facebook'
+type OAuthProvider = 'google'                // providers signed in through /auth/oauth/{provider}
 interface Identity {
   id: string; provider: IdentityProvider
   subject: string            // email: the normalized address (it is the caller's own, shown in full)
+                             // google: Google's opaque account id (`sub`) — not meant for display
   verified_at: string; created_at: string
 }
 type EmailTokenPurpose = 'login' | 'signup' | 'link'
@@ -100,6 +103,9 @@ interface EmailPreview {
   email: string
 }
 type MailLang = 'cs' | 'en'   // language of the sent email; anything else / missing → 'cs'
+type OAuthExchange =
+  | { session: Tokens }                                          // existing account, logged in
+  | { signup: { token: string; provider: OAuthProvider; expires_at: string } } // new: pick a username
 ```
 
 ## Auth
@@ -109,7 +115,7 @@ type MailLang = 'cs' | 'en'   // language of the sent email; anything else / mis
 | `POST /auth/register` | `{ username, password }` | `201 Tokens` |
 | `POST /auth/login` | `{ username, password }` | `200 Tokens` |
 | `POST /auth/refresh` | `{ refresh_token }` | `200 Tokens` (old token revoked) |
-| `POST /auth/logout` | `{ refresh_token }` | `204` |
+| `POST /auth/logout` | `{ refresh_token }` | `204`; also clears the OAuth flow cookie (`ld_oauth`, `Path=/api/auth/oauth`) |
 
 Username: trimmed, lowercased, `[a-z0-9_]{3,32}`. Password: 10–128 chars.
 An account created by email (or a later OAuth provider) has **no password**: password login for it
@@ -119,7 +125,7 @@ answers the same `401 invalid_credentials` as a wrong password (same argon2 timi
 
 | Method & path | Body | 2xx response |
 |---|---|---|
-| `GET /auth/providers` | — | `200 { email: boolean }` — which login methods this server offers (more keys later) |
+| `GET /auth/providers` | — | `200 { email: boolean, google: boolean }` — which login methods this server offers |
 | `POST /auth/email/start` | `{ email, lang?: MailLang }` | `202` (empty) — always, whether or not the address has an account |
 | `POST /auth/email/preview` | `{ token }` | `200 EmailPreview` — never consumes the token |
 | `POST /auth/email/verify` | `{ token }` | `200 Tokens` — login tokens only, consumed |
@@ -185,6 +191,56 @@ unspent. `preview` / `reset` → `400 invalid_token` for unknown, expired, used 
 the address was unlinked from the account since the mail went out. Reset tokens are refused by
 `/auth/email/preview` and `/auth/email/verify` (`400 invalid_token`), login tokens by the reset endpoints.
 
+### Sign in with Google (OAuth / OpenID Connect)
+
+Server-side authorization code flow with PKCE (S256), a `state` and a `nonce`. `{provider}` is an
+`OAuthProvider` (`google`); an unknown one → `404`. Google is offered only when the server has
+`GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET` (`GET /auth/providers` → `google`).
+
+| Method & path | Body | 2xx response |
+|---|---|---|
+| `GET /auth/oauth/{provider}/start?redirect=<path>` | — | `302` to the provider (login or sign-up); sets the flow cookie |
+| `POST /auth/oauth/{provider}/link` (auth) | `{ redirect?: string, lang?: MailLang }` | `200 { url: string }` — navigate the browser there; sets the flow cookie |
+| `GET /auth/oauth/{provider}/callback?code&state` | — (the provider redirects here) | `302 /auth/oauth/done#…` |
+| `POST /auth/oauth/exchange` | `{ code }` | `200 OAuthExchange` — needs the flow cookie, code consumed |
+| `POST /auth/oauth/signup` | `{ token, username }` | `201 Tokens` (token consumed, account + identity created) |
+
+The SPA starts a login with a plain navigation to `start` (no fetch); linking needs the bearer token, so
+it is a `POST` returning the provider URL. Both set an **HttpOnly, SameSite=Lax** cookie `ld_oauth`
+(`Path=/api/auth/oauth`, 10 min, `Secure` unless `APP_BASE_URL` is `http://`), HMAC-signed by the server:
+provider, mode (login / link), `state`, PKCE verifier, `nonce`, the safe redirect and — link only — the
+caller's user id. The provider's account id (`sub`) is the identity subject; the email Google may know is
+neither requested (scope `openid` only) nor stored, and never used to match accounts.
+
+`redirect` must be an in-app path: starts with a single `/`, ≤ 512 printable ASCII chars, no `\`; anything
+else is dropped (→ none). The callback **never puts tokens in a URL**; it redirects to the SPA route
+`/auth/oauth/done` with one of these fragments (`redirect` appended as `&redirect=<percent-encoded path>`
+when one was given):
+
+| Fragment | Meaning |
+|---|---|
+| `#code=<one-time code>` | login or sign-up: `POST /auth/oauth/exchange { code }` within 60 s, from the same browser |
+| `#linked=<provider>` | link mode: the identity was added to the account that started the flow |
+| `#error=<code>` | `cancelled` (denied at the provider), `invalid_state` (cookie missing / expired / tampered, `state` mismatch, wrong provider), `oauth_failed` (code exchange or ID token check failed), `provider_disabled`, `banned`, `identity_taken` (link: that provider account belongs to another user), `unauthorized` (link: the account is gone, or its password was reset / changed after the access token that started the flow — that session was ended, so its link flow dies with it), `rate_limited`, `internal` |
+
+ID tokens are checked against the provider's JWKS (RS256, cached, refetched for an unknown `kid`): `iss`,
+`aud` = client id, `exp`, and `nonce` = the cookie's. One-time codes (and sign-up tokens) are 32 random
+bytes base64url, stored as sha256; codes live 60 s and are bound to the flow cookie's `state`, so a code
+lifted from another browser is `400 invalid_token` and so is reuse. `exchange` clears the cookie. An `azp`
+claim, when present, must equal the client id. When the signing keys cannot be refetched after their
+cache time, the previous keys keep being used (logged).
+
+A successful link (not a repeated one) mails a notice — "<Provider> sign-in was linked to your account",
+no link, no token, in `lang` — to every email address linked to the account, after the redirect; nothing
+when email is off or no address is linked.
+
+`exchange` → `{ session }` when the provider account is linked to an account (re-checked after the ban check, so a
+ban since the callback is `403 banned`,
+not consumed — consumption, ban check and session are one transaction), or `{ signup }` with a sign-up token
+(15 min) when it is new: the SPA asks for a username and calls `signup`, which validates it like register
+(`400 validation`, `409 username_taken` — the token stays usable). A provider account linked elsewhere in the
+meantime → `400 invalid_token`. The new account has no password and goes through onboarding like any other.
+
 ## Me / profile
 
 | Method & path | Body | 2xx response |
@@ -203,6 +259,8 @@ the address was unlinked from the account since the mail went out. Reset tokens 
 | `POST /me/identities/email` | `{ email, lang?: MailLang }` | `202` (empty) — always |
 | `POST /me/identities/email/confirm` | `{ token }` | `201 Identity` |
 | `DELETE /me/identities/{id}` | — | `204`; `409 last_login_method` if it is the only identity of a passwordless account; another user's / unknown id → `404` |
+
+Google is linked through `POST /auth/oauth/google/link` (above) and unlinked here like any identity.
 
 Linking: `POST /me/identities/email` mails a link token bound to the caller to that address — or, if the
 address is already linked to any account (the caller's included), a short notice instead, so the answer

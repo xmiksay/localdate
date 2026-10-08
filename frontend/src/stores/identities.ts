@@ -1,7 +1,8 @@
 import { ref } from 'vue'
 import { defineStore } from 'pinia'
 import * as identitiesApi from '@/api/identities'
-import type { Identity } from '@/api/types'
+import { oauthLink } from '@/api/oauth'
+import type { Identity, OAuthProvider } from '@/api/types'
 import { mailLang } from '@/i18n'
 import { normalizeEmail } from '@/utils/validation'
 
@@ -12,6 +13,8 @@ export const useIdentitiesStore = defineStore('identities', () => {
   const loaded = ref(false)
   /** Address confirmed by the link flow, shown once as a success note in settings. */
   const justLinked = ref<string | null>(null)
+  /** Provider an OAuth link flow just added, shown once like `justLinked`. */
+  const justLinkedProvider = ref<OAuthProvider | null>(null)
 
   let loading: Promise<void> | null = null
 
@@ -41,6 +44,11 @@ export const useIdentitiesStore = defineStore('identities', () => {
     return identity
   }
 
+  /** The provider URL to send the browser to; the flow returns via `/auth/oauth/done`. */
+  async function startOAuthLink(provider: OAuthProvider, redirect: string) {
+    return (await oauthLink(provider, { redirect, lang: mailLang() })).url
+  }
+
   async function remove(id: string) {
     await identitiesApi.deleteIdentity(id)
     identities.value = identities.value.filter((i) => i.id !== id)
@@ -51,7 +59,20 @@ export const useIdentitiesStore = defineStore('identities', () => {
     hasPassword.value = true
     loaded.value = false
     justLinked.value = null
+    justLinkedProvider.value = null
   }
 
-  return { identities, hasPassword, loaded, justLinked, load, linkEmail, confirm, remove, reset }
+  return {
+    identities,
+    hasPassword,
+    loaded,
+    justLinked,
+    justLinkedProvider,
+    load,
+    linkEmail,
+    startOAuthLink,
+    confirm,
+    remove,
+    reset,
+  }
 })

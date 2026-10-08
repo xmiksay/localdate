@@ -1,11 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import * as identitiesApi from '@/api/identities'
+import * as oauthApi from '@/api/oauth'
 import { ApiError } from '@/api/client'
 import type { Identity } from '@/api/types'
 import { useIdentitiesStore } from './identities'
 
 vi.mock('@/api/identities')
+vi.mock('@/api/oauth')
 
 const identity = (id: string, subject = `${id}@example.cz`): Identity => ({
   id,
@@ -62,6 +64,14 @@ describe('identities store', () => {
     expect(s.justLinked).toBe('eva@example.cz')
   })
 
+  it('startOAuthLink asks for the provider URL with the way back and the UI language', async () => {
+    vi.mocked(oauthApi.oauthLink).mockResolvedValue({ url: 'https://accounts.google.com/x' })
+    await expect(useIdentitiesStore().startOAuthLink('google', '/settings')).resolves.toBe(
+      'https://accounts.google.com/x',
+    )
+    expect(oauthApi.oauthLink).toHaveBeenCalledWith('google', { redirect: '/settings', lang: 'cs' })
+  })
+
   it('remove drops the identity only after the server agrees', async () => {
     const s = useIdentitiesStore()
     s.identities = [identity('a'), identity('b')]
@@ -81,10 +91,12 @@ describe('identities store', () => {
     s.hasPassword = false
     s.justLinked = 'x@y.cz'
     s.loaded = true
+    s.justLinkedProvider = 'google'
     s.reset()
     expect(s.loaded).toBe(false)
     expect(s.identities).toEqual([])
     expect(s.hasPassword).toBe(true)
     expect(s.justLinked).toBeNull()
+    expect(s.justLinkedProvider).toBeNull()
   })
 })

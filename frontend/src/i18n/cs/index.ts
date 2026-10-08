@@ -5,5 +5,14 @@ import profile from './profile'
 import discovery from './discovery'
 import moderation from './moderation'
 import notifications from './notifications'
+import oauth from './oauth'
 
-export default { ...core, ...auth, ...profile, ...discovery, ...moderation, ...notifications }
+export default {
+  ...core,
+  ...auth,
+  ...profile,
+  ...discovery,
+  ...moderation,
+  ...notifications,
+  ...oauth,
+}

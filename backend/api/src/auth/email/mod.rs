@@ -83,7 +83,12 @@ impl EmailService {
         username: Option<&str>,
     ) {
         let link = token.map(|t| format!("{}{}#token={t}", self.base_url, kind.path()));
-        let email = message::render(kind, lang, to, link.as_deref(), username);
+        self.deliver(message::render(kind, lang, to, link.as_deref(), username))
+            .await;
+    }
+
+    /// Queues an already rendered `email` (same slots, timeout and logging as [`send`](Self::send)).
+    pub async fn deliver(&self, email: crate::mail::Email) {
         let permit =
             match tokio::time::timeout(SLOT_WAIT, self.permits.clone().acquire_owned()).await {
                 Ok(Ok(permit)) => permit,
@@ -186,11 +191,19 @@ pub fn router() -> Router<AppState> {
 #[derive(Serialize)]
 struct Providers {
     email: bool,
+    /// One key per OAuth provider (`google`, …).
+    #[serde(flatten)]
+    oauth: std::collections::BTreeMap<&'static str, bool>,
 }
 
 async fn providers(State(state): State<AppState>) -> Json<Providers> {
+    use crate::auth::oauth::Provider;
     Json(Providers {
         email: state.email.is_some(),
+        oauth: Provider::ALL
+            .into_iter()
+            .map(|p| (p.as_str(), state.oauth.enabled(p)))
+            .collect(),
     })
 }
 

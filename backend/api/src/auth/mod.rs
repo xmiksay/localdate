@@ -1,9 +1,11 @@
-//! Auth: username + password (argon2id) or an email magic link; HS256 access JWT and rotating
-//! opaque refresh tokens either way. Forgotten passwords are reset through a linked email.
+//! Auth: username + password (argon2id), an email magic link or an OAuth provider (Google); HS256
+//! access JWT and rotating opaque refresh tokens either way. Forgotten passwords are reset through a
+//! linked email.
 
 pub mod email;
 pub mod extractor;
 pub mod jwt;
+pub mod oauth;
 pub mod password;
 pub mod refresh;
 pub mod reset;

@@ -34,7 +34,7 @@ export default {
     verified: 'Ověřeno {date}',
     remove: 'Odebrat',
     empty: 'Zatím žádné propojené účty.',
-    noPassword: 'Účet nemá heslo — přihlašuješ se e-mailem.',
+    noPassword: 'Účet nemá heslo — přihlašuješ se propojeným účtem.',
     addEmail: 'Přidat e-mail',
     linked: 'E-mail {email} je propojený.',
     linkTitle: 'Propojit {email} s účtem {username}?',

@@ -1,7 +1,8 @@
 use std::sync::LazyLock;
 
 use axum::extract::State;
-use axum::http::StatusCode;
+use axum::http::header::SET_COOKIE;
+use axum::http::{HeaderName, HeaderValue, StatusCode};
 use axum::routing::post;
 use axum::{Json, Router, middleware};
 use chrono::{DateTime, Utc};
@@ -32,6 +33,7 @@ pub fn router() -> Router<AppState> {
         .route("/auth/logout", post(logout))
         .merge(super::email::router())
         .merge(super::reset::router())
+        .merge(super::oauth::router())
 }
 
 #[derive(Deserialize)]
@@ -166,7 +168,9 @@ async fn refresh(
 async fn logout(
     State(state): State<AppState>,
     AppJson(body): AppJson<RefreshBody>,
-) -> Result<StatusCode, AppError> {
+) -> Result<(StatusCode, [(HeaderName, HeaderValue); 1]), AppError> {
     refresh::revoke_by_token(&state.db, &body.refresh_token).await?;
-    Ok(StatusCode::NO_CONTENT)
+    // A half-finished OAuth flow must not outlive the session on a shared device.
+    let clear = state.oauth.clear_cookie()?;
+    Ok((StatusCode::NO_CONTENT, [(SET_COOKIE, clear)]))
 }

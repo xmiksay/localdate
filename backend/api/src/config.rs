@@ -4,6 +4,8 @@ use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 
+use crate::auth::oauth::{self, OidcConfig};
+
 const MIN_JWT_SECRET_BYTES: usize = 32;
 const DEFAULT_CLEANUP_INTERVAL_SECS: u64 = 300;
 
@@ -33,6 +35,11 @@ pub struct Config {
     pub ws_idle_timeout: Duration,
     /// Web Push identity; `None` (no VAPID keys set) turns push off.
     pub vapid: Option<VapidConfig>,
+    /// Configured OAuth providers (Google); one without client credentials is absent = disabled.
+    pub oauth: Vec<OidcConfig>,
+    /// `APP_BASE_URL`: the PWA origin, no trailing slash. Email and OAuth redirect URIs derive from
+    /// it; its scheme decides whether cookies get `Secure`.
+    pub app_base_url: Option<String>,
 }
 
 /// Raw `VAPID_*` values; `push::vapid::Vapid::from_config` checks that they fit together.
@@ -94,6 +101,7 @@ impl Config {
         if jwt_secret.len() < MIN_JWT_SECRET_BYTES {
             bail!("JWT_SECRET must be at least {MIN_JWT_SECRET_BYTES} bytes");
         }
+        let app_base_url = app_base_url(std::env::var("APP_BASE_URL").ok())?;
         Ok(Self {
             database_url: var("DATABASE_URL")?,
             jwt_secret,
@@ -111,7 +119,7 @@ impl Config {
                 flag(std::env::var("EMAIL_DEV_LOG").ok())
                     .context("EMAIL_DEV_LOG must be true or false")?,
                 non_empty(std::env::var("EMAIL_FROM").ok()),
-                non_empty(std::env::var("APP_BASE_URL").ok()),
+                app_base_url.clone(),
                 cfg!(debug_assertions),
             )?,
             ws_ping_every: WS_PING_EVERY,
@@ -121,8 +129,25 @@ impl Config {
                 std::env::var("VAPID_PRIVATE_KEY").ok(),
                 std::env::var("VAPID_SUBJECT").ok(),
             )?,
+            oauth: oauth::config::from_env(
+                app_base_url.as_deref(),
+                std::env::var("GOOGLE_CLIENT_ID").ok(),
+                std::env::var("GOOGLE_CLIENT_SECRET").ok(),
+            )?,
+            app_base_url,
         })
     }
+}
+
+/// `APP_BASE_URL`: http(s) origin of the PWA, trailing slash dropped; unset or empty = `None`.
+fn app_base_url(raw: Option<String>) -> Result<Option<String>> {
+    let Some(base) = non_empty(raw) else {
+        return Ok(None);
+    };
+    if !(base.starts_with("https://") || base.starts_with("http://")) {
+        bail!("APP_BASE_URL must start with http:// or https://");
+    }
+    Ok(Some(base.trim_end_matches('/').to_owned()))
 }
 
 fn cleanup_interval(raw: Option<String>) -> Result<Duration> {
@@ -265,6 +290,17 @@ mod tests {
         assert_eq!(dev.transport, EmailTransport::DevLog);
         assert_eq!(dev.from, DEV_LOG_FROM);
         assert!(email_config(None, true, None, base(), false).is_err());
+    }
+
+    #[test]
+    fn app_base_url_is_optional_http_and_loses_its_trailing_slash() {
+        assert_eq!(app_base_url(None).ok(), Some(None));
+        assert_eq!(app_base_url(some(" ")).ok(), Some(None));
+        assert_eq!(
+            app_base_url(some("https://a.cz/")).ok(),
+            Some(some("https://a.cz"))
+        );
+        assert!(app_base_url(some("a.cz")).is_err());
     }
 
     #[test]

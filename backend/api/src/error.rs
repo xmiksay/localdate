@@ -61,6 +61,10 @@ pub enum AppError {
     LastLoginMethod,
     #[error("email is not available on this server")]
     EmailDisabled,
+    #[error("this login provider is not available on this server")]
+    ProviderDisabled,
+    #[error("this account is already linked to another user")]
+    IdentityTaken,
     #[error("internal server error")]
     Internal,
 }
@@ -88,6 +92,7 @@ impl AppError {
             | Self::TooCloseToMidnight
             | Self::AreaInUse
             | Self::LastLoginMethod
+            | Self::IdentityTaken
             | Self::PushDisabled => StatusCode::CONFLICT,
             Self::Underage
             | Self::ProfileIncomplete
@@ -95,7 +100,7 @@ impl AppError {
             | Self::UnsupportedImage => StatusCode::UNPROCESSABLE_ENTITY,
             Self::RateLimited | Self::WaveLimit => StatusCode::TOO_MANY_REQUESTS,
             Self::Internal => StatusCode::INTERNAL_SERVER_ERROR,
-            Self::EmailDisabled => StatusCode::SERVICE_UNAVAILABLE,
+            Self::EmailDisabled | Self::ProviderDisabled => StatusCode::SERVICE_UNAVAILABLE,
         }
     }
 
@@ -127,6 +132,8 @@ impl AppError {
             Self::InvalidToken => "invalid_token",
             Self::LastLoginMethod => "last_login_method",
             Self::EmailDisabled => "email_disabled",
+            Self::ProviderDisabled => "provider_disabled",
+            Self::IdentityTaken => "identity_taken",
             Self::Internal => "internal",
         }
     }
@@ -235,6 +242,8 @@ mod tests {
             (AppError::InvalidToken, 400, "invalid_token"),
             (AppError::LastLoginMethod, 409, "last_login_method"),
             (AppError::EmailDisabled, 503, "email_disabled"),
+            (AppError::ProviderDisabled, 503, "provider_disabled"),
+            (AppError::IdentityTaken, 409, "identity_taken"),
             (AppError::Internal, 500, "internal"),
         ];
         for (err, status, code) in cases {
