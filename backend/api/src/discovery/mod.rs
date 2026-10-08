@@ -1,5 +1,6 @@
 //! Visibility window, location and the mutual-filter "nearby" list.
 
+pub mod duration;
 pub mod geo;
 pub mod location;
 pub mod nearby;

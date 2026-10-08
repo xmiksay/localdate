@@ -29,10 +29,16 @@ Debug builds (clippy, tests) need no bundle: they read `frontend/dist` from disk
 ## Core concepts
 
 - **Visibility window** — the user turns on "I'm available" for a preset duration
-  (30 / 60 / 120 / 240 min, default from settings). Can be extended or ended early.
+  (30 / 60 / 120 / 240 min, default from settings) or until the end of their local day
+  (`discovery::duration`: next midnight in the client's IANA `tz` via `chrono-tz`, refused < 30 min before it).
+  Can be extended or ended early. No window ever runs more than 12 h ahead of now (start or extend), so an
+  end-of-day window started in the morning ends after 12 h. End of day is only how `ends_at` is computed —
+  nothing about it is stored, it is not a `kind`. The invariant is "≤ 12 h ahead", not "one of the
+  presets": any client can pick a `tz` whose midnight is e.g. 47 min away and so get a non-preset length,
+  which is accepted on purpose (`ends_at` is computed after the start's user-row lock).
   Only a user with an active window can see others (reciprocity), and only users with
   an active window **and ≥ 1 photo and a profile** are visible. `kind` is `timed` (distance
-  around the user) or `area` (bound to a predefined area, below); further modes (until end of day) fit the enum.
+  around the user) or `area` (bound to a predefined area, below); either can run until end of day.
 - **Areas** — admin-managed circles (centre + `radius_m` 50–5000) around public places: city centre,
   train station, venue. Plain Postgres + Rust haversine (`discovery::geo::Circle`), no PostGIS; the table is
   small, so `GET /areas` filters active areas in Rust. An area window starts only inside the circle

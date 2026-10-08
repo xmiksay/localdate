@@ -20,6 +20,7 @@ argon2.workspace = true
 axum.workspace = true
 base64.workspace = true
 chrono.workspace = true
+chrono-tz.workspace = true
 clap.workspace = true
 dotenvy.workspace = true
 image.workspace = true

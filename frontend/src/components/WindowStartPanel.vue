@@ -1,22 +1,56 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onUnmounted, ref, watch } from 'vue'
 import { useT } from '@/i18n/typed'
 import { ApiError } from '@/api/client'
-import { WINDOW_MINUTES, type WindowKind, type WindowMinutes } from '@/api/types'
+import {
+  WINDOW_MINUTES,
+  type WindowDuration,
+  type WindowKind,
+  type WindowMinutes,
+} from '@/api/types'
 import { currentPosition } from '@/composables/useGeolocation'
 import { useMeStore } from '@/stores/me'
 import { useWindowStore } from '@/stores/window'
 import { errorMessage } from '@/utils/errors'
+import { deviceTimeZone } from '@/api/window'
+import {
+  endOfDayEnd,
+  endOfDayOffered,
+  formatClock,
+  nextEndOfDayChange,
+  nextMidnight,
+} from '@/utils/time'
 import AreaPicker from './AreaPicker.vue'
 import BaseButton from './ui/BaseButton.vue'
 import ErrorNote from './ui/ErrorNote.vue'
 import PillRadios from './ui/PillRadios.vue'
 
-const { t } = useT()
+const { t, locale } = useT()
 const me = useMeStore()
 const win = useWindowStore()
 
-const minutes = ref<WindowMinutes>(me.filter?.default_window_minutes ?? 60)
+const defaultMinutes = (): WindowMinutes => me.filter?.default_window_minutes ?? 60
+const duration = ref<WindowDuration>(defaultMinutes())
+// Re-rendered exactly when the end-of-day option or its end time changes, no polling.
+const now = ref(new Date())
+let timer: ReturnType<typeof setTimeout> | undefined
+function arm() {
+  clearTimeout(timer)
+  timer = setTimeout(
+    () => {
+      now.value = new Date()
+      arm()
+    },
+    Math.max(0, nextEndOfDayChange(now.value).getTime() - Date.now()),
+  )
+}
+arm()
+onUnmounted(() => clearTimeout(timer))
+const refusedUntil = ref<number | null>(null)
+const endOfDayOk = computed(() => endOfDayOffered(now.value, deviceTimeZone(), refusedUntil.value))
+watch(endOfDayOk, (ok) => {
+  if (!ok && duration.value === 'end_of_day') duration.value = defaultMinutes()
+})
 const kind = ref<WindowKind>('timed')
 const areaId = ref<string | null>(null)
 const picker = ref<InstanceType<typeof AreaPicker> | null>(null)
@@ -26,7 +60,23 @@ const incomplete = ref(false)
 
 const label = (m: WindowMinutes) =>
   m >= 60 ? t('common.hours', { n: m / 60 }) : t('common.minutes', { n: m })
-const durations = computed(() => WINDOW_MINUTES.map((m) => ({ value: m, label: label(m) })))
+const durations = computed(() => {
+  const presets: { value: WindowDuration; label: string }[] = WINDOW_MINUTES.map((m) => ({
+    value: m,
+    label: label(m),
+  }))
+  return endOfDayOk.value
+    ? [
+        ...presets,
+        {
+          value: 'end_of_day' as const,
+          label: t('nearby.untilEndOfDay', {
+            time: formatClock(endOfDayEnd(now.value), locale.value),
+          }),
+        },
+      ]
+    : presets
+})
 const kinds = computed(() => [
   { value: 'timed' as const, label: t('area.modeNearby') },
   { value: 'area' as const, label: t('area.modeArea') },
@@ -40,7 +90,7 @@ async function start() {
   try {
     const at = await currentPosition()
     await win.start(
-      minutes.value,
+      duration.value,
       at,
       kind.value === 'area' ? (areaId.value ?? undefined) : undefined,
     )
@@ -49,6 +99,12 @@ async function start() {
       failure.value = t(e === 'denied' ? 'nearby.geoDenied' : 'nearby.geoUnavailable')
     } else if (e instanceof ApiError && e.code === 'profile_incomplete') {
       incomplete.value = true
+    } else if (e instanceof ApiError && e.code === 'too_close_to_midnight') {
+      // The device clock lags the server's, so our own 30 min check would offer it again: wait for midnight.
+      failure.value = errorMessage(e)
+      now.value = new Date()
+      refusedUntil.value = nextMidnight(now.value).getTime()
+      arm()
     } else if (e instanceof ApiError && e.code === 'outside_area') {
       // We moved out since the list was fetched: offer what contains us now.
       failure.value = errorMessage(e)
@@ -68,7 +124,7 @@ async function start() {
 
     <PillRadios v-model="kind" :label="t('area.mode')" :options="kinds" />
     <AreaPicker v-if="kind === 'area'" ref="picker" v-model="areaId" />
-    <PillRadios v-model="minutes" :label="t('nearby.duration')" :options="durations" />
+    <PillRadios v-model="duration" :label="t('nearby.duration')" :options="durations" />
 
     <div
       v-if="incomplete"

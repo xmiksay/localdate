@@ -21,7 +21,7 @@ waves, and chats after a mutual wave.
 
 - `backend/api/src/`: `auth/` (password, jwt, refresh rotation, `AuthUser` extractor), `me/` (profile, photos +
   `image_proc`, filter, `DELETE /me`), `discovery/` (`geo` bands/haversine, `rules::mutually_visible` = spec,
-  `window`, `location` (location updates + area leave check), `nearby` = the **only runtime visibility SQL**,
+  `duration` presets/12 h cap/end of day, `window`, `location` (location updates + area leave check), `nearby` = the **only runtime visibility SQL**,
   reused by waves, + shared-interest ranking), `areas/` (`GET /areas` containment, admin CRUD `/admin/areas`),
   `social/` (waves, matches, messages), `ws/` (hub + session, `Hub::disconnect` on ban), `cleanup.rs` (retention
   job spawned from `main`; tests call `run_once(db, shift)`), `web.rs` (router fallback serving the `rust-embed`ded

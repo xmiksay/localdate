@@ -1,7 +1,7 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import * as windowApi from '@/api/window'
-import type { Window, WindowMinutes } from '@/api/types'
+import type { Window, WindowDuration, WindowMinutes } from '@/api/types'
 import type { Coords } from '@/utils/geo'
 
 export const useWindowStore = defineStore('window', () => {
@@ -64,8 +64,8 @@ export const useWindowStore = defineStore('window', () => {
     dismissNotice()
   }
 
-  async function start(minutes: WindowMinutes, at: Coords, areaId?: string) {
-    set(await windowApi.startWindow(minutes, at.lat, at.lon, areaId))
+  async function start(duration: WindowDuration, at: Coords, areaId?: string) {
+    set(await windowApi.startWindow(duration, at.lat, at.lon, areaId))
     dismissNotice()
   }
 

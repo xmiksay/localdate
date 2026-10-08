@@ -115,6 +115,8 @@ const en: Messages<typeof cs> = {
     intro:
       'You only see people around you while you are visible yourself. Turn visibility on for a set time. We never show your location, only an approximate distance.',
     duration: 'How long do you want to be visible',
+    untilEndOfDay: 'Until end of day (until {time})',
+    endsAt: 'until {time}',
     start: 'Turn visibility on',
     starting: 'Finding your location…',
     profileIncomplete: 'Complete your profile, a photo and a filter before going visible.',
@@ -277,6 +279,7 @@ const en: Messages<typeof cs> = {
     no_active_window: 'Turn on visibility first.',
     outside_area: 'You are not inside the chosen area.',
     left_area: 'You left the area, visibility ended.',
+    too_close_to_midnight: 'Less than 30 minutes left until midnight, pick a fixed duration.',
     area_in_use: 'The area is in use and cannot be deleted. Deactivate it instead.',
     not_visible: 'This person is no longer in range.',
     cannot_ban_admin: 'An admin cannot be banned.',

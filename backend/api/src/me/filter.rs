@@ -7,10 +7,9 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::auth::AuthUser;
+use crate::discovery::duration::check_minutes;
 use crate::error::{AppError, AppJson};
 use crate::state::AppState;
-
-const WINDOW_MINUTES: [i16; 4] = [30, 60, 120, 240];
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct FilterDto {
@@ -71,11 +70,7 @@ fn validate(f: FilterDto) -> Result<FilterDto, AppError> {
     if f.reasons.is_empty() {
         return Err(AppError::validation("reasons must not be empty"));
     }
-    if !WINDOW_MINUTES.contains(&f.default_window_minutes) {
-        return Err(AppError::validation(
-            "default_window_minutes must be 30, 60, 120 or 240",
-        ));
-    }
+    check_minutes("default_window_minutes", f.default_window_minutes.into())?;
     Ok(FilterDto {
         genders: dedup(f.genders),
         reasons: dedup(f.reasons),

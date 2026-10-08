@@ -23,6 +23,7 @@ Internal/DB errors are logged and returned as `500 internal` with a generic mess
 | 409 | `username_taken` | register |
 | 409 | `no_active_window` | `/nearby`, `/waves`, `/me/location`, `PATCH /me/window` without own active window |
 | 409 | `outside_area` | `POST /me/window` with `kind: 'area'` from a point outside the area's circle |
+| 409 | `too_close_to_midnight` | `POST /me/window` with `until: 'end_of_day'` less than 30 min before local midnight |
 | 409 | `left_area` | `POST /me/location` beyond the area's leave margin (see below): the area window was ended |
 | 409 | `area_in_use` | `DELETE /admin/areas/{id}` while a window row (running, or ended < 24 h ago) references it |
 | 409 | `not_visible` | wave target is not currently mutually visible |
@@ -116,10 +117,19 @@ reasons non-empty.
 | Method & path | Body | 2xx response |
 |---|---|---|
 | `GET /me/window` | — | `200 Window \| null` |
-| `POST /me/window` | `{ kind?: 'timed'\|'area', area_id?: string, minutes: 30\|60\|120\|240, lat, lon }` | `201 Window` (ends any previous active window) |
+| `POST /me/window` | `{ kind?: 'timed'\|'area', area_id?: string, minutes?: 30\|60\|120\|240, until?: 'end_of_day', tz?: string, lat, lon }` | `201 Window` (ends any previous active window) |
 | `PATCH /me/window` | `{ extend_minutes: 30\|60\|120\|240 }` | `200 Window` (max total 12 h from now) |
 | `DELETE /me/window` | — | `204` (sets `ended_at`, deletes its pending waves) |
 | `POST /me/location` | `{ lat, lon, accuracy?: number /* metres, ≥ 0 */ }` | `204` |
+
+Duration: exactly one of `minutes` or `until: 'end_of_day'` (with `tz`, an IANA zone name such as
+`Europe/Prague` — the client sends `Intl.DateTimeFormat().resolvedOptions().timeZone`); `tz` without
+`until`, both, neither or an unknown zone is `400 validation`. End of day works for both kinds and ends the
+window at the next local midnight in `tz` — a midnight skipped by a DST change becomes the first valid
+local time after it, an ambiguous one its first occurrence after now — but never more than 12 h from now (the cap
+every window obeys). Less than 30 min before that midnight it is `409 too_close_to_midnight` (the client
+hides the option then, and after such a refusal until midnight passes). It is only a way to set `ends_at`: the `Window` carries no trace of it and extend
+works as for any window.
 
 lat ∈ [-90, 90], lon ∈ [-180, 180]; stored rounded to 3 decimals.
 Client updates location every 2 min or after moving > 100 m while a window is active.

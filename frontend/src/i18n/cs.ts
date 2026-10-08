@@ -112,6 +112,8 @@ export default {
     intro:
       'Lidi kolem sebe uvidíš jen tehdy, když budeš i ty sám viditelný. Zapni viditelnost na zvolenou dobu, polohu ostatním neukážeme, jen přibližnou vzdálenost.',
     duration: 'Jak dlouho chceš být viditelný',
+    untilEndOfDay: 'Do konce dne (do {time})',
+    endsAt: 'do {time}',
     start: 'Zapnout viditelnost',
     starting: 'Zjišťuji polohu…',
     profileIncomplete: 'Než se zviditelníš, dokonči profil, fotku a filtr.',
@@ -274,6 +276,7 @@ export default {
     no_active_window: 'Nejdřív zapni viditelnost.',
     outside_area: 'Nejsi uvnitř zvolené oblasti.',
     left_area: 'Opustil(a) jsi oblast, viditelnost skončila.',
+    too_close_to_midnight: 'Do půlnoci zbývá méně než 30 minut, vyber pevnou délku.',
     area_in_use: 'Oblast se právě používá, smazat ji nejde. Místo toho ji deaktivuj.',
     not_visible: 'Tato osoba už není v dosahu.',
     cannot_ban_admin: 'Administrátora nelze zablokovat.',

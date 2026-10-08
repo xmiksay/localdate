@@ -4,11 +4,11 @@ import { useT } from '@/i18n/typed'
 import { WINDOW_MINUTES, type WindowMinutes } from '@/api/types'
 import { useWindowStore } from '@/stores/window'
 import { errorMessage } from '@/utils/errors'
-import { formatCountdown } from '@/utils/time'
+import { formatClock, formatCountdown } from '@/utils/time'
 import BaseButton from './ui/BaseButton.vue'
 import ErrorNote from './ui/ErrorNote.vue'
 
-const { t } = useT()
+const { t, locale } = useT()
 const win = useWindowStore()
 
 const picking = ref(false)
@@ -34,9 +34,14 @@ const end = () => run(() => win.end())
 <template>
   <section class="flex flex-col gap-3 rounded-3xl bg-plum p-4 text-cream">
     <div class="flex items-center justify-between gap-3">
-      <p class="font-display text-2xl font-semibold tabular-nums" role="timer">
-        {{ t('nearby.remaining', { time: formatCountdown(win.remainingMs) }) }}
-      </p>
+      <div class="flex flex-wrap items-baseline gap-x-2">
+        <p class="font-display text-2xl font-semibold tabular-nums" role="timer">
+          {{ t('nearby.remaining', { time: formatCountdown(win.remainingMs) }) }}
+        </p>
+        <p v-if="win.current" class="text-sm font-semibold text-cream/70">
+          {{ t('nearby.endsAt', { time: formatClock(win.current.ends_at, locale) }) }}
+        </p>
+      </div>
       <p class="text-sm font-semibold text-sun">
         {{ t('nearby.wavesLeft', { n: win.wavesLeft }) }}
       </p>
