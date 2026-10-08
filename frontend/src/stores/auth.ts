@@ -73,14 +73,20 @@ export const useAuthStore = defineStore('auth', () => {
   const emailEnabled = ref(false)
   /** Enabled OAuth providers, in `OAUTH_PROVIDERS` order. */
   const oauthProviders = ref<OAuthProvider[]>([])
+  /** A reset link can be sent (by mail, or by the Telegram bot for a username). */
+  const passwordResetEnabled = ref(false)
+  /** Only the Telegram bot can deliver resets: the user must type a username, not an address. */
+  const resetByUsernameOnly = computed(() => passwordResetEnabled.value && !emailEnabled.value)
 
   async function loadProviders() {
     try {
       const p = await authApi.getProviders()
       emailEnabled.value = p.email
+      passwordResetEnabled.value = p.password_reset
       oauthProviders.value = OAUTH_PROVIDERS.filter((o) => p[o] === true)
     } catch {
       emailEnabled.value = false
+      passwordResetEnabled.value = false
       oauthProviders.value = []
     }
   }
@@ -152,6 +158,8 @@ export const useAuthStore = defineStore('auth', () => {
     suspended,
     emailEnabled,
     oauthProviders,
+    passwordResetEnabled,
+    resetByUsernameOnly,
     loadProviders,
     emailStart,
     emailPreview,

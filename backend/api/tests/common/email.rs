@@ -18,20 +18,28 @@ impl TestApp {
 
     /// Emails sent to `to`, oldest first, once every queued send has finished.
     pub async fn mails_to(&self, to: &str) -> Vec<Email> {
-        if let Some(service) = &self.state.email {
-            for _ in 0..400 {
-                if service.idle() {
-                    break;
-                }
-                tokio::time::sleep(std::time::Duration::from_millis(5)).await;
-            }
-            assert!(service.idle(), "mail sends did not finish");
-        }
+        self.settle_messages().await;
         self.outbox
             .sent()
             .into_iter()
             .filter(|m| m.to.to_string() == to)
             .collect()
+    }
+
+    /// Waits until detached work (reset lookups, link notices) and every mail / bot send finished.
+    pub async fn settle_messages(&self) {
+        let idle = || {
+            self.state.detached.idle()
+                && self.state.email.as_ref().is_none_or(|s| s.idle())
+                && self.state.telegram.as_ref().is_none_or(|s| s.idle())
+        };
+        for _ in 0..400 {
+            if idle() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
+        assert!(idle(), "message sends did not finish");
     }
 
     /// The token from the newest email to `to` and the link path it was sent for.

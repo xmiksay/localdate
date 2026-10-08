@@ -1,10 +1,13 @@
 use std::io::IsTerminal;
 use std::net::SocketAddr;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
 use localdate_api::auth::email::EmailService;
+use localdate_api::auth::telegram::TelegramService;
+use localdate_api::auth::telegram::bot::HttpBot;
 use localdate_api::config::Config;
 use localdate_api::state::AppState;
 use localdate_api::web::Dist;
@@ -100,6 +103,9 @@ async fn admin(action: AdminAction) -> Result<()> {
     Ok(())
 }
 
+/// How long shutdown waits for detached work (reset / notice delivery) after the last request.
+const DRAIN_DETACHED: Duration = Duration::from_secs(10);
+
 /// How long `serve` keeps starting new DB connection attempts; one attempt itself can take up to the
 /// pool acquire timeout (30 s) when the host does not answer.
 const CONNECT_PATIENCE: Duration = Duration::from_secs(60);
@@ -158,8 +164,22 @@ async fn serve() -> Result<()> {
             None
         }
     };
-    let state = AppState::new(db, config).await?.with_email(email);
+    let telegram = match &config.telegram_bot {
+        Some(cfg) => Some(TelegramService::new(
+            Arc::new(HttpBot::new(&cfg.bot_token)?),
+            cfg.base_url.clone(),
+        )),
+        None => {
+            tracing::info!("no Telegram bot (no TELEGRAM_BOT_TOKEN): reset links go by email only");
+            None
+        }
+    };
+    let state = AppState::new(db, config)
+        .await?
+        .with_email(email)
+        .with_telegram(telegram);
     let hub = state.hub.clone();
+    let detached = state.detached.clone();
     let app = localdate_api::app(state);
     axum::serve(
         listener,
@@ -171,7 +191,16 @@ async fn serve() -> Result<()> {
         hub.shutdown().await;
     })
     .await
-    .context("serving")
+    .context("serving")?;
+    // Reset links and link notices are sent after their response: let them finish.
+    let abandoned = detached.drain(DRAIN_DETACHED).await;
+    if abandoned > 0 {
+        tracing::warn!(
+            abandoned,
+            "shutdown: background sends still running were abandoned"
+        );
+    }
+    Ok(())
 }
 
 async fn shutdown_signal() {

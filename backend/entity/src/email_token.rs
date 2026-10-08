@@ -1,8 +1,10 @@
 use sea_orm::entity::prelude::*;
 
-use crate::EmailTokenPurpose;
+use crate::{EmailTokenPurpose, IdentityProvider};
 
-/// A mailed single-use token; only its sha256 is stored. `user_id` is NULL for sign-up tokens.
+/// A single-use token sent by mail (or, for password reset, by Telegram); only its sha256 is
+/// stored. `user_id` is NULL for sign-up tokens. `email` is the identity subject of `provider`:
+/// an address, or a Telegram user id.
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
 #[sea_orm(table_name = "email_token")]
 pub struct Model {
@@ -13,6 +15,7 @@ pub struct Model {
     pub purpose: EmailTokenPurpose,
     pub user_id: Option<Uuid>,
     pub email: String,
+    pub provider: IdentityProvider,
     pub expires_at: DateTimeWithTimeZone,
     pub used_at: Option<DateTimeWithTimeZone>,
     pub created_at: DateTimeWithTimeZone,

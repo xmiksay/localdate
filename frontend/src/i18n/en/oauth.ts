@@ -4,7 +4,7 @@ import type { Messages } from '../messages'
 
 const en: Messages<typeof cs> = {
   oauth: {
-    provider: { google: 'Google' },
+    provider: { google: 'Google', telegram: 'Telegram' },
     continue: 'Continue with {provider}',
     link: 'Link {provider}',
     linked: 'Your {provider} account is linked.',

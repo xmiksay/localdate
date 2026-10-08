@@ -6,9 +6,7 @@ mod limit;
 pub mod message;
 pub mod token;
 
-use std::future::Future;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use axum::extract::State;
@@ -48,17 +46,6 @@ pub struct EmailService {
     /// PWA origin without trailing slash (`APP_BASE_URL`).
     base_url: String,
     permits: Arc<Semaphore>,
-    /// Work started by [`EmailService::detach`] that has not finished yet.
-    detached: Arc<AtomicUsize>,
-}
-
-/// Decrements the detached counter however the task ends (a panic included).
-struct DetachGuard(Arc<AtomicUsize>);
-
-impl Drop for DetachGuard {
-    fn drop(&mut self) {
-        self.0.fetch_sub(1, Ordering::SeqCst);
-    }
 }
 
 impl EmailService {
@@ -67,7 +54,6 @@ impl EmailService {
             mailer,
             base_url,
             permits: Arc::new(Semaphore::new(MAIL_CONCURRENCY)),
-            detached: Arc::default(),
         }
     }
 
@@ -109,20 +95,9 @@ impl EmailService {
         });
     }
 
-    /// Runs `work` (lookups that end in [`send`](Self::send)) after the response has gone out.
-    pub fn detach(&self, work: impl Future<Output = ()> + Send + 'static) {
-        self.detached.fetch_add(1, Ordering::SeqCst);
-        let guard = DetachGuard(self.detached.clone());
-        tokio::spawn(async move {
-            work.await;
-            drop(guard);
-        });
-    }
-
-    /// No send or detached work in flight (tests wait for this before reading the outbox).
+    /// No send in flight (tests wait for this before reading the outbox).
     pub fn idle(&self) -> bool {
-        self.detached.load(Ordering::SeqCst) == 0
-            && self.permits.available_permits() == MAIL_CONCURRENCY
+        self.permits.available_permits() == MAIL_CONCURRENCY
     }
 }
 
@@ -138,9 +113,18 @@ pub async fn identity_for(
     db: &impl ConnectionTrait,
     email: &str,
 ) -> Result<Option<user_identity::Model>, AppError> {
+    identity_with(db, IdentityProvider::Email, email).await
+}
+
+/// The identity `(provider, subject)`.
+pub async fn identity_with(
+    db: &impl ConnectionTrait,
+    provider: IdentityProvider,
+    subject: &str,
+) -> Result<Option<user_identity::Model>, AppError> {
     Ok(user_identity::Entity::find()
-        .filter(user_identity::Column::Provider.eq(IdentityProvider::Email))
-        .filter(user_identity::Column::Subject.eq(email))
+        .filter(user_identity::Column::Provider.eq(provider))
+        .filter(user_identity::Column::Subject.eq(subject))
         .one(db)
         .await?)
 }
@@ -191,6 +175,8 @@ pub fn router() -> Router<AppState> {
 #[derive(Serialize)]
 struct Providers {
     email: bool,
+    /// A reset link can be sent at all: by mail, or (username only) by the Telegram bot.
+    password_reset: bool,
     /// One key per OAuth provider (`google`, …).
     #[serde(flatten)]
     oauth: std::collections::BTreeMap<&'static str, bool>,
@@ -200,6 +186,7 @@ async fn providers(State(state): State<AppState>) -> Json<Providers> {
     use crate::auth::oauth::Provider;
     Json(Providers {
         email: state.email.is_some(),
+        password_reset: state.email.is_some() || state.telegram.is_some(),
         oauth: Provider::ALL
             .into_iter()
             .map(|p| (p.as_str(), state.oauth.enabled(p)))

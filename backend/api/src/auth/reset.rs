@@ -1,5 +1,9 @@
 //! Password reset: `/auth/password/*` (docs/api.md "Password reset"), and the password write
-//! shared with `PUT /me/password`. Delivery is email only; Telegram (#14) adds its own path.
+//! shared with `PUT /me/password`. Links go out by email and Telegram (`deliver`).
+
+mod deliver;
+
+pub use self::deliver::linked_addresses;
 
 use anyhow::Context;
 use axum::extract::State;
@@ -7,20 +11,17 @@ use axum::http::StatusCode;
 use axum::routing::post;
 use axum::{Json, Router, middleware};
 use chrono::{Timelike, Utc};
-use entity::{
-    EmailTokenPurpose, IdentityProvider, email_token, push_subscription, user, user_identity,
-};
-use lettre::Address;
+use entity::{EmailTokenPurpose, email_token, push_subscription, user};
 use sea_orm::sea_query::Expr;
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait, QueryFilter,
-    QueryOrder, Set, TransactionTrait,
+    ActiveModelTrait, ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter, Set, TransactionTrait,
 };
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use super::email::message::{Kind, Lang};
-use super::email::{EmailService, ResetLimiter, identity_for, target, token, username_of};
+use self::deliver::{Login, Senders, deliver};
+use super::email::message::Lang;
+use super::email::{target, token, username_of};
 use super::extractor::lock_user;
 use super::{password, refresh, validation};
 use crate::error::{AppError, AppJson};
@@ -38,50 +39,6 @@ pub fn router() -> Router<AppState> {
         .route("/auth/password/reset", post(reset))
 }
 
-/// What the user typed into "forgot password".
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum Login {
-    Username(String),
-    Email(Address),
-}
-
-impl Login {
-    /// Usernames cannot contain `@`, so anything with one is meant as an address.
-    fn parse(raw: &str) -> Result<Self, AppError> {
-        if raw.contains('@') {
-            Ok(Self::Email(token::normalize_email(raw)?))
-        } else {
-            Ok(Self::Username(validation::normalize_username(raw)?))
-        }
-    }
-
-    /// Limiter key; the prefix keeps usernames apart from addresses.
-    fn limit_key(&self) -> String {
-        match self {
-            Self::Username(name) => format!("user:{name}"),
-            Self::Email(addr) => addr.to_string(),
-        }
-    }
-}
-
-/// Every email address linked to `user`, oldest first.
-pub async fn linked_addresses(
-    db: &impl ConnectionTrait,
-    user: Uuid,
-) -> Result<Vec<Address>, AppError> {
-    let identities = user_identity::Entity::find()
-        .filter(user_identity::Column::UserId.eq(user))
-        .filter(user_identity::Column::Provider.eq(IdentityProvider::Email))
-        .order_by_asc(user_identity::Column::CreatedAt)
-        .all(db)
-        .await?;
-    Ok(identities
-        .into_iter()
-        // Stored subjects were validated on the way in; re-parsing only rebuilds the Address.
-        .filter_map(|i| token::normalize_email(&i.subject).ok())
-        .collect())
-}
-
 #[derive(Deserialize)]
 struct ForgotBody {
     login: String,
@@ -93,70 +50,32 @@ async fn forgot(
     ClientIp(ip): ClientIp,
     AppJson(body): AppJson<ForgotBody>,
 ) -> Result<StatusCode, AppError> {
-    let service = state.email()?.clone();
     let login = Login::parse(&body.login)?;
+    let senders = Senders {
+        email: state.email.clone(),
+        telegram: state.telegram.clone(),
+    };
+    // An address can only be reached by mail; a username by whatever channel is configured.
+    match (&login, &senders.email, &senders.telegram) {
+        (Login::Email(_), None, _) | (Login::Username(_), None, None) => {
+            return Err(AppError::EmailDisabled);
+        }
+        _ => {}
+    }
     // Silently dropped like /auth/email/start: a 429 would confirm the target is being used.
     if !state.reset_limiter.check_request(&login.limit_key(), ip) {
         return Ok(StatusCode::ACCEPTED);
     }
     let lang = Lang::parse(body.lang.as_deref());
     let (db, limiter) = (state.db.clone(), state.reset_limiter.clone());
-    // The lookup runs after the response, so whether the account exists or has an email
-    // cannot show in the timing — unlike /auth/email/start, the two paths do different work.
-    service.clone().detach(async move {
-        if let Err(e) = deliver(&db, &service, &limiter, login, lang).await {
+    // The lookup runs after the response, so whether the account exists or has a linked channel
+    // cannot show in the timing — unlike /auth/email/start, the paths do different work.
+    state.detached.spawn(async move {
+        if let Err(e) = deliver(&db, &senders, &limiter, login, lang).await {
             tracing::error!(error = ?e, "password reset delivery failed");
         }
     });
     Ok(StatusCode::ACCEPTED)
-}
-
-async fn deliver(
-    db: &DatabaseConnection,
-    service: &EmailService,
-    limiter: &ResetLimiter,
-    login: Login,
-    lang: Lang,
-) -> Result<(), AppError> {
-    let (user_id, addresses) = match login {
-        Login::Email(addr) => match identity_for(db, addr.as_ref()).await? {
-            Some(identity) => (identity.user_id, vec![addr]),
-            None => return Ok(()),
-        },
-        Login::Username(name) => {
-            let found = user::Entity::find()
-                .filter(user::Column::Username.eq(name))
-                .one(db)
-                .await?;
-            let Some(found) = found else { return Ok(()) };
-            (found.id, linked_addresses(db, found.id).await?)
-        }
-    };
-    let Some(username) = username_of(db, user_id).await? else {
-        return Ok(());
-    };
-    for addr in addresses {
-        if !limiter.check_account(user_id) {
-            break;
-        }
-        let token = token::issue(
-            db,
-            EmailTokenPurpose::PasswordReset,
-            Some(user_id),
-            addr.as_ref(),
-        )
-        .await?;
-        service
-            .send(
-                Kind::PasswordReset,
-                lang,
-                addr,
-                Some(&token),
-                Some(&username),
-            )
-            .await;
-    }
-    Ok(())
 }
 
 #[derive(Deserialize)]
@@ -253,33 +172,4 @@ pub async fn replace_password(
         .exec(db)
         .await?;
     Ok(updated)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn login_with_at_sign_is_an_address() {
-        let login = Login::parse("  Eva@Example.CZ ").expect("valid");
-        assert_eq!(
-            login,
-            Login::Email("eva@example.cz".parse().expect("address"))
-        );
-        assert_eq!(login.limit_key(), "eva@example.cz");
-    }
-
-    #[test]
-    fn login_without_at_sign_is_a_username() {
-        let login = Login::parse(" Eva_1 ").expect("valid");
-        assert_eq!(login, Login::Username("eva_1".into()));
-        assert_eq!(login.limit_key(), "user:eva_1");
-    }
-
-    #[test]
-    fn malformed_login_is_rejected() {
-        for bad in ["", "a b", "x", "eva@", "@b.cz", "a@b@c.cz"] {
-            assert!(Login::parse(bad).is_err(), "{bad:?} should fail");
-        }
-    }
 }

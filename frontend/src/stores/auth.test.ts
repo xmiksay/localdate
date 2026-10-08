@@ -122,17 +122,41 @@ describe('auth store', () => {
     const s = useAuthStore()
     expect(s.emailEnabled).toBe(false)
     expect(s.oauthProviders).toEqual([])
-    vi.mocked(authApi.getProviders).mockResolvedValue({ email: true, google: true })
+    vi.mocked(authApi.getProviders).mockResolvedValue({
+      email: true,
+      google: true,
+      telegram: true,
+      password_reset: true,
+    })
     await s.loadProviders()
     expect(s.emailEnabled).toBe(true)
-    expect(s.oauthProviders).toEqual(['google'])
-    vi.mocked(authApi.getProviders).mockResolvedValue({ email: true, google: false })
+    expect(s.oauthProviders).toEqual(['google', 'telegram'])
+    expect(s.passwordResetEnabled).toBe(true)
+    expect(s.resetByUsernameOnly).toBe(false)
+    vi.mocked(authApi.getProviders).mockResolvedValue({
+      email: false,
+      google: false,
+      telegram: true,
+      password_reset: true,
+    })
+    await s.loadProviders()
+    expect(s.oauthProviders).toEqual(['telegram'])
+    expect(s.resetByUsernameOnly).toBe(true)
+    vi.mocked(authApi.getProviders).mockResolvedValue({
+      email: false,
+      google: false,
+      telegram: false,
+      password_reset: false,
+    })
     await s.loadProviders()
     expect(s.oauthProviders).toEqual([])
+    expect(s.passwordResetEnabled).toBe(false)
+    expect(s.resetByUsernameOnly).toBe(false)
     vi.mocked(authApi.getProviders).mockRejectedValue(new Error('offline'))
     await s.loadProviders()
     expect(s.emailEnabled).toBe(false)
     expect(s.oauthProviders).toEqual([])
+    expect(s.passwordResetEnabled).toBe(false)
   })
 
   it('emailStart normalizes the address and sends the UI language', async () => {

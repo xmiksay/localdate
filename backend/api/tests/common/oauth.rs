@@ -1,169 +1,21 @@
-//! OAuth test double: a local fake OpenID provider (token endpoint + JWKS) signing ID tokens with
-//! the fixture key, and helpers that walk the browser side of the flow (cookie, redirects).
+//! Browser side of the OAuth flow against the fake provider (`oidc_fake`): start / link, the
+//! provider's redirect back, the done-page fragment and `exchange`.
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use axum::body::Body;
-use axum::extract::State;
 use axum::http::{Method, Request, StatusCode, header};
-use axum::routing::{get, post};
-use axum::{Form, Json, Router};
-use base64::Engine;
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use http_body_util::BodyExt;
-use jsonwebtoken::{Algorithm, EncodingKey, Header};
-use localdate_api::auth::oauth::{OidcConfig, Provider, SubjectSource};
-use serde::Serialize;
+use localdate_api::auth::oauth::Provider;
 use serde_json::{Value, json};
-use sha2::{Digest, Sha256};
 use tower::ServiceExt;
 
 use localdate_api::config::Config;
 
 use super::TestApp;
 
-pub const CLIENT_ID: &str = "test-client";
-pub const ISSUER: &str = "https://issuer.test";
-const KEY_PEM: &[u8] = include_bytes!("../fixtures/oidc_test_key.pem");
-const JWKS: &str = include_str!("../fixtures/oidc_test_jwks.json");
-
-/// The ID token the fake provider will hand out for one code; tests bend single claims.
-#[derive(Clone, Serialize)]
-pub struct IdClaims {
-    pub sub: String,
-    pub nonce: String,
-    pub aud: String,
-    pub iss: String,
-    pub exp: i64,
-    pub iat: i64,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub azp: Option<String>,
-}
-
-struct Pending {
-    claims: IdClaims,
-    challenge: String,
-}
-
-#[derive(Clone, Default)]
-pub struct FakeProvider {
-    codes: Arc<Mutex<HashMap<String, Pending>>>,
-    pub base: String,
-    /// JWKS downloads so far.
-    pub jwks_hits: Arc<AtomicUsize>,
-    /// While set, the JWKS endpoint answers 500.
-    pub jwks_down: Arc<AtomicBool>,
-}
-
-async fn jwks(State(fake): State<FakeProvider>) -> axum::response::Response {
-    use axum::response::IntoResponse;
-    fake.jwks_hits.fetch_add(1, Ordering::SeqCst);
-    // Slow enough that concurrent callers overlap (single-flight test).
-    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-    if fake.jwks_down.load(Ordering::SeqCst) {
-        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-    }
-    ([(header::CONTENT_TYPE, "application/json")], JWKS).into_response()
-}
-
-impl FakeProvider {
-    pub async fn start() -> Self {
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-            .await
-            .expect("bind fake provider");
-        let fake = Self {
-            base: format!("http://{}", listener.local_addr().expect("addr")),
-            ..Self::default()
-        };
-        let router = Router::new()
-            .route("/token", post(token))
-            .route("/jwks", get(jwks))
-            .with_state(fake.clone());
-        tokio::spawn(async move {
-            let _ = axum::serve(listener, router).await;
-        });
-        fake
-    }
-
-    pub fn config(&self, jwks_ttl: Duration) -> OidcConfig {
-        OidcConfig {
-            provider: Provider::Google,
-            client_id: CLIENT_ID.into(),
-            client_secret: "test-secret".into(),
-            redirect_uri: "https://app.test/api/auth/oauth/google/callback".into(),
-            issuers: vec![ISSUER.into()],
-            auth_endpoint: format!("{}/authorize", self.base),
-            token_endpoint: format!("{}/token", self.base),
-            jwks_uri: format!("{}/jwks", self.base),
-            scope: "openid".into(),
-            subject: SubjectSource::IdTokenClaim("sub".into()),
-            jwks_ttl,
-        }
-    }
-
-    /// What a successful consent screen does: remembers a code for the started flow.
-    pub fn authorize(&self, started: &Started, claims: IdClaims) -> String {
-        let code = format!("code-{}", uuid::Uuid::new_v4().simple());
-        self.codes.lock().expect("lock").insert(
-            code.clone(),
-            Pending {
-                claims,
-                challenge: started.challenge.clone(),
-            },
-        );
-        code
-    }
-
-    pub fn claims(started: &Started, sub: &str) -> IdClaims {
-        let now = chrono::Utc::now().timestamp();
-        IdClaims {
-            sub: sub.into(),
-            nonce: started.nonce.clone(),
-            aud: CLIENT_ID.into(),
-            iss: ISSUER.into(),
-            exp: now + 300,
-            iat: now,
-            azp: None,
-        }
-    }
-}
-
-async fn token(
-    State(fake): State<FakeProvider>,
-    Form(form): Form<HashMap<String, String>>,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let bad = || {
-        (
-            StatusCode::BAD_REQUEST,
-            Json(json!({ "error": "invalid_grant" })),
-        )
-    };
-    let code = form.get("code").ok_or_else(bad)?;
-    let pending = fake
-        .codes
-        .lock()
-        .expect("lock")
-        .remove(code)
-        .ok_or_else(bad)?;
-    let verifier = form.get("code_verifier").ok_or_else(bad)?;
-    let challenge = URL_SAFE_NO_PAD.encode(Sha256::digest(verifier.as_bytes()));
-    if challenge != pending.challenge
-        || form.get("client_id").map(String::as_str) != Some(CLIENT_ID)
-        || form.get("client_secret").map(String::as_str) != Some("test-secret")
-    {
-        return Err(bad());
-    }
-    let mut header = Header::new(Algorithm::RS256);
-    header.kid = Some("test-key-1".into());
-    let key = EncodingKey::from_rsa_pem(KEY_PEM).expect("fixture key");
-    let id_token = jsonwebtoken::encode(&header, &pending.claims, &key).expect("sign");
-    Ok(Json(
-        json!({ "id_token": id_token, "access_token": "x", "token_type": "Bearer" }),
-    ))
-}
+pub use super::oidc_fake::{FakeProvider, IdClaims};
 
 /// A flow as the browser holds it after `start` / `link`.
 pub struct Started {
@@ -171,6 +23,7 @@ pub struct Started {
     pub state: String,
     pub nonce: String,
     pub challenge: String,
+    pub scope: String,
 }
 
 /// Status, headers and the `Location` of a raw request.
@@ -205,8 +58,17 @@ impl TestApp {
         email: bool,
         tweak: impl FnOnce(&mut Config),
     ) -> (Self, FakeProvider) {
+        Self::with_oauth(Provider::Google, email, tweak).await
+    }
+
+    /// `provider` pointed at a fresh fake (keys cached 1 h), like [`with_google_opts`].
+    pub async fn with_oauth(
+        provider: Provider,
+        email: bool,
+        tweak: impl FnOnce(&mut Config),
+    ) -> (Self, FakeProvider) {
         let fake = FakeProvider::start().await;
-        let config = fake.config(Duration::from_secs(3600));
+        let config = fake.config_for(provider, Duration::from_secs(3600));
         let setup = |c: &mut Config| {
             c.oauth = vec![config];
             tweak(c);
@@ -266,12 +128,17 @@ impl TestApp {
 
     /// `GET start` (login) and what the browser keeps from it.
     pub async fn oauth_start(&self, redirect: Option<&str>) -> Started {
+        self.oauth_start_as(Provider::Google, redirect).await
+    }
+
+    pub async fn oauth_start_as(&self, provider: Provider, redirect: Option<&str>) -> Started {
+        let start = format!("/api/auth/oauth/{}/start", provider.as_str());
         let path = match redirect {
             Some(r) => format!(
-                "/api/auth/oauth/google/start?redirect={}",
+                "{start}?redirect={}",
                 url::form_urlencoded::byte_serialize(r.as_bytes()).collect::<String>()
             ),
-            None => "/api/auth/oauth/google/start".into(),
+            None => start,
         };
         let resp = self.raw(Method::GET, &path, None, None, None).await;
         assert_eq!(resp.status, StatusCode::FOUND);
@@ -280,10 +147,14 @@ impl TestApp {
 
     /// `POST link` as `token`.
     pub async fn oauth_link(&self, token: &str) -> Started {
+        self.oauth_link_as(Provider::Google, token).await
+    }
+
+    pub async fn oauth_link_as(&self, provider: Provider, token: &str) -> Started {
         let resp = self
             .raw(
                 Method::POST,
-                "/api/auth/oauth/google/link",
+                &format!("/api/auth/oauth/{}/link", provider.as_str()),
                 None,
                 Some(token),
                 Some(json!({ "redirect": "/settings" })),
@@ -295,9 +166,19 @@ impl TestApp {
     }
 
     pub async fn oauth_callback(&self, started: &Started, query: &str) -> Raw {
+        self.oauth_callback_as(Provider::Google, started, query)
+            .await
+    }
+
+    pub async fn oauth_callback_as(
+        &self,
+        provider: Provider,
+        started: &Started,
+        query: &str,
+    ) -> Raw {
         self.raw(
             Method::GET,
-            &format!("/api/auth/oauth/google/callback?{query}"),
+            &format!("/api/auth/oauth/{}/callback?{query}", provider.as_str()),
             Some(&started.cookie),
             None,
             None,
@@ -312,9 +193,20 @@ impl TestApp {
         started: &Started,
         claims: IdClaims,
     ) -> Raw {
-        let code = fake.authorize(started, claims);
-        self.oauth_callback(started, &format!("code={code}&state={}", started.state))
+        self.oauth_return_as(Provider::Google, fake, started, claims)
             .await
+    }
+
+    pub async fn oauth_return_as(
+        &self,
+        provider: Provider,
+        fake: &FakeProvider,
+        started: &Started,
+        claims: IdClaims,
+    ) -> Raw {
+        let code = fake.authorize(started, claims);
+        let query = format!("code={code}&state={}", started.state);
+        self.oauth_callback_as(provider, started, &query).await
     }
 
     pub async fn oauth_exchange(&self, cookie: Option<&str>, code: &str) -> Raw {
@@ -339,5 +231,6 @@ fn started(resp: &Raw, provider_url: &str) -> Started {
         state: q["state"].clone(),
         nonce: q["nonce"].clone(),
         challenge: q["code_challenge"].clone(),
+        scope: q.get("scope").cloned().unwrap_or_default(),
     }
 }

@@ -213,6 +213,26 @@ spec:
                   name: localdate
                   key: GOOGLE_CLIENT_SECRET
                   optional: true
+            # Optional: without them Sign in with Telegram is off (providers.telegram = false).
+            - name: TELEGRAM_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: localdate
+                  key: TELEGRAM_CLIENT_ID
+                  optional: true
+            - name: TELEGRAM_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: localdate
+                  key: TELEGRAM_CLIENT_SECRET
+                  optional: true
+            # Optional: without it no password-reset links are sent by Telegram.
+            - name: TELEGRAM_BOT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: localdate
+                  key: TELEGRAM_BOT_TOKEN
+                  optional: true
             # Optional: without them the API starts with Web Push turned off.
             - name: VAPID_PUBLIC_KEY
               valueFrom:

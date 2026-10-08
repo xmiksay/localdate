@@ -23,9 +23,11 @@ waves, and chats after a mutual wave.
 - `backend/api/src/`: `auth/` (password, jwt, refresh rotation, `AuthUser` extractor, `session()` = new Tokens;
   `email/` = magic link: `token` single-use tokens + strict `normalize_email` → `lettre::Address`, `flow` preview/
   verify/signup, `message` cs/en texts, `limit` (address, IP) + per-address limiter, `EmailService` = spawned bounded
-  sends + `detach` (lookups after the response), in `AppState::email`, `None` = disabled; `limit` also has the separate `ResetLimiter`; `reset.rs` = password reset by
-  email (`replace_password` = hash + `credentials_changed_at` + revoke sessions + delete push subscriptions + void mailed tokens, shared with `PUT /me/password`; both close
-  the account's sockets with 4401 after commit); `oauth/` = generic OIDC code flow (Google first): `config` per-provider
+  sends, in `AppState::email`, `None` = disabled; `limit` also has the separate `ResetLimiter`; `reset.rs` = password reset
+  (`reset/deliver.rs`: email + Telegram channels, run after the response via `AppState::detached` = `detached.rs`;
+  `telegram/` = the bot for reset links: `TelegramBot` trait, `HttpBot` sendMessage, `MemoryBot`, `TelegramService` in
+  `AppState::telegram`, `None` without `TELEGRAM_BOT_TOKEN`) (`replace_password` = hash + `credentials_changed_at` + revoke sessions + delete push subscriptions + void mailed tokens, shared with `PUT /me/password`; both close
+  the account's sockets with 4401 after commit); `oauth/` = generic OIDC code flow (Google, Telegram — subject = numeric `id` claim): `config` per-provider
   `OidcConfig` + env presets + `SubjectSource`, `OAuthService` registry `Provider → Oidc` in `AppState::oauth`, `cookie`
   signed `ld_oauth` flow cookie + PKCE + `safe_redirect`, `oidc` client + single-flight/stale-tolerant JWKS cache +
   ID token checks, `grant` one-time codes / sign-up tokens in `oauth_grant`, `notice` link notice mail, `flow`
@@ -58,9 +60,12 @@ waves, and chats after a mutual wave.
   `common/areas.rs`: `area`, `area_user`, `start_area_window`; `common/ws.rs`: WS client (`serve`, `ready_socket`, `next`);
   `common/replica.rs`: `app.replica()` = second API replica on the same DB (own pool + hub) for `tests/ws_replicas.rs`.
   `common/email.rs`: `TestApp::with_email()` (email on, mail captured in `outbox`), `mails_to`, `last_link`,
-  `email_signup`. `tests/password_reset.rs` / `password_change.rs` / `password_sessions.rs` (sockets, voided tokens) cover #18. `common/oauth.rs`: `TestApp::with_google()` + `FakeProvider` (local token/JWKS server, fixture
-  RSA key), `with_google_opts(email, tweak)`, `oauth_start`/`oauth_link`/`oauth_return`/`oauth_exchange`;
-  `tests/oauth_login.rs` / `oauth_link.rs` / `oauth_hardening.rs`.
+  `email_signup`. `tests/password_reset.rs` / `password_change.rs` / `password_sessions.rs` (sockets, voided tokens) cover #18. `common/oidc_fake.rs`: `FakeProvider` (local token/JWKS server, fixture RSA key, `config_for(provider)`,
+  `IdClaims` — empty `nonce` = left out); `common/oauth.rs`: browser side, `TestApp::with_google()`, `with_google_opts(email, tweak)`, `with_oauth(provider, …)`, `oauth_start`/`oauth_link`/`oauth_return`
+  (+ `_as(provider)`)/`oauth_exchange`, `settle_messages` (waits for detached work + mail/bot sends);
+  `tests/oauth_login.rs` / `oauth_link.rs` / `oauth_hardening.rs`. `common/telegram.rs`: `with_telegram(email, bot)`,
+  `claims(started, id)`, `telegram_signup` / `telegram_link`, `bot_messages_to`; `tests/telegram_login.rs` +
+  `telegram_reset.rs` cover #14.
   `tests/visibility_agreement.rs` = SQL ↔ rule cross-check.
 - `frontend/src/`: `api/` (typed client with single-flight refresh, `ws.ts`, per-domain modules, `types.ts` mirrors
   docs/api.md; any `403 banned` or WS close `4403` → `onBanned` → logout + suspended notice on `/login`),

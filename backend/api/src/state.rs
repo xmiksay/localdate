@@ -6,7 +6,9 @@ use tokio::sync::Semaphore;
 
 use crate::auth::email::{EmailLimiter, EmailService, ResetLimiter};
 use crate::auth::oauth::OAuthService;
+use crate::auth::telegram::TelegramService;
 use crate::config::Config;
+use crate::detached::Detached;
 use crate::push::Notifier;
 use crate::rate_limit::RateLimiter;
 use crate::ws::Hub;
@@ -25,8 +27,12 @@ pub struct AppState {
     pub email: Option<EmailService>,
     pub email_limiter: EmailLimiter,
     pub reset_limiter: ResetLimiter,
-    /// OAuth providers (Google); each one is disabled unless configured.
+    /// OAuth providers (Google, Telegram); each one is disabled unless configured.
     pub oauth: Arc<OAuthService>,
+    /// `None` = no Telegram bot (no reset messages); set by `with_telegram`.
+    pub telegram: Option<TelegramService>,
+    /// Work finished after the response (password-reset lookups and delivery).
+    pub detached: Detached,
 }
 
 /// Peak per decode is ~128 MiB (`image_proc::MAX_INPUT_PIXELS` × 4) plus resize buffers.
@@ -54,11 +60,18 @@ impl AppState {
             email_limiter: EmailLimiter::default(),
             reset_limiter: ResetLimiter::default(),
             oauth,
+            telegram: None,
+            detached: Detached::default(),
         })
     }
 
     pub fn with_email(mut self, email: Option<EmailService>) -> Self {
         self.email = email;
+        self
+    }
+
+    pub fn with_telegram(mut self, telegram: Option<TelegramService>) -> Self {
+        self.telegram = telegram;
         self
     }
 }

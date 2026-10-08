@@ -46,12 +46,16 @@ export default {
     forgotLink: 'Zapomenuté heslo?',
     forgotTitle: 'Zapomenuté heslo',
     forgotIntro:
-      'Zadej uživatelské jméno nebo e-mail. Pokud má účet propojený e-mail, pošleme na něj odkaz pro nastavení nového hesla.',
+      'Zadej uživatelské jméno nebo e-mail. Pokud má účet propojený e-mail nebo Telegram, pošleme tam odkaz pro nastavení nového hesla. Zprávu do Telegramu dostaneš jen při zadání uživatelského jména.',
     login: 'Uživatelské jméno nebo e-mail',
     invalidLogin: 'Zadej platné uživatelské jméno nebo e-mailovou adresu.',
     forgotSubmit: 'Poslat odkaz',
+    forgotIntroTelegram:
+      'Zadej uživatelské jméno. Pokud má účet propojený Telegram, pošleme ti tam odkaz pro nastavení nového hesla.',
+    forgotSentBodyTelegram:
+      'Pokud má účet propojený Telegram, poslali jsme ti tam odkaz. Platí 15 minut. Účet bez Telegramu heslo obnovit nemůže.',
     forgotSentBody:
-      'Pokud má účet propojený e-mail, poslali jsme na něj odkaz. Platí 15 minut. Účet bez e-mailu heslo obnovit nemůže.',
+      'Pokud má účet propojený e-mail nebo Telegram, poslali jsme tam odkaz. Platí 15 minut. Účet bez e-mailu i Telegramu heslo obnovit nemůže.',
     resetTitle: 'Nastavit nové heslo pro {username}',
     resetSubmit: 'Uložit heslo',
     resetDone: 'Heslo je změněné a všechna zařízení jsou odhlášená. Přihlas se novým heslem.',

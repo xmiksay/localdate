@@ -11,7 +11,6 @@ use serde_json::{Map, Value};
 use url::Url;
 
 use super::config::{OidcConfig, SubjectSource};
-use super::cookie::ct_eq;
 
 /// An unknown `kid` refetches the set, but not more often than this (a forged `kid` must not
 /// turn every callback into a JWKS download).
@@ -123,7 +122,7 @@ impl Oidc {
         let claims = decode::<Claims>(id_token, &key, &validation)
             .context("ID token rejected")?
             .claims;
-        if !claims.nonce.is_some_and(|n| ct_eq(&n, nonce)) {
+        if !self.config.nonce.accepts(claims.nonce.as_deref(), nonce) {
             bail!("ID token nonce mismatch");
         }
         // OIDC Core 3.1.3.7: an `azp` names the party the token was issued to; it must be us.
@@ -232,7 +231,12 @@ mod tests {
 
     #[test]
     fn authorize_url_carries_scope_pkce_state_and_nonce() {
-        let cfg = config::from_env(Some("https://a.cz"), Some("cid".into()), Some("s".into()))
+        let creds = config::Credentials {
+            google_id: Some("cid".into()),
+            google_secret: Some("s".into()),
+            ..config::Credentials::default()
+        };
+        let cfg = config::from_env(Some("https://a.cz"), creds)
             .expect("valid")
             .remove(0);
         let oidc = Oidc::new(cfg, reqwest::Client::new());

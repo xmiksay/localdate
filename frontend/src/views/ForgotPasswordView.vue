@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
 import ErrorNote from '@/components/ui/ErrorNote.vue'
 import FormField from '@/components/ui/FormField.vue'
@@ -7,7 +7,7 @@ import TextInput from '@/components/ui/TextInput.vue'
 import { useT } from '@/i18n/typed'
 import { useAuthStore } from '@/stores/auth'
 import { errorMessage } from '@/utils/errors'
-import { isValidLogin } from '@/utils/validation'
+import { isValidLogin, isValidUsername } from '@/utils/validation'
 
 const { t } = useT()
 const auth = useAuthStore()
@@ -18,9 +18,16 @@ const busy = ref(false)
 const sent = ref(false)
 const failure = ref<string | null>(null)
 
-const loginError = computed(() =>
-  submitted.value && !isValidLogin(login.value) ? t('password.invalidLogin') : undefined,
-)
+onMounted(() => auth.loadProviders())
+
+// With only the Telegram bot, an address cannot be reached: ask for the username alone.
+const usernameOnly = computed(() => auth.resetByUsernameOnly)
+const loginError = computed(() => {
+  if (!submitted.value) return undefined
+  if (usernameOnly.value)
+    return isValidUsername(login.value) ? undefined : t('auth.invalidUsername')
+  return isValidLogin(login.value) ? undefined : t('password.invalidLogin')
+})
 
 async function submit() {
   submitted.value = true
@@ -48,15 +55,23 @@ async function submit() {
       class="flex flex-col gap-3 rounded-3xl border-2 border-line bg-paper p-5"
     >
       <h1 class="font-display text-xl font-semibold">{{ t('auth.emailSentTitle') }}</h1>
-      <p class="text-sm text-muted">{{ t('password.forgotSentBody') }}</p>
+      <p class="text-sm text-muted">
+        {{ usernameOnly ? t('password.forgotSentBodyTelegram') : t('password.forgotSentBody') }}
+      </p>
     </div>
 
     <form v-else class="flex flex-col gap-5" novalidate @submit.prevent="submit">
       <div>
         <h1 class="font-display text-2xl font-semibold">{{ t('password.forgotTitle') }}</h1>
-        <p class="mt-2 text-muted">{{ t('password.forgotIntro') }}</p>
+        <p class="mt-2 text-muted">
+          {{ usernameOnly ? t('password.forgotIntroTelegram') : t('password.forgotIntro') }}
+        </p>
       </div>
-      <FormField v-slot="f" :label="t('password.login')" :error="loginError">
+      <FormField
+        v-slot="f"
+        :label="usernameOnly ? t('auth.username') : t('password.login')"
+        :error="loginError"
+      >
         <TextInput
           :id="f.id"
           v-model="login"

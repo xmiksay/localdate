@@ -17,9 +17,11 @@ use uuid::Uuid;
 pub mod areas;
 pub mod email;
 pub mod oauth;
+pub mod oidc_fake;
 pub mod photos;
 pub mod push;
 pub mod replica;
+pub mod telegram;
 pub mod ws;
 
 pub const PASSWORD: &str = "correct horse battery";
@@ -30,6 +32,8 @@ pub struct TestApp {
     pub db: DatabaseConnection,
     /// Every email the app sent; only wired in by `with_email` (otherwise email is disabled).
     pub outbox: std::sync::Arc<localdate_api::mail::MemoryMailer>,
+    /// Every Telegram bot message; the bot is only on when the test sets `Config::telegram_bot`.
+    pub bot: std::sync::Arc<localdate_api::auth::telegram::bot::MemoryBot>,
     admin_url: String,
     db_name: String,
     _photo_dir: tempfile::TempDir,
@@ -103,20 +107,28 @@ impl TestApp {
             vapid: None,
             oauth: Vec::new(),
             app_base_url: Some(email::BASE_URL.into()),
+            telegram_bot: None,
         };
         tweak(&mut config);
         let outbox = std::sync::Arc::new(localdate_api::mail::MemoryMailer::default());
         let service =
             localdate_api::auth::email::EmailService::new(outbox.clone(), email::BASE_URL.into());
+        // Built from the config like `main` does, with the in-memory bot instead of the Bot API.
+        let bot = std::sync::Arc::new(localdate_api::auth::telegram::bot::MemoryBot::default());
+        let telegram = config.telegram_bot.as_ref().map(|c| {
+            localdate_api::auth::telegram::TelegramService::new(bot.clone(), c.base_url.clone())
+        });
         let state = AppState::new(db.clone(), config)
             .await?
-            .with_email(email.then_some(service));
+            .with_email(email.then_some(service))
+            .with_telegram(telegram);
         let router = build(state.clone());
         Ok(Self {
             router,
             state,
             db,
             outbox,
+            bot,
             admin_url,
             db_name,
             _photo_dir: photo_dir,

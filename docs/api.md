@@ -39,8 +39,8 @@ Internal/DB errors are logged and returned as `500 internal` with a generic mess
 | 422 | `unsupported_image` | not decodable jpeg/png/webp, > 10 MB, an edge > 10 000 px or > 32 Mi pixels (~33 MP) |
 | 429 | `rate_limited` | per-IP throttle: login, register, `/auth/email/start`, `/auth/email/signup`, `/auth/password/forgot`, `POST /me/identities/email`, `PUT /me/password`, `/auth/oauth/{provider}/start` · `/link`, `/auth/oauth/signup` (never the callback: refusing it would waste the provider's code; its flow was counted at start) |
 | 429 | `wave_limit` | > 20 waves in one window |
-| 503 | `email_disabled` | any email endpoint while the server has no mailer (`GET /auth/providers` → `email: false`), incl. `/auth/password/forgot` |
-| 503 | `provider_disabled` | `POST /auth/oauth/{provider}/link` while that provider is not configured (`GET /auth/providers` → `google: false`) |
+| 503 | `email_disabled` | any email endpoint while the server has no mailer (`GET /auth/providers` → `email: false`); `/auth/password/forgot` with an email address while there is no mailer, or with a username while there is neither a mailer nor a Telegram bot (`password_reset: false`) |
+| 503 | `provider_disabled` | `POST /auth/oauth/{provider}/link` while that provider is not configured (`GET /auth/providers` → `google` / `telegram: false`) |
 
 ## Shared types
 
@@ -88,12 +88,13 @@ interface MatchSummary {
   last_message: Message | null
 }
 interface Tokens { access_token: string; refresh_token: string; user: User }
-type IdentityProvider = 'email' | 'google'   // later: 'telegram' | 'facebook'
-type OAuthProvider = 'google'                // providers signed in through /auth/oauth/{provider}
+type IdentityProvider = 'email' | 'google' | 'telegram'   // later: 'facebook'
+type OAuthProvider = 'google' | 'telegram'   // providers signed in through /auth/oauth/{provider}
 interface Identity {
   id: string; provider: IdentityProvider
   subject: string            // email: the normalized address (it is the caller's own, shown in full)
                              // google: Google's opaque account id (`sub`) — not meant for display
+                             // telegram: the numeric Telegram user id (`id` claim) in decimal — not shown either
   verified_at: string; created_at: string
 }
 type EmailTokenPurpose = 'login' | 'signup' | 'link'
@@ -125,7 +126,7 @@ answers the same `401 invalid_credentials` as a wrong password (same argon2 timi
 
 | Method & path | Body | 2xx response |
 |---|---|---|
-| `GET /auth/providers` | — | `200 { email: boolean, google: boolean }` — which login methods this server offers |
+| `GET /auth/providers` | — | `200 { email: boolean, google: boolean, telegram: boolean, password_reset: boolean }` — which login methods this server offers; `password_reset`: a reset link can be sent at all (a mailer or the Telegram bot is configured). With the bot only, reset works by username alone |
 | `POST /auth/email/start` | `{ email, lang?: MailLang }` | `202` (empty) — always, whether or not the address has an account |
 | `POST /auth/email/preview` | `{ token }` | `200 EmailPreview` — never consumes the token |
 | `POST /auth/email/verify` | `{ token }` | `200 Tokens` — login tokens only, consumed |
@@ -172,13 +173,18 @@ stays usable for another name). The new account then goes through onboarding lik
 malformed one — that says nothing about whether it exists). The answer is `202` whether or not there is such an
 account, and it is sent **before** the account is even looked up, so its timing reveals nothing either. Then:
 an email address that is a linked email identity gets a reset link; a username gets one at every email address
-linked to that account. Accounts without a linked email get nothing (Telegram delivery comes with #14) — the UI
-says "if the account has a linked email…". `503 email_disabled` while the server has no mailer. Limits, a
+linked to that account **and** by Telegram message to every Telegram account linked to it (an address only ever
+reaches that address). Accounts with neither get nothing — the UI says "if the account has a linked email or
+Telegram…". A channel the server has not configured is skipped (no mailer; no `TELEGRAM_BOT_TOKEN`), and Google
+identities are never a channel. `503 email_disabled` for an address while the server has no mailer, and for a
+username while it has neither a mailer nor a Telegram bot. Limits, a
 budget of their own (asking for resets never uses up an inbox's magic-link mails, nor the other way round); over
 them still `202` and nothing sent: 3 requests per (username or address as typed, client IP) per 15 min, and 5
-reset mails per account per hour however they were asked for.
+reset messages (mails and Telegram messages together) per account per hour however they were asked for.
 
-The link is `{APP_BASE_URL}/auth/password/reset#token=…` (fragment, as above), names the account
+The link is `{APP_BASE_URL}/auth/password/reset#token=…` (fragment, as above; the same link in a Telegram
+message, sent by the bot to the chat with the user — allowed by the `telegram:bot_access` scope granted at Telegram
+login/link; a user who blocked the bot gets nothing), names the account
 (`pro účet <username>`), and its token (purpose `password_reset`) is valid 15 min, single use. Opening it spends
 nothing: the page calls `preview` and shows "Nastavit nové heslo pro <username>". `reset` checks the password
 policy of register (`400 validation`, token unspent), then in one transaction consumes the token, sets the new
@@ -188,14 +194,20 @@ it refused from then on (`401 unauthorized`, WebSocket `4401`), every push subsc
 before must not undo or bypass the new password. After the commit the account's WebSockets are closed with
 `4401`. It returns no tokens — the user logs in normally afterwards. Banned account → `403 banned`, token
 unspent. `preview` / `reset` → `400 invalid_token` for unknown, expired, used or other-purpose tokens, and when
-the address was unlinked from the account since the mail went out. Reset tokens are refused by
+the address (or Telegram account) was unlinked from the account since the message went out. Reset tokens are refused by
 `/auth/email/preview` and `/auth/email/verify` (`400 invalid_token`), login tokens by the reset endpoints.
 
-### Sign in with Google (OAuth / OpenID Connect)
+### Sign in with Google or Telegram (OAuth / OpenID Connect)
 
 Server-side authorization code flow with PKCE (S256), a `state` and a `nonce`. `{provider}` is an
-`OAuthProvider` (`google`); an unknown one → `404`. Google is offered only when the server has
-`GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET` (`GET /auth/providers` → `google`).
+`OAuthProvider` (`google`, `telegram`); an unknown one → `404`. Each is offered only when the server has its
+client credentials: `GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET`, `TELEGRAM_CLIENT_ID` + `TELEGRAM_CLIENT_SECRET`
+(`GET /auth/providers` → `google`, `telegram`).
+
+| Provider | scope | identity subject |
+|---|---|---|
+| `google` | `openid` | `sub` |
+| `telegram` | `openid profile telegram:bot_access` | `id` (numeric Telegram user id, decimal); Telegram's `sub` is a different, opaque value and is not used. `profile` is requested only because it carries `id` — names, username and photo are discarded; `telegram:bot_access` lets the bot send password-reset links |
 
 | Method & path | Body | 2xx response |
 |---|---|---|
@@ -209,8 +221,9 @@ The SPA starts a login with a plain navigation to `start` (no fetch); linking ne
 it is a `POST` returning the provider URL. Both set an **HttpOnly, SameSite=Lax** cookie `ld_oauth`
 (`Path=/api/auth/oauth`, 10 min, `Secure` unless `APP_BASE_URL` is `http://`), HMAC-signed by the server:
 provider, mode (login / link), `state`, PKCE verifier, `nonce`, the safe redirect and — link only — the
-caller's user id. The provider's account id (`sub`) is the identity subject; the email Google may know is
-neither requested (scope `openid` only) nor stored, and never used to match accounts.
+caller's user id. The provider's account id (table above) is the identity subject; nothing else from the ID token
+is stored, and an email Google may know is neither requested nor used to match accounts. An ID token without the
+subject claim (e.g. Telegram without `id`) → `#error=oauth_failed`.
 
 `redirect` must be an in-app path: starts with a single `/`, ≤ 512 printable ASCII chars, no `\`; anything
 else is dropped (→ none). The callback **never puts tokens in a URL**; it redirects to the SPA route
@@ -224,7 +237,7 @@ when one was given):
 | `#error=<code>` | `cancelled` (denied at the provider), `invalid_state` (cookie missing / expired / tampered, `state` mismatch, wrong provider), `oauth_failed` (code exchange or ID token check failed), `provider_disabled`, `banned`, `identity_taken` (link: that provider account belongs to another user), `unauthorized` (link: the account is gone, or its password was reset / changed after the access token that started the flow — that session was ended, so its link flow dies with it), `rate_limited`, `internal` |
 
 ID tokens are checked against the provider's JWKS (RS256, cached, refetched for an unknown `kid`): `iss`,
-`aud` = client id, `exp`, and `nonce` = the cookie's. One-time codes (and sign-up tokens) are 32 random
+`aud` = client id, `exp`, and `nonce` = the cookie's — required for Google; for Telegram checked when present and accepted when absent (its server-side flow may not echo it; `state`, PKCE and the cookie binding still stop code injection). One-time codes (and sign-up tokens) are 32 random
 bytes base64url, stored as sha256; codes live 60 s and are bound to the flow cookie's `state`, so a code
 lifted from another browser is `400 invalid_token` and so is reuse. `exchange` clears the cookie. An `azp`
 claim, when present, must equal the client id. When the signing keys cannot be refetched after their
