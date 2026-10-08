@@ -29,6 +29,18 @@ describe('oauthStartUrl', () => {
     )
     expect(oauthStartUrl('telegram')).toBe('/api/auth/oauth/telegram/start')
   })
+
+  it('asks for the picture import only when wanted', () => {
+    expect(oauthStartUrl('facebook', null, true)).toBe(
+      '/api/auth/oauth/facebook/start?import_photo=1',
+    )
+    expect(oauthStartUrl('facebook', '/settings', true)).toBe(
+      '/api/auth/oauth/facebook/start?redirect=%2Fsettings&import_photo=1',
+    )
+    expect(oauthStartUrl('facebook', '/x', false)).toBe(
+      '/api/auth/oauth/facebook/start?redirect=%2Fx',
+    )
+  })
 })
 
 describe('oauth endpoints', () => {

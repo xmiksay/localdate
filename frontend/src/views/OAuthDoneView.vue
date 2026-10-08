@@ -2,7 +2,8 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ApiError } from '@/api/client'
-import type { OAuthError } from '@/api/types'
+import type { OAuthError, PhotoImportOutcome } from '@/api/types'
+import PhotoImportNote from '@/components/PhotoImportNote.vue'
 import SuspendedNotice from '@/components/SuspendedNotice.vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
 import ErrorNote from '@/components/ui/ErrorNote.vue'
@@ -16,7 +17,8 @@ import { parseOAuthFragment } from '@/utils/oauthFragment'
 import { pendingToken } from '@/utils/pendingToken'
 import { isValidUsername } from '@/utils/validation'
 
-type Phase = 'loading' | 'signup' | 'invalid' | 'banned' | 'failed' | 'callbackError'
+type Phase =
+  'loading' | 'signup' | 'photoNotice' | 'invalid' | 'banned' | 'failed' | 'callbackError'
 
 const { t } = useT()
 const route = useRoute()
@@ -27,6 +29,8 @@ const identities = useIdentitiesStore()
 let code = ''
 let redirect: string | null = null
 let signupToken = ''
+/** Outcome of a picture import asked for at start; only a fresh callback carries it. */
+const photo = ref<PhotoImportOutcome | null>(null)
 const phase = ref<Phase>('loading')
 const callbackError = ref<OAuthError | 'unknown'>('unknown')
 const failure = ref<string | null>(null)
@@ -56,8 +60,8 @@ async function exchange() {
   try {
     const r = await auth.oauthExchange(code)
     if (!r) {
-      // The guard sends a not yet onboarded account on to onboarding.
-      await router.replace(redirect ?? '/')
+      // Logging into an existing account never imports.
+      await goOn()
       return
     }
     signupToken = r.signupToken
@@ -75,9 +79,15 @@ async function signup() {
   if (usernameError.value) return
   busy.value = true
   try {
-    await auth.oauthSignup(signupToken, username.value)
+    const imported = await auth.oauthSignup(signupToken, username.value)
     pendingToken.clear('oauthSignup')
-    await router.replace('/')
+    // A new account starts at onboarding (the guard), whatever redirect the flow carried.
+    redirect = null
+    // The held picture's real outcome gets a moment before the app takes over.
+    if (imported) {
+      photo.value = imported
+      phase.value = 'photoNotice'
+    } else await goOn()
   } catch (e) {
     // username_taken / validation keep the token usable: stay on the form.
     if (e instanceof ApiError && (e.code === 'username_taken' || e.code === 'validation')) {
@@ -86,6 +96,11 @@ async function signup() {
   } finally {
     busy.value = false
   }
+}
+
+// The guard sends a not yet onboarded account on to onboarding.
+async function goOn() {
+  await router.replace(redirect ?? '/')
 }
 
 function retry() {
@@ -101,6 +116,7 @@ onMounted(async () => {
 
   if (outcome.kind === 'linked') {
     identities.justLinkedProvider = outcome.provider
+    identities.justImportedPhoto = outcome.photo
     await router.replace(outcome.redirect ?? { name: 'settings' })
     return
   }
@@ -117,6 +133,7 @@ onMounted(async () => {
   if (outcome.kind === 'code') {
     code = outcome.code
     redirect = outcome.redirect
+    photo.value = outcome.photo
     pendingToken.clear('oauthSignup')
     await exchange()
     return
@@ -137,6 +154,11 @@ onMounted(async () => {
 
     <SuspendedNotice v-else-if="phase === 'banned'" />
 
+    <div v-else-if="phase === 'photoNotice' && photo" class="flex flex-col gap-4">
+      <PhotoImportNote :outcome="photo" />
+      <BaseButton block @click="goOn">{{ t('common.next') }}</BaseButton>
+    </div>
+
     <form
       v-else-if="phase === 'signup'"
       class="flex flex-col gap-5"
@@ -147,6 +169,7 @@ onMounted(async () => {
         <h1 class="font-display text-2xl font-semibold">{{ t('oauth.signupTitle') }}</h1>
         <p class="mt-2 text-muted">{{ t('oauth.signupIntro') }}</p>
       </div>
+      <PhotoImportNote v-if="photo" :outcome="photo" />
       <FormField
         v-slot="f"
         :label="t('auth.username')"
@@ -180,7 +203,7 @@ onMounted(async () => {
       </BaseButton>
     </div>
 
-    <template v-if="phase !== 'loading' && phase !== 'signup'">
+    <template v-if="phase !== 'loading' && phase !== 'signup' && phase !== 'photoNotice'">
       <RouterLink
         v-if="auth.isAuthed"
         :to="{ name: 'settings' }"

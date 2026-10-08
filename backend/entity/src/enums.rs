@@ -83,6 +83,8 @@ pub enum IdentityProvider {
     Google,
     #[sea_orm(string_value = "telegram")]
     Telegram,
+    #[sea_orm(string_value = "facebook")]
+    Facebook,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, EnumIter, DeriveActiveEnum, Serialize, Deserialize)]

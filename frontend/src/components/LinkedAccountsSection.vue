@@ -1,13 +1,14 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import type { OAuthProvider } from '@/api/types'
+import { PHOTO_IMPORT_PROVIDERS, type OAuthProvider } from '@/api/types'
 import { useT } from '@/i18n/typed'
 import { useAuthStore } from '@/stores/auth'
 import { useIdentitiesStore } from '@/stores/identities'
 import { errorMessage } from '@/utils/errors'
 import { formatDateTime } from '@/utils/time'
 import EmailLinkForm from './EmailLinkForm.vue'
+import PhotoImportNote from './PhotoImportNote.vue'
 import BaseButton from './ui/BaseButton.vue'
 import ErrorNote from './ui/ErrorNote.vue'
 
@@ -19,6 +20,8 @@ const identities = useIdentitiesStore()
 const router = useRouter()
 const failure = ref<string | null>(null)
 const linking = ref<OAuthProvider | null>(null)
+/** Opt-in per link: the provider's profile picture joins the user's photos. */
+const importPhoto = ref(false)
 
 const linkable = computed(() =>
   auth.oauthProviders.filter((p) => !identities.identities.some((i) => i.provider === p)),
@@ -32,6 +35,7 @@ onMounted(() => {
 onUnmounted(() => {
   identities.justLinked = null
   identities.justLinkedProvider = null
+  identities.justImportedPhoto = null
 })
 
 async function link(provider: OAuthProvider) {
@@ -40,7 +44,8 @@ async function link(provider: OAuthProvider) {
   try {
     const back = router.resolve({ name: 'settings' }).fullPath
     // Full navigation: the provider round trip ends on /auth/oauth/done, then back here.
-    window.location.assign(await identities.startOAuthLink(provider, back))
+    const withPhoto = importPhoto.value && PHOTO_IMPORT_PROVIDERS.includes(provider)
+    window.location.assign(await identities.startOAuthLink(provider, back, withPhoto))
   } catch (e) {
     failure.value = errorMessage(e)
   } finally {
@@ -78,6 +83,7 @@ async function remove(id: string) {
     >
       {{ t('oauth.linked', { provider: providerName(identities.justLinkedProvider) }) }}
     </p>
+    <PhotoImportNote v-if="identities.justImportedPhoto" :outcome="identities.justImportedPhoto" />
     <ErrorNote :message="failure" />
     <p v-if="!identities.hasPassword" class="text-sm text-muted">
       {{ t('identities.noPassword') }}
@@ -109,16 +115,23 @@ async function remove(id: string) {
       </li>
     </ul>
 
-    <BaseButton
-      v-for="p in linkable"
-      :key="p"
-      variant="ghost"
-      :loading="linking === p"
-      :disabled="linking !== null"
-      @click="link(p)"
-    >
-      {{ t('oauth.link', { provider: providerName(p) }) }}
-    </BaseButton>
+    <div v-for="p in linkable" :key="p" class="flex flex-col gap-2">
+      <BaseButton
+        variant="ghost"
+        :loading="linking === p"
+        :disabled="linking !== null"
+        @click="link(p)"
+      >
+        {{ t('oauth.link', { provider: providerName(p) }) }}
+      </BaseButton>
+      <label
+        v-if="PHOTO_IMPORT_PROVIDERS.includes(p)"
+        class="flex min-h-11 items-center gap-3 text-sm font-semibold"
+      >
+        <input v-model="importPhoto" type="checkbox" class="size-5 accent-coral" />
+        {{ t('oauth.importPhoto', { from: t(`oauth.from.${p}`) }) }}
+      </label>
+    </div>
 
     <div v-if="auth.emailEnabled" class="flex flex-col gap-3">
       <h3 class="text-sm font-semibold text-plum">{{ t('identities.addEmail') }}</h3>

@@ -1,5 +1,5 @@
-//! Handlers: `start` / `link` begin a flow, `callback` finishes it at the provider's redirect,
-//! `exchange` turns a one-time code into a session or a sign-up token, `signup` creates the account.
+//! Handlers: `start` / `link` begin a flow, `callback` finishes it at the provider's redirect
+//! (`exchange.rs` takes over from there).
 
 use anyhow::Context;
 use axum::Json;
@@ -7,18 +7,19 @@ use axum::extract::{Path, Query, State};
 use axum::http::header::{CACHE_CONTROL, LOCATION, SET_COOKIE};
 use axum::http::{HeaderMap, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
-use chrono::{DateTime, Utc};
-use entity::{IdentityProvider, OAuthGrantPurpose, user};
+use entity::OAuthGrantPurpose;
 use percent_encoding::{NON_ALPHANUMERIC, utf8_percent_encode};
-use sea_orm::{ActiveModelTrait, EntityTrait, Set, SqlErr, TransactionTrait};
+use sea_orm::TransactionTrait;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use super::cookie::{self, Flow, Linker, Mode};
+use super::import::{self, Outcome};
+use super::oidc::Oidc;
 use super::{Provider, grant, identity_for, insert_identity, notice};
 use crate::auth::email::message::Lang;
 use crate::auth::extractor::{Account, account_status, lock_unbanned};
-use crate::auth::{AuthUser, Tokens, refresh, session, validation};
+use crate::auth::{AuthUser, refresh};
 use crate::error::{AppError, AppJson};
 use crate::rate_limit::ClientIp;
 use crate::state::AppState;
@@ -28,12 +29,16 @@ const DONE_PATH: &str = "/auth/oauth/done";
 #[derive(Deserialize)]
 pub(super) struct StartQuery {
     redirect: Option<String>,
+    /// `1` / `true` asks for the profile picture import.
+    import_photo: Option<String>,
 }
 
 #[derive(Deserialize)]
 pub(super) struct LinkBody {
     redirect: Option<String>,
     lang: Option<String>,
+    #[serde(default)]
+    import_photo: bool,
 }
 
 #[derive(Serialize)]
@@ -46,31 +51,6 @@ pub(super) struct CallbackQuery {
     code: Option<String>,
     state: Option<String>,
     error: Option<String>,
-}
-
-#[derive(Deserialize)]
-pub(super) struct CodeBody {
-    code: String,
-}
-
-#[derive(Deserialize)]
-pub(super) struct SignupBody {
-    token: String,
-    username: String,
-}
-
-#[derive(Serialize)]
-pub(super) struct PendingSignup {
-    token: String,
-    provider: IdentityProvider,
-    expires_at: DateTime<Utc>,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "snake_case")]
-pub(super) enum Exchange {
-    Session(Tokens),
-    Signup(PendingSignup),
 }
 
 /// `302` to the SPA's done page with `fragment` (+ the flow's redirect); `clear` drops the cookie.
@@ -112,10 +92,14 @@ pub(super) async fn start(
     if rate_limited(&state, ip) {
         return done("error=rate_limited", None, None);
     }
-    match state
-        .oauth
-        .begin(provider, Mode::Login, query.redirect.as_deref(), None)
-    {
+    let import_photo = matches!(query.import_photo.as_deref(), Some("1" | "true"));
+    match state.oauth.begin(
+        provider,
+        Mode::Login,
+        query.redirect.as_deref(),
+        None,
+        import_photo,
+    ) {
         Ok((set, url)) => match HeaderValue::try_from(url) {
             Ok(url) => (StatusCode::FOUND, [(LOCATION, url), (SET_COOKIE, set)]).into_response(),
             Err(_) => AppError::Internal.into_response(),
@@ -141,6 +125,7 @@ pub(super) async fn link(
             token_issued_at: auth.issued_at,
             lang: body.lang,
         }),
+        body.import_photo,
     )?;
     Ok(([(SET_COOKIE, set)], Json(LinkUrl { url })))
 }
@@ -148,6 +133,13 @@ pub(super) async fn link(
 enum Done {
     Code(String),
     Linked(Provider),
+}
+
+/// `&photo=<outcome>` when an import was asked for.
+fn photo_param(outcome: Option<Outcome>) -> String {
+    outcome
+        .map(|o| format!("&photo={}", o.as_str()))
+        .unwrap_or_default()
 }
 
 pub(super) async fn callback(
@@ -164,9 +156,13 @@ pub(super) async fn callback(
     let clear = Some(state.oauth.secure);
     match finish(&state, provider, flow, query).await {
         // The cookie stays: `exchange` checks the code against it.
-        Ok(Done::Code(code)) => done(&format!("code={code}"), redirect.as_deref(), None),
-        Ok(Done::Linked(p)) => done(
-            &format!("linked={}", p.as_str()),
+        Ok((Done::Code(code), photo)) => done(
+            &format!("code={code}{}", photo_param(photo)),
+            redirect.as_deref(),
+            None,
+        ),
+        Ok((Done::Linked(p), photo)) => done(
+            &format!("linked={}{}", p.as_str(), photo_param(photo)),
             redirect.as_deref(),
             clear,
         ),
@@ -179,7 +175,7 @@ async fn finish(
     provider: Provider,
     flow: Option<Flow>,
     query: CallbackQuery,
-) -> Result<Done, &'static str> {
+) -> Result<(Done, Option<Outcome>), &'static str> {
     let oidc = state.oauth.oidc(provider).map_err(|e| e.code())?;
     let flow = flow
         .filter(|f| f.provider == provider)
@@ -200,7 +196,7 @@ async fn finish(
         });
     }
     let code = query.code.ok_or("oauth_failed")?;
-    let subject = oidc
+    let verified = oidc
         .subject(&code, &flow.verifier, &flow.nonce)
         .await
         .map_err(|e| {
@@ -211,33 +207,61 @@ async fn finish(
             );
             "oauth_failed"
         })?;
+    let subject = verified.subject;
+    // The access token exists only during this callback; it is used, if at all, after the account
+    // checks passed, so a refused flow downloads nothing.
+    let import = match (flow.import_photo, verified.access_token.as_deref()) {
+        (true, Some(token)) => Some((oidc, token)),
+        _ => None,
+    };
     let outcome = match flow.mode {
-        Mode::Login => login_code(state, provider, &subject, &flow.state)
+        Mode::Login => login_code(state, provider, &subject, &flow.state, import)
             .await
-            .map(Done::Code),
-        Mode::Link => link_identity(state, provider, &subject, flow.linker)
-            .await
-            .map(|()| Done::Linked(provider)),
+            .map(|(code, photo)| (Done::Code(code), photo)),
+        Mode::Link => match link_identity(state, provider, &subject, flow.linker).await {
+            Ok(user_id) => {
+                let photo = match import {
+                    Some((oidc, token)) => Some(match import::fetch(state, oidc, token).await {
+                        Ok(webp) => import::attach(state, user_id, &webp).await,
+                        Err(outcome) => outcome,
+                    }),
+                    None => None,
+                };
+                Ok((Done::Linked(provider), photo))
+            }
+            Err(e) => Err(e),
+        },
     };
     outcome.map_err(|e| e.code())
 }
 
 /// A one-time code bound to this flow: `login` for a linked provider account, else `signup_code`.
+/// Only a new account imports: its picture rides in the sign-up grant (`pending`) until `signup`.
 async fn login_code(
     state: &AppState,
     provider: Provider,
     subject: &str,
     flow_state: &str,
-) -> Result<String, AppError> {
+    import: Option<(&Oidc, &str)>,
+) -> Result<(String, Option<Outcome>), AppError> {
     let binding = Some(refresh::hash_token(flow_state));
     let identity = identity_for(&state.db, provider.identity(), subject).await?;
-    let (purpose, user_id) = match identity {
+    let (purpose, user_id, pending, photo) = match identity {
         // Banned → no code at all; `exchange` checks again under its transaction.
         Some(identity) => {
             lock_unbanned(&state.db, identity.user_id).await?;
-            (OAuthGrantPurpose::Login, Some(identity.user_id))
+            (OAuthGrantPurpose::Login, Some(identity.user_id), None, None)
         }
-        None => (OAuthGrantPurpose::SignupCode, None),
+        None => {
+            let (pending, photo) = match import {
+                Some((oidc, token)) => match import::fetch(state, oidc, token).await {
+                    Ok(webp) => (Some(webp), Some(Outcome::Pending)),
+                    Err(outcome) => (None, Some(outcome)),
+                },
+                None => (None, None),
+            };
+            (OAuthGrantPurpose::SignupCode, None, pending, photo)
+        }
     };
     let issued = grant::issue(
         &state.db,
@@ -246,17 +270,19 @@ async fn login_code(
         subject,
         user_id,
         binding,
+        pending,
     )
     .await?;
-    Ok(issued.token)
+    Ok((issued.token, photo))
 }
 
+/// Attaches the identity to the account that started the flow; returns that account.
 async fn link_identity(
     state: &AppState,
     provider: Provider,
     subject: &str,
     linker: Option<Linker>,
-) -> Result<(), AppError> {
+) -> Result<Uuid, AppError> {
     let linker = linker.ok_or(AppError::Unauthorized)?;
     let user_id = linker.user_id;
     let lang = Lang::parse(linker.lang.as_deref());
@@ -268,7 +294,7 @@ async fn link_identity(
     }
     match identity_for(&txn, provider.identity(), subject).await? {
         // Linking the same provider account twice is a no-op, not an error (and no new notice).
-        Some(identity) if identity.user_id == user_id => return Ok(()),
+        Some(identity) if identity.user_id == user_id => return Ok(user_id),
         Some(_) => return Err(AppError::IdentityTaken),
         None => {
             insert_identity(
@@ -283,104 +309,5 @@ async fn link_identity(
     }
     txn.commit().await.context("commit oauth link txn")?;
     notice::linked(state, user_id, provider, lang);
-    Ok(())
-}
-
-/// Consuming, the account checks and the session are one transaction, so a refusal (ban,
-/// vanished identity) leaves the code unspent; a code from another browser's flow never matches.
-pub(super) async fn exchange(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    AppJson(body): AppJson<CodeBody>,
-) -> Result<([(axum::http::HeaderName, HeaderValue); 1], Json<Exchange>), AppError> {
-    let flow = state
-        .oauth
-        .signer
-        .read(&headers)
-        .ok_or(AppError::InvalidToken)?;
-    let binding = refresh::hash_token(&flow.state);
-    let txn = state.db.begin().await.context("begin oauth exchange txn")?;
-    let row = grant::consume(
-        &txn,
-        &body.code,
-        &[OAuthGrantPurpose::Login, OAuthGrantPurpose::SignupCode],
-        Some(&binding),
-    )
-    .await?;
-    let answer = match (row.purpose, row.user_id) {
-        (OAuthGrantPurpose::Login, Some(user_id)) => {
-            // Ban first: a ban since the callback must read as `banned`, whatever else it changed.
-            match lock_unbanned(&txn, user_id).await {
-                Err(AppError::Unauthorized) => return Err(AppError::InvalidToken),
-                other => other?,
-            }
-            let linked = identity_for(&txn, row.provider, &row.subject)
-                .await?
-                .is_some_and(|i| i.user_id == user_id);
-            if !linked {
-                return Err(AppError::InvalidToken);
-            }
-            let user = user::Entity::find_by_id(user_id)
-                .one(&txn)
-                .await?
-                .ok_or(AppError::InvalidToken)?;
-            Exchange::Session(session(&state, &txn, &user).await?)
-        }
-        (OAuthGrantPurpose::SignupCode, _) => {
-            let issued = grant::issue(
-                &txn,
-                OAuthGrantPurpose::Signup,
-                row.provider,
-                &row.subject,
-                None,
-                None,
-            )
-            .await?;
-            Exchange::Signup(PendingSignup {
-                token: issued.token,
-                provider: row.provider,
-                expires_at: issued.expires_at,
-            })
-        }
-        _ => return Err(AppError::InvalidToken),
-    };
-    txn.commit().await.context("commit oauth exchange txn")?;
-    let clear = state.oauth.clear_cookie()?;
-    Ok(([(SET_COOKIE, clear)], Json(answer)))
-}
-
-pub(super) async fn signup(
-    State(state): State<AppState>,
-    AppJson(body): AppJson<SignupBody>,
-) -> Result<(StatusCode, Json<Tokens>), AppError> {
-    let username = validation::normalize_username(&body.username)?;
-    // One transaction: a taken username rolls the token consumption back, so it can be retried.
-    let txn = state.db.begin().await.context("begin oauth signup txn")?;
-    let row = grant::consume(&txn, &body.token, &[OAuthGrantPurpose::Signup], None).await?;
-    let user = user::ActiveModel {
-        id: Set(Uuid::new_v4()),
-        username: Set(username),
-        password_hash: Set(None),
-        created_at: Set(Utc::now().fixed_offset()),
-        is_admin: Set(false),
-        banned_at: Set(None),
-        credentials_changed_at: Set(None),
-    }
-    .insert(&txn)
-    .await
-    .map_err(|e| match e.sql_err() {
-        Some(SqlErr::UniqueConstraintViolation(_)) => AppError::UsernameTaken,
-        _ => e.into(),
-    })?;
-    insert_identity(
-        &txn,
-        user.id,
-        row.provider,
-        &row.subject,
-        AppError::InvalidToken,
-    )
-    .await?;
-    let tokens = session(&state, &txn, &user).await?;
-    txn.commit().await.context("commit oauth signup txn")?;
-    Ok((StatusCode::CREATED, Json(tokens)))
+    Ok(user_id)
 }

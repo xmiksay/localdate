@@ -1,4 +1,5 @@
-//! OpenID Connect client for one provider: authorization URL, code exchange and ID token checks.
+//! OpenID Connect / OAuth 2.0 client for one provider: authorization URL, code exchange, and the
+//! account id from a verified ID token or a userinfo-style endpoint.
 
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -10,7 +11,10 @@ use serde::Deserialize;
 use serde_json::{Map, Value};
 use url::Url;
 
-use super::config::{OidcConfig, SubjectSource};
+use hmac::{Hmac, Mac};
+use sha2::Sha256;
+
+use super::config::{OidcConfig, SubjectSource, Userinfo};
 
 /// An unknown `kid` refetches the set, but not more often than this (a forged `kid` must not
 /// turn every callback into a JWKS download).
@@ -34,7 +38,16 @@ pub struct Oidc {
 
 #[derive(Deserialize)]
 struct TokenResponse {
-    id_token: String,
+    id_token: Option<String>,
+    access_token: Option<String>,
+}
+
+/// The provider account behind a callback.
+pub struct Verified {
+    pub subject: String,
+    /// Only for userinfo-style providers, which may import a picture with it; it lives as long as
+    /// the callback and is never stored or logged.
+    pub access_token: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -70,16 +83,84 @@ impl Oidc {
         Ok(url.into())
     }
 
-    /// The provider account id behind an authorization `code`, after the ID token passed every check.
-    pub async fn subject(&self, code: &str, verifier: &str, nonce: &str) -> Result<String> {
-        let id_token = self.exchange(code, verifier).await?;
-        let claims = self.verify(&id_token, nonce).await?;
+    pub fn config(&self) -> &OidcConfig {
+        &self.config
+    }
+
+    /// No redirects, short timeout (see `OAuthService::new`).
+    pub fn http(&self) -> &reqwest::Client {
+        &self.http
+    }
+
+    /// The provider account id behind an authorization `code`, after the ID token passed every
+    /// check, or as the userinfo endpoint reports it for the access token.
+    pub async fn subject(&self, code: &str, verifier: &str, nonce: &str) -> Result<Verified> {
+        let token = self.exchange(code, verifier).await?;
         match &self.config.subject {
-            SubjectSource::IdTokenClaim(name) => claim_subject(&claims, name),
+            SubjectSource::IdTokenClaim(name) => {
+                let id_token = token.id_token.context("token response without id_token")?;
+                let claims = self.verify(&id_token, nonce).await?;
+                Ok(Verified {
+                    subject: claim_subject(&claims, name)?,
+                    access_token: None,
+                })
+            }
+            SubjectSource::Userinfo(info) => {
+                let access_token = token
+                    .access_token
+                    .context("token response without access_token")?;
+                let fields = self
+                    .api_get(
+                        &info.endpoint,
+                        info,
+                        &access_token,
+                        &[("fields", &info.field)],
+                    )
+                    .await?;
+                Ok(Verified {
+                    subject: claim_subject(&fields, &info.field)?,
+                    access_token: Some(access_token),
+                })
+            }
         }
     }
 
-    async fn exchange(&self, code: &str, verifier: &str) -> Result<String> {
+    /// `GET endpoint` as the account behind `access_token` (bearer, plus `appsecret_proof` when the
+    /// provider wants it); the JSON object it answers.
+    pub async fn api_get(
+        &self,
+        endpoint: &str,
+        info: &Userinfo,
+        access_token: &str,
+        params: &[(&str, &str)],
+    ) -> Result<Map<String, Value>> {
+        let mut url = Url::parse(endpoint).context("userinfo endpoint URL")?;
+        url.query_pairs_mut().extend_pairs(params);
+        if info.appsecret_proof {
+            let proof = appsecret_proof(&self.config.client_secret, access_token)?;
+            url.query_pairs_mut().append_pair("appsecret_proof", &proof);
+        }
+        let resp = self
+            .http
+            .get(url)
+            .bearer_auth(access_token)
+            .send()
+            .await
+            // The URL carries the appsecret_proof; keep it out of the logged error.
+            .map_err(reqwest::Error::without_url)
+            .context("userinfo request")?;
+        let status = resp.status();
+        let body = read_limited(resp).await?;
+        if !status.is_success() {
+            bail!(
+                "userinfo endpoint answered {status}: {}",
+                String::from_utf8_lossy(&body)
+            );
+        }
+        serde_json::from_slice(&body).context("userinfo response")
+    }
+
+    async fn exchange(&self, code: &str, verifier: &str) -> Result<TokenResponse> {
         let resp = self
             .http
             .post(&self.config.token_endpoint)
@@ -103,9 +184,7 @@ impl Oidc {
                 String::from_utf8_lossy(&body)
             );
         }
-        let token: TokenResponse =
-            serde_json::from_slice(&body).context("token endpoint response")?;
-        Ok(token.id_token)
+        serde_json::from_slice(&body).context("token endpoint response")
     }
 
     async fn verify(&self, id_token: &str, nonce: &str) -> Result<Map<String, Value>> {
@@ -198,17 +277,32 @@ impl Oidc {
     }
 }
 
-/// The claim `name` as an identity subject: a non-empty string, or an integer rendered in decimal.
+/// The claim (or userinfo field) `name` as an identity subject: a non-empty string, or an integer
+/// rendered in decimal.
 fn claim_subject(claims: &Map<String, Value>, name: &str) -> Result<String> {
     let subject = match claims.get(name) {
         Some(Value::String(s)) => s.clone(),
         Some(Value::Number(n)) if n.is_u64() || n.is_i64() => n.to_string(),
-        _ => bail!("ID token has no usable {name} claim"),
+        _ => bail!("no usable {name} claim"),
     };
     if subject.is_empty() || subject.len() > MAX_SUBJECT_LEN {
-        bail!("ID token {name} is empty or too long");
+        bail!("{name} claim is empty or too long");
     }
     Ok(subject)
+}
+
+/// Graph API `appsecret_proof`: lowercase hex HMAC-SHA256 of the access token, keyed with the
+/// app secret.
+pub fn appsecret_proof(app_secret: &str, access_token: &str) -> Result<String> {
+    let mut mac =
+        Hmac::<Sha256>::new_from_slice(app_secret.as_bytes()).context("appsecret_proof key")?;
+    mac.update(access_token.as_bytes());
+    Ok(mac
+        .finalize()
+        .into_bytes()
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect())
 }
 
 async fn read_limited(mut resp: reqwest::Response) -> Result<Vec<u8>> {
@@ -251,6 +345,38 @@ mod tests {
         assert_eq!(
             q["redirect_uri"],
             "https://a.cz/api/auth/oauth/google/callback"
+        );
+    }
+
+    #[tokio::test]
+    async fn userinfo_errors_never_carry_the_appsecret_proof() {
+        let mut cfg = config::facebook(Some("https://a.cz"), Some("app".into()), Some("s".into()))
+            .expect("valid")
+            .expect("on");
+        let SubjectSource::Userinfo(info) = &mut cfg.subject else {
+            panic!("userinfo");
+        };
+        info.endpoint = "http://127.0.0.1:1/me".into();
+        let info = info.clone();
+        let oidc = Oidc::new(cfg, reqwest::Client::new());
+        let err = oidc
+            .api_get(&info.endpoint, &info, "TOKEN", &[("fields", "id")])
+            .await
+            .expect_err("nothing listens on port 1");
+        let shown = format!("{err:#} {err:?}");
+        let proof = appsecret_proof("s", "TOKEN").expect("proof");
+        assert!(
+            !shown.contains(&proof) && !shown.contains("TOKEN"),
+            "{shown}"
+        );
+    }
+
+    #[test]
+    fn appsecret_proof_matches_a_known_hmac_sha256() {
+        // RFC 4231 test case 2: key "Jefe", data "what do ya want for nothing?".
+        assert_eq!(
+            appsecret_proof("Jefe", "what do ya want for nothing?").expect("proof"),
+            "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843"
         );
     }
 

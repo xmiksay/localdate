@@ -111,8 +111,8 @@ Debug builds (clippy, tests) need no bundle: they read `frontend/dist` from disk
 |---|---|
 | `user` | id uuid PK, username text UNIQUE (lowercase, `[a-z0-9_]{3,32}`), password_hash text NULL (argon2id; NULL = account created by email, no password), created_at, is_admin bool (default false), banned_at NULL, credentials_changed_at NULL (last password reset/change, whole seconds; older access tokens are refused) |
 | `refresh_token` | id uuid PK, user_id FK, token_hash text UNIQUE (sha256), family_id uuid, expires_at, revoked_at NULL, created_at |
-| `user_identity` | id uuid PK, user_id FK, provider enum(email, google, telegram; later facebook), subject text (email: validated, lowercased address; google: the account's `sub`; telegram: the numeric user id `id`, decimal), verified_at, created_at; UNIQUE (provider, subject) |
-| `oauth_grant` | id uuid PK, token_hash text UNIQUE (sha256), purpose enum(login, signup_code, signup), provider identity_provider, subject text, user_id FK NULL (CHECK: set iff login), binding text NULL (sha256 of the flow state; CHECK: NULL iff signup), expires_at (codes +60 s, signup +15 min), used_at NULL, created_at |
+| `user_identity` | id uuid PK, user_id FK, provider enum(email, google, telegram, facebook), subject text (email: validated, lowercased address; google: the account's `sub`; telegram: the numeric user id `id`, decimal; facebook: the app-scoped user id), verified_at, created_at; UNIQUE (provider, subject) |
+| `oauth_grant` | id uuid PK, token_hash text UNIQUE (sha256), purpose enum(login, signup_code, signup), provider identity_provider, subject text, user_id FK NULL (CHECK: set iff login), binding text NULL (sha256 of the flow state; CHECK: NULL iff signup), expires_at (codes +60 s, signup +15 min), used_at NULL, created_at, photo bytea NULL (imported profile picture, WebP ≤ 8 MiB; CHECK: sign-up purposes only) |
 | `email_token` | id uuid PK, token_hash text UNIQUE (sha256), purpose enum(login,link,signup,password_reset), user_id FK NULL (CHECK: NULL iff signup), provider identity_provider (default email; telegram only for reset links sent by the bot), email text (the identity subject of `provider`: an address, or a Telegram user id), expires_at (+15 min), used_at NULL, created_at |
 | `profile` | user_id PK/FK, display_name text (1–40), birth_date date, gender enum(male,female,other), bio text (≤ 500), updated_at |
 | `photo` | id uuid PK, user_id FK, file_name text, position smallint (0 = primary), created_at; max 6 per user |
@@ -158,12 +158,12 @@ nearby query), plus `shift`.
 
 ## Auth
 
-Username + password (argon2id), an **email magic link**, or **Sign in with Google / Telegram**; a forgotten password is
+Username + password (argon2id), an **email magic link**, or **Sign in with Google / Telegram / Facebook**; a forgotten password is
 reset through a linked email.
 
 **Identity model.** A *login method* is the password (`user.password_hash`, optional) or a row in
 `user_identity` — `(provider, subject)` unique, so one address belongs to at most one account. Email, Google and
-Telegram are the providers now; Facebook (#17) adds an enum value and its own verify step,
+Telegram and Facebook are the providers now; a new one adds an enum value and its own verify step,
 everything else (listing, unlinking, "last login method" guard, `session()` issuing Tokens) is shared.
 An account always keeps at least one method: `DELETE /me/identities/{id}` locks the user row
 `FOR UPDATE` and refuses (`409 last_login_method`) to remove the last identity of a passwordless account.
@@ -237,10 +237,11 @@ token — there is no old password to ask for, and that session could already li
 provider (endpoints, accepted issuers, scope, `SubjectSource`, JWKS cache time; presets read from env in
 `config::from_env`), `OAuthService` keeps a registry `Provider → Oidc` of the configured ones (absent =
 `provider_disabled`, `GET /auth/providers` → `false`), and every redirect URI is
-`{APP_BASE_URL}/api/auth/oauth/{provider}/callback`. A new provider (Facebook #17 next) is a `Provider`
+`{APP_BASE_URL}/api/auth/oauth/{provider}/callback`. A new provider is a `Provider`
 variant + `identity_provider` enum value + preset; `SubjectSource::IdTokenClaim(name)` reads the account id from
-the verified ID token (a string as is, an integer in decimal — Telegram's `id`), and a userinfo-style resolver
-for providers without a usable ID token slots in as another variant. Google: scope `openid`, subject `sub`.
+the verified ID token (a string as is, an integer in decimal — Telegram's `id`), `SubjectSource::Userinfo` reads
+a field of a userinfo-style endpoint called with the access token, for providers whose web login has no ID token
+(Facebook). Google: scope `openid`, subject `sub`.
 Telegram (`oauth.telegram.org`, issuer `https://oauth.telegram.org`, RS256, `aud` = the bot id = BotFather's Client
 ID): scope `openid profile telegram:bot_access`, subject `id` — Telegram's `sub` is an opaque value unrelated to the
 user id the bot needs as chat id, and `id` comes only with `profile` (its names/photo are discarded);
@@ -249,7 +250,12 @@ user id the bot needs as chat id, and `id` comes only with `profile` (its names/
 Telegram's server-side flow may not echo it and `state` + PKCE + the cookie binding already stop code injection
 (to tighten once a real token shows it is echoed). With both Telegram login and the bot configured, startup checks
 they are the same bot (token prefix = client id). Telegram's legacy HMAC login widget is not used (no
-third-party script on the login page).
+third-party script on the login page). Facebook (`config::facebook`, Graph v25.0): scope `public_profile` (no App
+Review), subject = app-scoped `id` from `GET /me?fields=id` with `Authorization: Bearer` and `appsecret_proof`
+(hex HMAC-SHA256 of the access token keyed with the app secret, so a leaked token alone cannot call Graph as this
+app); issuers / JWKS / `NonceCheck` are unused (no ID token, so `verify` never runs). PKCE (S256) is sent to
+Facebook's dialog and the verifier to its token endpoint (both documented by Facebook); the flow's integrity does
+not depend on it — `state` + the signed cookie bind the callback to the starting browser as for Google.
 
 Server-side authorization code flow: `start` (login; a plain browser navigation) or `link` (a
 bearer-authenticated `POST` that returns the provider URL) sets the `ld_oauth` cookie — HttpOnly, SameSite=Lax,
@@ -276,7 +282,27 @@ sign-up). All callback errors redirect to `/auth/oauth/done#error=<code>`. Rate 
 `start` (inside the handler, so a refusal still lands on the done page) and `link`/`signup` (`limit_by_ip`);
 the callback is never limited, as refusing it would waste the provider's single-use code. Logout also clears
 the flow cookie. Tests run the whole flow against a local fake provider (`tests/common/oauth.rs`, fixture RSA
-key + JWKS, JWKS hit counter / outage switch).
+key + JWKS, JWKS hit counter / outage switch); Facebook against `tests/common/facebook.rs` (token, `/me`,
+`/me/picture`, CDN; verifies PKCE, client secret, bearer and `appsecret_proof`).
+
+**Profile picture import** (`auth/oauth/import.rs`, Facebook only: `Userinfo::picture`). Opt-in per flow
+(`import_photo` on `start` / `link`, kept in the signed cookie; dropped for providers without a picture source),
+and only for a new account or a link — a login to an already linked account never imports. The provider access
+token is never stored, so the import runs inside the callback, and only after the account checks passed
+(login: identity lookup + `lock_unbanned`; link: lock, superseded check, identity insert), so a refused flow
+downloads nothing: Graph
+`/me/picture?redirect=false&width=1280&height=1280` (+ `appsecret_proof`) names the image; the default silhouette
+is skipped (`none`). SSRF guard: the URL must be https on the default port, without credentials, on an allowlisted
+host or its subdomain (`fbcdn.net`; IP literals never match), and the HTTP client follows no redirects, so no other
+host is ever contacted; the body is capped at the upload limit (10 MB, `Content-Length` and streamed) within the
+10 s client timeout. The bytes then go through `photos::to_webp` (decode limits, permit semaphore, EXIF stripped)
+— nothing unprocessed is stored. Where it lands: link → `photos::add` at once (the usual locked count check:
+`full` at 6); a new account → the WebP rides in the `signup_code` grant (`photo=pending`), is copied to the
+`signup` grant at `exchange`, and is attached after `signup` commits, whose response then carries the real outcome
+(`photo: imported|full|failed`; a failure is logged, never undoes the account); an unfinished sign-up's picture
+is deleted with its expired grant by the cleanup job. The outcome is appended to the done page fragment
+(`photo=pending|imported|full|none|failed`); an import failure never fails the sign-up or link. Request errors are
+logged without their URL (`reqwest::Error::without_url`): Graph URLs carry the `appsecret_proof`, CDN URLs are signed.
 
 JWT HS256 access token (15 min, `sub` = user id) + opaque refresh token (30 days, stored hashed,
 rotated on every use; reuse of a revoked token revokes the whole family). The frontend keeps both in
@@ -299,7 +325,8 @@ C dependency), written to `PHOTO_DIR/<uuid>.webp`. Inputs over 10 000 px on an e
 refused from the header, before decoding (decode allocation capped at 128 MiB), and at most two decodes run
 at once (`AppState::image_permits`), which bounds memory for the pod limit.
 Served publicly at `/media/<uuid>.webp` — filenames are unguessable v4 UUIDs, so `<img>` works
-without auth headers. S3 storage is a follow-up issue.
+without auth headers. S3 storage is a follow-up issue. A Facebook profile picture can also be imported at login
+(Auth → "Profile picture import"); it runs through the same `to_webp` / `add` path as an upload.
 
 ## Realtime
 
@@ -415,13 +442,14 @@ and a 10 s timeout. `localdate-api vapid generate` / `make vapid-keys` prints a 
 | `BIND_ADDR` | `127.0.0.1:3000` | |
 | `CLEANUP_INTERVAL_SECS` | `300` | optional, default 300; period of the cleanup job |
 | `TRUST_PROXY_HEADERS` | `false` | optional (`true`/`false`/`1`/`0`), default false; rate-limit on `X-Forwarded-For` (see Auth) |
-| `APP_BASE_URL` | `https://localdate.mmik.cz` | required when email, Google, Telegram login or the Telegram bot is on; mailed (and Telegram) reset links point at `{APP_BASE_URL}/auth/email…` and `/auth/password/reset`, redirect URIs are `{APP_BASE_URL}/api/auth/oauth/{google,telegram}/callback` |
+| `APP_BASE_URL` | `https://localdate.mmik.cz` | required when email, Google, Telegram login, the Telegram bot or Facebook is on; mailed (and Telegram) reset links point at `{APP_BASE_URL}/auth/email…` and `/auth/password/reset`, redirect URIs are `{APP_BASE_URL}/api/auth/oauth/{google,telegram,facebook}/callback` |
 | `SMTP_URL` | `smtps://user:pass@smtp.example.com:465` | optional, secret; lettre URL, enables email |
 | `EMAIL_FROM` | `localdate <noreply@localdate.mmik.cz>` | required with `SMTP_URL` |
 | `EMAIL_DEV_LOG` | `true` | optional, debug builds only (release refuses to start): log mails incl. links instead of sending; exclusive with `SMTP_URL` |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | from Google Cloud Console | optional (Secret); both or neither; unset = Google login off |
 | `TELEGRAM_CLIENT_ID` / `TELEGRAM_CLIENT_SECRET` | BotFather → bot → Login Widget | optional (Secret); both or neither; unset = Telegram login off |
 | `TELEGRAM_BOT_TOKEN` | `123456789:AA…` (BotFather) | optional (Secret); unset = no Telegram reset messages; must look like `<digits>:<secret>` |
+| `FACEBOOK_APP_ID` / `FACEBOOK_APP_SECRET` | from Meta for Developers | optional (Secret); both or neither; unset = Facebook login off; redirect URI `{APP_BASE_URL}/api/auth/oauth/facebook/callback` |
 | `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` | from `make vapid-keys` | optional (Secret); both or neither; unset = Web Push off |
 | `VAPID_SUBJECT` | `https://localdate.mmik.cz` | `mailto:` or `https://` contact; required when the keys are set |
 | `RUST_LOG` | `info,sqlx=warn,localdate_api=debug` | sqlx logs every query at info |

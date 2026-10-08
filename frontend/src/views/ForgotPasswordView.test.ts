@@ -13,6 +13,7 @@ async function render(email: boolean) {
     email,
     google: false,
     telegram: true,
+    facebook: false,
     password_reset: true,
   })
   vi.mocked(authApi.passwordForgot).mockResolvedValue(undefined)

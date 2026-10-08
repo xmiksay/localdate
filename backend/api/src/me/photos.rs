@@ -19,7 +19,8 @@ use crate::error::{AppError, AppJson, parse_id};
 use crate::state::AppState;
 
 pub const MAX_PHOTOS: u64 = 6;
-const MAX_UPLOAD_BYTES: usize = 10 * 1024 * 1024;
+/// Also the cap on a picture imported from an OAuth provider.
+pub const MAX_UPLOAD_BYTES: usize = 10 * 1024 * 1024;
 /// Headroom for multipart framing so a file of exactly 10 MB isn't cut off by the body limit.
 const BODY_LIMIT: usize = MAX_UPLOAD_BYTES + 64 * 1024;
 
@@ -130,6 +131,13 @@ async fn upload(
         return Err(AppError::PhotoLimit);
     }
     let bytes = read_file_field(multipart).await?;
+    let webp = to_webp(&state, bytes).await?;
+    let model = add(&state, auth.id, &webp).await?;
+    Ok((StatusCode::CREATED, Json(model.into())))
+}
+
+/// Normalises an image (`image_proc::to_webp`) off the async runtime.
+pub async fn to_webp(state: &AppState, bytes: Vec<u8>) -> Result<Vec<u8>, AppError> {
     // Each decode can take ~128 MiB plus resize buffers; the permit bounds concurrent ones so a
     // burst of uploads queues instead of blowing the pod's memory limit.
     let permit = state
@@ -145,13 +153,16 @@ async fn upload(
     .await
     .map_err(|e| anyhow::anyhow!("image task failed: {e}"))?
     .map_err(|_| AppError::UnsupportedImage)?;
+    Ok(webp)
+}
 
+/// Stores already normalised WebP bytes as the user's last photo; `PhotoLimit` when full.
+pub async fn add(state: &AppState, user_id: Uuid, webp: &[u8]) -> Result<photo::Model, AppError> {
     let id = Uuid::new_v4();
     let file_name = format!("{id}.webp");
-    write_atomically(&state.config.photo_dir, &file_name, &webp).await?;
-
-    match insert_row(&state, auth.id, id, &file_name).await {
-        Ok(model) => Ok((StatusCode::CREATED, Json(model.into()))),
+    write_atomically(&state.config.photo_dir, &file_name, webp).await?;
+    match insert_row(state, user_id, id, &file_name).await {
+        Ok(model) => Ok(model),
         Err(e) => {
             remove_files(&state.config.photo_dir, &[file_name]).await;
             Err(e)

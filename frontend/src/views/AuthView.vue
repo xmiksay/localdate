@@ -3,7 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useT } from '@/i18n/typed'
 import { useRoute, useRouter } from 'vue-router'
 import { oauthStartUrl } from '@/api/oauth'
-import type { OAuthProvider } from '@/api/types'
+import { PHOTO_IMPORT_PROVIDERS, type OAuthProvider } from '@/api/types'
 import EmailLinkForm from '@/components/EmailLinkForm.vue'
 import SuspendedNotice from '@/components/SuspendedNotice.vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
@@ -27,6 +27,8 @@ const busy = ref(false)
 const failure = ref<string | null>(null)
 const submitted = ref(false)
 const showEmail = ref(false)
+/** Opt-in, for a new account only: a provider that offers it adds its profile picture. */
+const importPhoto = ref(false)
 
 onMounted(() => auth.loadProviders())
 
@@ -45,7 +47,8 @@ const passwordError = computed(() =>
 
 // A full navigation, not fetch: the server sets the flow cookie and redirects to the provider.
 function continueWith(provider: OAuthProvider) {
-  window.location.assign(oauthStartUrl(provider, inAppPath(route.query.redirect)))
+  const withPhoto = importPhoto.value && PHOTO_IMPORT_PROVIDERS.includes(provider)
+  window.location.assign(oauthStartUrl(provider, inAppPath(route.query.redirect), withPhoto))
 }
 
 async function submit() {
@@ -121,15 +124,18 @@ async function submit() {
       </RouterLink>
     </form>
 
-    <BaseButton
-      v-for="p in auth.oauthProviders"
-      :key="p"
-      variant="ghost"
-      block
-      @click="continueWith(p)"
-    >
-      {{ t('oauth.continue', { provider: t(`oauth.provider.${p}`) }) }}
-    </BaseButton>
+    <div v-for="p in auth.oauthProviders" :key="p" class="flex flex-col gap-2">
+      <BaseButton variant="ghost" block @click="continueWith(p)">
+        {{ t('oauth.continue', { provider: t(`oauth.provider.${p}`) }) }}
+      </BaseButton>
+      <label
+        v-if="PHOTO_IMPORT_PROVIDERS.includes(p)"
+        class="flex min-h-11 items-center gap-3 text-sm font-semibold"
+      >
+        <input v-model="importPhoto" type="checkbox" class="size-5 accent-coral" />
+        {{ t('oauth.importPhotoNew', { from: t(`oauth.from.${p}`) }) }}
+      </label>
+    </div>
 
     <section v-if="auth.emailEnabled" class="flex flex-col gap-3">
       <BaseButton v-if="!showEmail" variant="ghost" block @click="showEmail = true">

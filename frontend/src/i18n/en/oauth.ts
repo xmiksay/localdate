@@ -4,7 +4,17 @@ import type { Messages } from '../messages'
 
 const en: Messages<typeof cs> = {
   oauth: {
-    provider: { google: 'Google', telegram: 'Telegram' },
+    provider: { google: 'Google', telegram: 'Telegram', facebook: 'Facebook' },
+    from: { google: 'from Google', telegram: 'from Telegram', facebook: 'from Facebook' },
+    importPhoto: 'Import my profile picture {from}',
+    importPhotoNew: 'For a new account, import my profile picture {from}',
+    photo: {
+      imported: 'Your profile picture was added to your photos.',
+      pending: 'Your profile picture will be added once you pick a username.',
+      full: 'Your profile picture was not added: you already have the maximum number of photos.',
+      none: 'The account has no profile picture, so there was nothing to import.',
+      failed: 'Your profile picture could not be imported. You can upload it yourself.',
+    },
     continue: 'Continue with {provider}',
     link: 'Link {provider}',
     linked: 'Your {provider} account is linked.',

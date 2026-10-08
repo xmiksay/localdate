@@ -29,7 +29,7 @@ async fn providers_reflect_whether_email_is_configured() {
         off.get("/api/auth/providers", None).await,
         (
             StatusCode::OK,
-            json!({ "email": false, "google": false, "telegram": false, "password_reset": false })
+            json!({ "email": false, "google": false, "telegram": false, "facebook": false, "password_reset": false })
         )
     );
     let on = TestApp::with_email().await;
@@ -37,7 +37,7 @@ async fn providers_reflect_whether_email_is_configured() {
         on.get("/api/auth/providers", None).await,
         (
             StatusCode::OK,
-            json!({ "email": true, "google": false, "telegram": false, "password_reset": true })
+            json!({ "email": true, "google": false, "telegram": false, "facebook": false, "password_reset": true })
         )
     );
 }

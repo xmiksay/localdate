@@ -1,12 +1,16 @@
 //! Sign in with an OAuth / OpenID Connect provider (docs/api.md "Sign in with Google"):
 //! server-side authorization code flow with PKCE, a signed flow cookie and one-time codes handed
-//! to the SPA through the URL fragment. Providers: Google and Telegram; a new one is a `Provider`
+//! to the SPA through the URL fragment. Providers: Google, Telegram, Facebook; a new one is a `Provider`
 //! variant, an `IdentityProvider` enum value and its `OidcConfig` preset in `config::from_env`.
+//! Facebook (OAuth 2.0 without ID token) resolves its account id through `SubjectSource::Userinfo`
+//! and can import the profile picture (`import`).
 
 pub mod config;
 pub mod cookie;
+mod exchange;
 mod flow;
 mod grant;
+pub mod import;
 mod notice;
 pub mod oidc;
 
@@ -43,15 +47,17 @@ const HTTP_TIMEOUT: Duration = Duration::from_secs(10);
 pub enum Provider {
     Google,
     Telegram,
+    Facebook,
 }
 
 impl Provider {
-    pub const ALL: [Self; 2] = [Self::Google, Self::Telegram];
+    pub const ALL: [Self; 3] = [Self::Google, Self::Telegram, Self::Facebook];
 
     pub fn parse(raw: &str) -> Option<Self> {
         match raw {
             "google" => Some(Self::Google),
             "telegram" => Some(Self::Telegram),
+            "facebook" => Some(Self::Facebook),
             _ => None,
         }
     }
@@ -60,6 +66,7 @@ impl Provider {
         match self {
             Self::Google => "google",
             Self::Telegram => "telegram",
+            Self::Facebook => "facebook",
         }
     }
 
@@ -68,6 +75,7 @@ impl Provider {
         match self {
             Self::Google => "Google",
             Self::Telegram => "Telegram",
+            Self::Facebook => "Facebook",
         }
     }
 
@@ -75,6 +83,7 @@ impl Provider {
         match self {
             Self::Google => IdentityProvider::Google,
             Self::Telegram => IdentityProvider::Telegram,
+            Self::Facebook => IdentityProvider::Facebook,
         }
     }
 }
@@ -127,15 +136,18 @@ impl OAuthService {
     }
 
     /// A new flow for `provider`: the `Set-Cookie` value and the provider URL to send the browser to.
+    /// `import_photo` is dropped for a provider that offers no picture import.
     fn begin(
         &self,
         provider: Provider,
         mode: Mode,
         redirect: Option<&str>,
         linker: Option<Linker>,
+        import_photo: bool,
     ) -> Result<(HeaderValue, String), AppError> {
         let oidc = self.oidc(provider)?;
-        let flow = Flow::new(provider, mode, cookie::safe_redirect(redirect), linker);
+        let mut flow = Flow::new(provider, mode, cookie::safe_redirect(redirect), linker);
+        flow.import_photo = import_photo && import::source(oidc).is_some();
         let url =
             oidc.authorize_url(&flow.state, &flow.nonce, &cookie::challenge(&flow.verifier))?;
         let set = cookie::set_cookie(Some(&self.signer.sign(&flow)?), self.secure)?;
@@ -146,7 +158,7 @@ impl OAuthService {
 pub fn router() -> Router<AppState> {
     let limited = Router::new()
         .route("/auth/oauth/{provider}/link", post(flow::link))
-        .route("/auth/oauth/signup", post(flow::signup))
+        .route("/auth/oauth/signup", post(exchange::signup))
         .route_layer(middleware::from_fn(limit_by_ip));
     // `start` limits inside the handler so a refusal still lands on the SPA's done page. The
     // callback is not limited: its flow was already counted at start, and refusing it would waste
@@ -155,7 +167,7 @@ pub fn router() -> Router<AppState> {
         .merge(limited)
         .route("/auth/oauth/{provider}/start", get(flow::start))
         .route("/auth/oauth/{provider}/callback", get(flow::callback))
-        .route("/auth/oauth/exchange", post(flow::exchange))
+        .route("/auth/oauth/exchange", post(exchange::exchange))
 }
 
 /// The identity holding `(provider, subject)`.

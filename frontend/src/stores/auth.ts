@@ -9,6 +9,7 @@ import {
   OAUTH_PROVIDERS,
   type Credentials,
   type OAuthProvider,
+  type OAuthSignedUp,
   type Tokens,
   type User,
 } from '@/api/types'
@@ -140,8 +141,16 @@ export const useAuthStore = defineStore('auth', () => {
     return signupToken === null ? null : { signupToken }
   }
 
-  const oauthSignup = (token: string, username: string) =>
-    signIn(() => oauthApi.oauthSignup({ token, username: normalizeUsername(username) }))
+  /** Creates the account; answers what became of a picture held since the callback, if any. */
+  async function oauthSignup(token: string, username: string) {
+    let photo: OAuthSignedUp['photo'] | null = null
+    await signIn(async () => {
+      const r = await oauthApi.oauthSignup({ token, username: normalizeUsername(username) })
+      photo = r.photo ?? null
+      return r
+    })
+    return photo
+  }
 
   async function logout() {
     // While the tokens still work: afterwards the server could not be told to forget this device.

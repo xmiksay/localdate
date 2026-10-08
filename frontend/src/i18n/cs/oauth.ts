@@ -2,7 +2,19 @@
 // the callback errors carry no provider, so their texts stay provider-neutral.
 export default {
   oauth: {
-    provider: { google: 'Google', telegram: 'Telegram' },
+    provider: { google: 'Google', telegram: 'Telegram', facebook: 'Facebook' },
+    // "{from}" is `from.<provider>`: Czech needs the genitive ("z Facebooku").
+    from: { google: 'z Googlu', telegram: 'z Telegramu', facebook: 'z Facebooku' },
+    importPhoto: 'Importovat profilovou fotku {from}',
+    importPhotoNew: 'U nového účtu importovat profilovou fotku {from}',
+    // The done page does not know the provider of a login code, so these stay provider-neutral.
+    photo: {
+      imported: 'Profilová fotka je přidaná mezi tvoje fotky.',
+      pending: 'Profilovou fotku přidáme k účtu, jakmile si vybereš jméno.',
+      full: 'Profilovou fotku jsme nepřidali: máš už plný počet fotek.',
+      none: 'Účet nemá profilovou fotku, nebylo co importovat.',
+      failed: 'Profilovou fotku se nepodařilo importovat. Můžeš ji nahrát ručně.',
+    },
     continue: 'Pokračovat přes {provider}',
     link: 'Propojit {provider}',
     linked: 'Účet {provider} je propojený.',
