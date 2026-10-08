@@ -19,18 +19,19 @@ waves, and chats after a mutual wave.
 
 - `backend/api/src/`: `auth/` (password, jwt, refresh rotation, `AuthUser` extractor), `me/` (profile, photos +
   `image_proc`, filter, `DELETE /me`), `discovery/` (`geo` bands/haversine, `rules::mutually_visible` = spec,
-  `window`, `nearby` = the **only runtime visibility SQL**, reused by waves), `social/` (waves, matches, messages),
-  `ws/` (hub + session), `cleanup.rs` (retention job spawned from `main`; tests call
-  `run_once(db, shift)`), `web.rs` (router fallback serving the `rust-embed`ded `frontend/dist`:
-  files, SPA `index.html` fallback, cache headers/ETag, traversal guard; `/api` has its own JSON 404
-  fallback so it never gets the shell; `build.rs` rebuilds on dist changes and refuses a release
-  build without it), `safety.rs` (blocks/reports, `is_blocked_between`, `blocked_with`), `error.rs`
+  `window`, `nearby` = the **only runtime visibility SQL**, reused by waves, + shared-interest ranking),
+  `social/` (waves, matches, messages), `ws/` (hub + session), `cleanup.rs` (retention job spawned from
+  `main`; tests call `run_once(db, shift)`), `web.rs` (router fallback serving the `rust-embed`ded
+  `frontend/dist`: files, SPA `index.html` fallback, cache headers/ETag, traversal guard; `/api` has its
+  own JSON 404 fallback so it never gets the shell; `build.rs` rebuilds on dist changes and refuses a
+  release build without it), `safety.rs` (blocks/reports, `is_blocked_between`, `blocked_with`), `error.rs`
   (`AppError`, `AppJson`, `parse_id`), `rate_limit.rs`. New domain = module with `router()` merged in `lib.rs`.
 - `backend/api/tests/common/mod.rs`: `TestApp` harness (fresh DB per test, `register`, `onboard`, `open_window`,
   `visible_user`, multipart helpers; `with_frontend::<F>()` serves a fixture bundle from `tests/fixtures/dist`).
 - `frontend/src/`: `api/` (typed client with single-flight refresh, `ws.ts`, per-domain modules, `types.ts` mirrors
   docs/api.md), `stores/` (auth, me, window, nearby, matches, safety), `composables/` (geolocation sharing,
-  realtime), `i18n/cs.ts` (source of truth; `en.ts` typed against it), `components/ui/` primitives.
+  realtime), `i18n/cs.ts` (source of truth; `en.ts` typed against it; `i18n/plural.ts` = Czech one/few/many rule),
+  `utils/interests.ts` (`sharedFirst` for highlighted chips), `components/ui/` primitives.
 
 ## Commands (always via make)
 

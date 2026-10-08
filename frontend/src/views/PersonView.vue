@@ -9,6 +9,7 @@ import WaveButton from '@/components/WaveButton.vue'
 import ErrorNote from '@/components/ui/ErrorNote.vue'
 import { useNearbyStore } from '@/stores/nearby'
 import { errorMessage } from '@/utils/errors'
+import { sharedFirst } from '@/utils/interests'
 
 const props = defineProps<{ userId: string }>()
 const { t } = useI18n()
@@ -19,6 +20,9 @@ const loading = ref(false)
 const failure = ref<string | null>(null)
 const matchId = ref<string | null>(null)
 const profile = computed(() => nearby.find(props.userId))
+const interests = computed(() =>
+  profile.value ? sharedFirst(profile.value.interests, profile.value.shared_interests) : [],
+)
 
 onMounted(async () => {
   if (profile.value) return
@@ -82,15 +86,29 @@ const leave = () => router.replace({ name: 'nearby' })
       </ul>
     </section>
 
-    <section v-if="profile.interests.length">
-      <h2 class="mb-1.5 text-sm font-semibold text-plum">{{ t('person.interests') }}</h2>
+    <section v-if="interests.length">
+      <h2 class="mb-1.5 flex items-center gap-2 text-sm font-semibold text-plum">
+        {{ t('person.interests') }}
+        <span
+          v-if="profile.shared_interests.length"
+          class="rounded-full bg-plum px-2.5 py-0.5 text-xs font-bold text-cream"
+        >
+          {{ t('nearby.sharedInterests', profile.shared_interests.length) }}
+        </span>
+      </h2>
       <ul class="flex flex-wrap gap-2">
         <li
-          v-for="i in profile.interests"
+          v-for="i in interests"
           :key="i.id"
-          class="rounded-full bg-paper px-3 py-1 text-sm font-medium text-plum ring-1 ring-line"
+          class="rounded-full px-3 py-1 text-sm ring-1"
+          :class="
+            i.shared
+              ? 'bg-plum font-semibold text-cream ring-plum'
+              : 'bg-paper font-medium text-plum ring-line'
+          "
         >
-          {{ t(`interest.${i.key}`) }}
+          <span v-if="i.shared" aria-hidden="true">★ </span>{{ t(`interest.${i.key}`) }}
+          <span v-if="i.shared" class="sr-only">({{ t('person.sharedMark') }})</span>
         </li>
       </ul>
     </section>

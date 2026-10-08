@@ -1,7 +1,7 @@
 //! `GET /nearby` and the single SQL definition of "mutually visible" shared with waves.
 
 use std::cmp::Reverse;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 use axum::Json;
 use axum::extract::State;
@@ -93,6 +93,7 @@ pub struct NearbyProfile {
     gender: Gender,
     bio: String,
     interests: Vec<InterestDto>,
+    shared_interests: Vec<i32>,
     photos: Vec<PhotoDto>,
     reasons: Vec<Reason>,
     distance_band: DistanceBand,
@@ -134,10 +135,16 @@ pub async fn profiles(
         photos.entry(p.user_id).or_default().push(p.into());
     }
 
+    // The viewer rides along in the same query so the overlap needs no extra round trip.
     let links = user_interest::Entity::find()
-        .filter(user_interest::Column::UserId.is_in(ids.clone()))
+        .filter(user_interest::Column::UserId.is_in(ids.iter().copied().chain([me])))
         .all(db)
         .await?;
+    let mine: BTreeSet<i32> = links
+        .iter()
+        .filter(|l| l.user_id == me)
+        .map(|l| l.interest_id)
+        .collect();
     let catalog: HashMap<i32, interest::Model> = interest::Entity::find()
         .filter(interest::Column::Id.is_in(links.iter().map(|l| l.interest_id)))
         .all(db)
@@ -202,6 +209,7 @@ pub async fn profiles(
         } else {
             WaveState::None
         };
+        let theirs = interests.remove(&r.user_id).unwrap_or_default();
         out.push((
             r.starts_at,
             NearbyProfile {
@@ -212,12 +220,8 @@ pub async fn profiles(
                     .iter()
                     .filter_map(|s| Reason::try_from_value(s).ok())
                     .collect(),
-                interests: interests
-                    .remove(&r.user_id)
-                    .unwrap_or_default()
-                    .into_iter()
-                    .map(Into::into)
-                    .collect(),
+                shared_interests: shared_ids(&mine, theirs.iter().map(|i| i.id)),
+                interests: theirs.into_iter().map(Into::into).collect(),
                 photos: photos.remove(&r.user_id).unwrap_or_default(),
                 user_id: r.user_id,
                 display_name: r.display_name,
@@ -228,8 +232,26 @@ pub async fn profiles(
             },
         ));
     }
-    out.sort_by_key(|(starts_at, p)| (p.distance_band, Reverse(*starts_at)));
+    sort_for_display(&mut out);
     Ok(out.into_iter().map(|(_, p)| p).collect())
+}
+
+/// Interest ids present on both sides, ascending.
+fn shared_ids(mine: &BTreeSet<i32>, theirs: impl Iterator<Item = i32>) -> Vec<i32> {
+    let theirs: BTreeSet<i32> = theirs.collect();
+    mine.intersection(&theirs).copied().collect()
+}
+
+/// Most shared interests first, then nearest band, newest window, and `user_id` for stability.
+fn sort_for_display(items: &mut [(DateTimeWithTimeZone, NearbyProfile)]) {
+    items.sort_by_key(|(starts_at, p)| {
+        (
+            Reverse(p.shared_interests.len()),
+            p.distance_band,
+            Reverse(*starts_at),
+            p.user_id,
+        )
+    });
 }
 
 /// Visible profiles restricted to `ids` (empty = all); 409 without an own active window.
@@ -255,6 +277,57 @@ pub async fn get_nearby(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn item(
+        id: u128,
+        band: DistanceBand,
+        shared: &[i32],
+        age_min: i64,
+    ) -> (DateTimeWithTimeZone, NearbyProfile) {
+        let starts_at = (Utc::now() - chrono::Duration::minutes(age_min)).fixed_offset();
+        let p = NearbyProfile {
+            user_id: Uuid::from_u128(id),
+            display_name: String::new(),
+            age: 30,
+            gender: Gender::Female,
+            bio: String::new(),
+            interests: vec![],
+            shared_interests: shared.to_vec(),
+            photos: vec![],
+            reasons: vec![],
+            distance_band: band,
+            wave_state: WaveState::None,
+            match_id: None,
+        };
+        (starts_at, p)
+    }
+
+    #[test]
+    fn shared_ids_is_sorted_intersection() {
+        let mine = BTreeSet::from([9, 2, 5]);
+        assert_eq!(shared_ids(&mine, [5, 1, 9, 9].into_iter()), vec![5, 9]);
+        assert!(shared_ids(&mine, [1, 3].into_iter()).is_empty());
+        assert!(shared_ids(&BTreeSet::new(), [1].into_iter()).is_empty());
+    }
+
+    #[test]
+    fn display_order_shared_then_band_then_window_then_id() {
+        use DistanceBand::*;
+        let mut items = vec![
+            item(1, Lt200m, &[], 0),
+            item(2, Lt5km, &[1, 2], 0),
+            item(3, Lt500m, &[1], 0),
+            item(4, Lt200m, &[1], 30),
+            item(5, Lt200m, &[1], 5),
+            item(7, Lt1km, &[], 10),
+            item(6, Lt1km, &[], 10),
+        ];
+        // Same instant for the last two so only the id can break the tie.
+        items[6].0 = items[5].0;
+        sort_for_display(&mut items);
+        let order: Vec<u128> = items.iter().map(|(_, p)| p.user_id.as_u128()).collect();
+        assert_eq!(order, [2, 5, 4, 3, 1, 6, 7]);
+    }
 
     #[test]
     fn wave_state_serializes_snake_case() {

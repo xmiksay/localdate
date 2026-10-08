@@ -1,6 +1,7 @@
 import { createI18n } from 'vue-i18n'
 import cs from './cs'
 import en from './en'
+import { czechPlural } from './plural'
 
 export type Locale = 'cs' | 'en'
 export const LOCALES: Locale[] = ['cs', 'en']
@@ -21,6 +22,7 @@ export const i18n = createI18n({
   locale: initialLocale(),
   fallbackLocale: 'cs',
   messages: { cs, en },
+  pluralRules: { cs: czechPlural },
 })
 
 export function setLocale(l: Locale) {

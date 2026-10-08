@@ -87,6 +87,7 @@ async fn two_users_see_each_other_with_band_and_no_private_fields() {
         "gender",
         "bio",
         "interests",
+        "shared_interests",
         "photos",
         "reasons",
         "distance_band",

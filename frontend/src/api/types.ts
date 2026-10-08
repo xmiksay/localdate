@@ -105,6 +105,8 @@ export interface NearbyProfile {
   gender: Gender
   bio: string
   interests: Interest[]
+  /** Interest ids the viewer has too, ascending. */
+  shared_interests: number[]
   photos: Photo[]
   reasons: Reason[]
   distance_band: DistanceBand
