@@ -1,6 +1,6 @@
 //! Sign in with an OAuth / OpenID Connect provider (docs/api.md "Sign in with Google"):
 //! server-side authorization code flow with PKCE, a signed flow cookie and one-time codes handed
-//! to the SPA through the URL fragment. Google is the first provider; a new one is a `Provider`
+//! to the SPA through the URL fragment. Providers: Google and Telegram; a new one is a `Provider`
 //! variant, an `IdentityProvider` enum value and its `OidcConfig` preset in `config::from_env`.
 
 pub mod config;
@@ -25,7 +25,7 @@ use sea_orm::{
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-pub use config::{OidcConfig, SubjectSource};
+pub use config::{NonceCheck, OidcConfig, SubjectSource};
 use cookie::{Flow, Linker, Mode, Signer};
 use oidc::Oidc;
 
@@ -42,14 +42,16 @@ const HTTP_TIMEOUT: Duration = Duration::from_secs(10);
 #[serde(rename_all = "snake_case")]
 pub enum Provider {
     Google,
+    Telegram,
 }
 
 impl Provider {
-    pub const ALL: [Self; 1] = [Self::Google];
+    pub const ALL: [Self; 2] = [Self::Google, Self::Telegram];
 
     pub fn parse(raw: &str) -> Option<Self> {
         match raw {
             "google" => Some(Self::Google),
+            "telegram" => Some(Self::Telegram),
             _ => None,
         }
     }
@@ -57,6 +59,7 @@ impl Provider {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Google => "google",
+            Self::Telegram => "telegram",
         }
     }
 
@@ -64,12 +67,14 @@ impl Provider {
     pub fn display_name(self) -> &'static str {
         match self {
             Self::Google => "Google",
+            Self::Telegram => "Telegram",
         }
     }
 
     pub fn identity(self) -> IdentityProvider {
         match self {
             Self::Google => IdentityProvider::Google,
+            Self::Telegram => IdentityProvider::Telegram,
         }
     }
 }

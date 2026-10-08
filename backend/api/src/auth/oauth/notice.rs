@@ -52,7 +52,7 @@ pub fn linked(state: &AppState, user: Uuid, provider: Provider, lang: Lang) {
     };
     let db = state.db.clone();
     let mailer = service.clone();
-    service.detach(async move {
+    state.detached.spawn(async move {
         let found = async {
             let username = username_of(&db, user).await?;
             Ok::<_, crate::error::AppError>((username, linked_addresses(&db, user).await?))

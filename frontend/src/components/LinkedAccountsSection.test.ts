@@ -21,8 +21,13 @@ const identity = (provider: IdentityProvider, subject: string): Identity => ({
   created_at: '2026-10-01T10:00:00Z',
 })
 
-async function render(identities: Identity[]) {
-  vi.mocked(authApi.getProviders).mockResolvedValue({ email: false, google: true })
+async function render(identities: Identity[], telegram = false) {
+  vi.mocked(authApi.getProviders).mockResolvedValue({
+    email: false,
+    google: true,
+    telegram,
+    password_reset: false,
+  })
   vi.mocked(identitiesApi.getIdentities).mockResolvedValue({ has_password: true, identities })
   const router = createRouter({
     history: createMemoryHistory(),
@@ -44,6 +49,16 @@ describe('LinkedAccountsSection', () => {
     expect(w.text()).toContain('eva@example.cz')
     expect(w.text()).toContain('Google')
     expect(w.text()).not.toContain('1093847')
+  })
+
+  it('shows a Telegram row by name, never its numeric id, and offers Telegram when enabled', async () => {
+    const telegramLink = i18n.global.t('oauth.link', { provider: 'Telegram' })
+    const w = await render([identity('telegram', '987654321')], true)
+    expect(w.text()).toContain('Telegram')
+    expect(w.text()).not.toContain('987654321')
+    expect(w.text()).not.toContain(telegramLink)
+    expect((await render([], true)).text()).toContain(telegramLink)
+    expect((await render([])).text()).not.toContain(telegramLink)
   })
 
   it('offers linking only for enabled providers not linked yet', async () => {

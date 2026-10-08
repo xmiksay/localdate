@@ -49,12 +49,16 @@ const en: Messages<typeof cs> = {
     forgotLink: 'Forgot your password?',
     forgotTitle: 'Forgotten password',
     forgotIntro:
-      "Enter your username or email. If the account has a linked email, we'll send a link to set a new password there.",
+      "Enter your username or email. If the account has a linked email or Telegram, we'll send a link to set a new password there. Telegram messages go out only when you enter the username.",
     login: 'Username or email',
     invalidLogin: 'Enter a valid username or email address.',
     forgotSubmit: 'Send link',
+    forgotIntroTelegram:
+      "Enter your username. If the account has a linked Telegram, we'll send you a link there to set a new password.",
+    forgotSentBodyTelegram:
+      "If the account has a linked Telegram, we've sent you a link there. It is valid for 15 minutes. An account without Telegram cannot reset its password.",
     forgotSentBody:
-      "If the account has a linked email, we've sent a link there. It is valid for 15 minutes. An account without an email can't reset its password.",
+      "If the account has a linked email or Telegram, we've sent a link there. It is valid for 15 minutes. An account with neither cannot reset its password.",
     resetTitle: 'Set a new password for {username}',
     resetSubmit: 'Save password',
     resetDone:

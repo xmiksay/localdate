@@ -27,6 +27,7 @@ describe('oauthStartUrl', () => {
     expect(oauthStartUrl('google', '/matches/m1?x=1&y=2')).toBe(
       '/api/auth/oauth/google/start?redirect=%2Fmatches%2Fm1%3Fx%3D1%26y%3D2',
     )
+    expect(oauthStartUrl('telegram')).toBe('/api/auth/oauth/telegram/start')
   })
 })
 

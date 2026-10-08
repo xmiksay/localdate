@@ -94,7 +94,7 @@ async fn azp_must_name_this_client_when_present() {
 
     let started = app.oauth_start(None).await;
     let mut claims = FakeProvider::claims(&started, "g-1");
-    claims.azp = Some(common::oauth::CLIENT_ID.into());
+    claims.azp = Some(common::oidc_fake::CLIENT_ID.into());
     let resp = app.oauth_return(&fake, &started, claims).await;
     assert!(resp.fragment().contains_key("code"));
 }

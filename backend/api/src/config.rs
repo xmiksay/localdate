@@ -35,11 +35,13 @@ pub struct Config {
     pub ws_idle_timeout: Duration,
     /// Web Push identity; `None` (no VAPID keys set) turns push off.
     pub vapid: Option<VapidConfig>,
-    /// Configured OAuth providers (Google); one without client credentials is absent = disabled.
+    /// Configured OAuth providers (Google, Telegram); one without client credentials is absent = disabled.
     pub oauth: Vec<OidcConfig>,
     /// `APP_BASE_URL`: the PWA origin, no trailing slash. Email and OAuth redirect URIs derive from
     /// it; its scheme decides whether cookies get `Secure`.
     pub app_base_url: Option<String>,
+    /// Bot that sends password-reset links by Telegram; `None` (no token) = no such messages.
+    pub telegram_bot: Option<TelegramBotConfig>,
 }
 
 /// Raw `VAPID_*` values; `push::vapid::Vapid::from_config` checks that they fit together.
@@ -92,6 +94,10 @@ impl std::fmt::Debug for EmailTransport {
     }
 }
 
+mod telegram;
+
+pub use telegram::TelegramBotConfig;
+
 const DEV_LOG_FROM: &str = "localdate <noreply@localhost>";
 
 impl Config {
@@ -102,7 +108,7 @@ impl Config {
             bail!("JWT_SECRET must be at least {MIN_JWT_SECRET_BYTES} bytes");
         }
         let app_base_url = app_base_url(std::env::var("APP_BASE_URL").ok())?;
-        Ok(Self {
+        let config = Self {
             database_url: var("DATABASE_URL")?,
             jwt_secret,
             photo_dir: var("PHOTO_DIR")?.into(),
@@ -131,11 +137,28 @@ impl Config {
             )?,
             oauth: oauth::config::from_env(
                 app_base_url.as_deref(),
-                std::env::var("GOOGLE_CLIENT_ID").ok(),
-                std::env::var("GOOGLE_CLIENT_SECRET").ok(),
+                oauth::config::Credentials {
+                    google_id: std::env::var("GOOGLE_CLIENT_ID").ok(),
+                    google_secret: std::env::var("GOOGLE_CLIENT_SECRET").ok(),
+                    telegram_id: std::env::var("TELEGRAM_CLIENT_ID").ok(),
+                    telegram_secret: std::env::var("TELEGRAM_CLIENT_SECRET").ok(),
+                },
+            )?,
+            telegram_bot: telegram::telegram_bot(
+                std::env::var("TELEGRAM_BOT_TOKEN").ok(),
+                app_base_url.as_deref(),
             )?,
             app_base_url,
-        })
+        };
+        let telegram_login = config
+            .oauth
+            .iter()
+            .find(|o| o.provider == oauth::Provider::Telegram);
+        telegram::same_bot(
+            telegram_login.map(|o| o.client_id.as_str()),
+            config.telegram_bot.as_ref(),
+        )?;
+        Ok(config)
     }
 }
 

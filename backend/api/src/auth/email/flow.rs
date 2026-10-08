@@ -10,7 +10,7 @@ use sea_orm::{ActiveModelTrait, ConnectionTrait, EntityTrait, Set, SqlErr, Trans
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use super::{identity_for, insert_identity, token, username_of};
+use super::{identity_with, insert_identity, token, username_of};
 use crate::auth::extractor::lock_unbanned;
 use crate::auth::{Tokens, session, validation};
 use crate::error::{AppError, AppJson};
@@ -35,7 +35,8 @@ pub(crate) async fn target(
     db: &impl ConnectionTrait,
     row: &email_token::Model,
 ) -> Result<Option<Uuid>, AppError> {
-    let identity = identity_for(db, &row.email).await?;
+    // Reset tokens may name a Telegram account; every other purpose is an email address.
+    let identity = identity_with(db, row.provider, &row.email).await?;
     match row.purpose {
         EmailTokenPurpose::Signup if identity.is_some() => Err(AppError::InvalidToken),
         EmailTokenPurpose::Signup => Ok(None),

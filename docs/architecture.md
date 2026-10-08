@@ -111,9 +111,9 @@ Debug builds (clippy, tests) need no bundle: they read `frontend/dist` from disk
 |---|---|
 | `user` | id uuid PK, username text UNIQUE (lowercase, `[a-z0-9_]{3,32}`), password_hash text NULL (argon2id; NULL = account created by email, no password), created_at, is_admin bool (default false), banned_at NULL, credentials_changed_at NULL (last password reset/change, whole seconds; older access tokens are refused) |
 | `refresh_token` | id uuid PK, user_id FK, token_hash text UNIQUE (sha256), family_id uuid, expires_at, revoked_at NULL, created_at |
-| `user_identity` | id uuid PK, user_id FK, provider enum(email, google; later telegram/facebook), subject text (email: validated, lowercased address; google: the account's `sub`), verified_at, created_at; UNIQUE (provider, subject) |
+| `user_identity` | id uuid PK, user_id FK, provider enum(email, google, telegram; later facebook), subject text (email: validated, lowercased address; google: the account's `sub`; telegram: the numeric user id `id`, decimal), verified_at, created_at; UNIQUE (provider, subject) |
 | `oauth_grant` | id uuid PK, token_hash text UNIQUE (sha256), purpose enum(login, signup_code, signup), provider identity_provider, subject text, user_id FK NULL (CHECK: set iff login), binding text NULL (sha256 of the flow state; CHECK: NULL iff signup), expires_at (codes +60 s, signup +15 min), used_at NULL, created_at |
-| `email_token` | id uuid PK, token_hash text UNIQUE (sha256), purpose enum(login,link,signup,password_reset), user_id FK NULL (CHECK: NULL iff signup), email text, expires_at (+15 min), used_at NULL, created_at |
+| `email_token` | id uuid PK, token_hash text UNIQUE (sha256), purpose enum(login,link,signup,password_reset), user_id FK NULL (CHECK: NULL iff signup), provider identity_provider (default email; telegram only for reset links sent by the bot), email text (the identity subject of `provider`: an address, or a Telegram user id), expires_at (+15 min), used_at NULL, created_at |
 | `profile` | user_id PK/FK, display_name text (1–40), birth_date date, gender enum(male,female,other), bio text (≤ 500), updated_at |
 | `photo` | id uuid PK, user_id FK, file_name text, position smallint (0 = primary), created_at; max 6 per user |
 | `interest` | id serial PK, key text UNIQUE (i18n key suffix, seeded ~40) |
@@ -158,12 +158,12 @@ nearby query), plus `shift`.
 
 ## Auth
 
-Username + password (argon2id), an **email magic link**, or **Sign in with Google**; a forgotten password is
+Username + password (argon2id), an **email magic link**, or **Sign in with Google / Telegram**; a forgotten password is
 reset through a linked email.
 
 **Identity model.** A *login method* is the password (`user.password_hash`, optional) or a row in
-`user_identity` — `(provider, subject)` unique, so one address belongs to at most one account. Email and Google
-are the providers now; Telegram/Facebook (#14, #17) add an enum value and their own verify step,
+`user_identity` — `(provider, subject)` unique, so one address belongs to at most one account. Email, Google and
+Telegram are the providers now; Facebook (#17) adds an enum value and its own verify step,
 everything else (listing, unlinking, "last login method" guard, `session()` issuing Tokens) is shared.
 An account always keeps at least one method: `DELETE /me/identities/{id}` locks the user row
 `FOR UPDATE` and refuses (`409 last_login_method`) to remove the last identity of a passwordless account.
@@ -197,13 +197,22 @@ Tokens are never logged outside dev-log mode.
 
 **Password reset** (`auth/reset.rs`). `POST /auth/password/forgot` takes a username or an address (an `@` decides),
 charges `ResetLimiter` (`auth/email/limit.rs`; a budget separate from the magic-link `EmailLimiter`, so neither
-drains the other: 3 per (input as typed, IP) / 15 min up front, 5 mails per account / hour once the account is
-known) and answers `202` at once; the account lookup and the sending run afterwards in `EmailService::detach`,
-so neither existence nor a linked email shows in the timing (`idle()` also waits for detached work, which is what
-tests poll). The link goes to every linked address (`linked_addresses`); Telegram (#14) adds its own delivery when
-it exists. Tokens are `email_token` rows with purpose `password_reset`, the same 15 min / single use / fragment
-link (`/auth/password/reset#token=…`) / non-consuming `preview` as the magic link, and `email::target` re-checks
-that the address is still linked (unlinking kills pending reset links). `reset` validates the password and peeks
+drains the other: 3 per (input as typed, IP) / 15 min up front, 5 messages per account / hour once the account is
+known) and answers `202` at once; the account lookup and the sending run afterwards in `AppState::detached`,
+so neither existence nor a linked channel shows in the timing (`detached.rs`, a counter tests poll until idle; the
+OAuth link notice uses it too; graceful shutdown waits up to 10 s for it after the last request and logs how many
+tasks it abandoned). `GET /auth/providers` → `password_reset` is true when a mailer or the bot exists; with the bot
+alone the forgot page asks for a username only. A username's link goes to every linked channel (`reset::deliver::linked_channels`:
+each email identity by mail, each Telegram identity by bot message; Google identities cannot be messaged); an address
+only to itself; a channel whose sender is not configured is skipped. Telegram delivery goes through the
+`TelegramBot` trait (`auth/telegram/bot.rs`): `HttpBot` calls `sendMessage` (chat id = the identity subject) with
+reqwest — https only, no redirects, 10 s timeout; its URL holds the bot token, so the type has no `Debug` and errors
+are stripped of the URL — at most 4 in flight, failures logged; `MemoryBot` in tests. `AppState::telegram` is `None`
+without `TELEGRAM_BOT_TOKEN`. The bot may message the user because Telegram login/link asked for
+`telegram:bot_access`; a user who blocked the bot gets nothing (logged). Tokens are `email_token` rows with
+purpose `password_reset` and the channel's `provider`, the same 15 min / single use / fragment link
+(`/auth/password/reset#token=…`) / non-consuming `preview` as the magic link, and `email::target` re-checks that
+`(provider, subject)` is still linked to the account (unlinking kills pending reset links). `reset` validates the password and peeks
 the token before spending argon2 time, then in one transaction consumes it, locks the user row `FOR UPDATE`
 (`extractor::lock_user`, the same account mapping as the per-request check: banned → `403`, token unspent) and
 runs `replace_password`: write the hash and `credentials_changed_at` (now, truncated to whole seconds), revoke
@@ -228,10 +237,19 @@ token — there is no old password to ask for, and that session could already li
 provider (endpoints, accepted issuers, scope, `SubjectSource`, JWKS cache time; presets read from env in
 `config::from_env`), `OAuthService` keeps a registry `Provider → Oidc` of the configured ones (absent =
 `provider_disabled`, `GET /auth/providers` → `false`), and every redirect URI is
-`{APP_BASE_URL}/api/auth/oauth/{provider}/callback`. A new provider (Telegram next, Facebook #17) is a `Provider`
+`{APP_BASE_URL}/api/auth/oauth/{provider}/callback`. A new provider (Facebook #17 next) is a `Provider`
 variant + `identity_provider` enum value + preset; `SubjectSource::IdTokenClaim(name)` reads the account id from
 the verified ID token (a string as is, an integer in decimal — Telegram's `id`), and a userinfo-style resolver
 for providers without a usable ID token slots in as another variant. Google: scope `openid`, subject `sub`.
+Telegram (`oauth.telegram.org`, issuer `https://oauth.telegram.org`, RS256, `aud` = the bot id = BotFather's Client
+ID): scope `openid profile telegram:bot_access`, subject `id` — Telegram's `sub` is an opaque value unrelated to the
+user id the bot needs as chat id, and `id` comes only with `profile` (its names/photo are discarded);
+`telegram:bot_access` is what lets the bot send reset links. The ID token `nonce` is checked per preset
+(`NonceCheck`): Google `Required`; Telegram `IfPresent` — a wrong one is refused, a missing one accepted, because
+Telegram's server-side flow may not echo it and `state` + PKCE + the cookie binding already stop code injection
+(to tighten once a real token shows it is echoed). With both Telegram login and the bot configured, startup checks
+they are the same bot (token prefix = client id). Telegram's legacy HMAC login widget is not used (no
+third-party script on the login page).
 
 Server-side authorization code flow: `start` (login; a plain browser navigation) or `link` (a
 bearer-authenticated `POST` that returns the provider URL) sets the `ld_oauth` cookie — HttpOnly, SameSite=Lax,
@@ -397,11 +415,13 @@ and a 10 s timeout. `localdate-api vapid generate` / `make vapid-keys` prints a 
 | `BIND_ADDR` | `127.0.0.1:3000` | |
 | `CLEANUP_INTERVAL_SECS` | `300` | optional, default 300; period of the cleanup job |
 | `TRUST_PROXY_HEADERS` | `false` | optional (`true`/`false`/`1`/`0`), default false; rate-limit on `X-Forwarded-For` (see Auth) |
-| `APP_BASE_URL` | `https://localdate.mmik.cz` | required when email or Google is on; mailed links point at `{APP_BASE_URL}/auth/email…` and `/auth/password/reset`, the Google redirect URI is `{APP_BASE_URL}/api/auth/oauth/google/callback` |
+| `APP_BASE_URL` | `https://localdate.mmik.cz` | required when email, Google, Telegram login or the Telegram bot is on; mailed (and Telegram) reset links point at `{APP_BASE_URL}/auth/email…` and `/auth/password/reset`, redirect URIs are `{APP_BASE_URL}/api/auth/oauth/{google,telegram}/callback` |
 | `SMTP_URL` | `smtps://user:pass@smtp.example.com:465` | optional, secret; lettre URL, enables email |
 | `EMAIL_FROM` | `localdate <noreply@localdate.mmik.cz>` | required with `SMTP_URL` |
 | `EMAIL_DEV_LOG` | `true` | optional, debug builds only (release refuses to start): log mails incl. links instead of sending; exclusive with `SMTP_URL` |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | from Google Cloud Console | optional (Secret); both or neither; unset = Google login off |
+| `TELEGRAM_CLIENT_ID` / `TELEGRAM_CLIENT_SECRET` | BotFather → bot → Login Widget | optional (Secret); both or neither; unset = Telegram login off |
+| `TELEGRAM_BOT_TOKEN` | `123456789:AA…` (BotFather) | optional (Secret); unset = no Telegram reset messages; must look like `<digits>:<secret>` |
 | `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` | from `make vapid-keys` | optional (Secret); both or neither; unset = Web Push off |
 | `VAPID_SUBJECT` | `https://localdate.mmik.cz` | `mailto:` or `https://` contact; required when the keys are set |
 | `RUST_LOG` | `info,sqlx=warn,localdate_api=debug` | sqlx logs every query at info |

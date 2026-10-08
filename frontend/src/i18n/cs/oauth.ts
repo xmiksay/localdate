@@ -2,7 +2,7 @@
 // the callback errors carry no provider, so their texts stay provider-neutral.
 export default {
   oauth: {
-    provider: { google: 'Google' },
+    provider: { google: 'Google', telegram: 'Telegram' },
     continue: 'Pokračovat přes {provider}',
     link: 'Propojit {provider}',
     linked: 'Účet {provider} je propojený.',

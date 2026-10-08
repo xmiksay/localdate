@@ -1,7 +1,7 @@
 //! Mailed single-use tokens (`email_token`) and email address normalization.
 
 use chrono::{Duration, Utc};
-use entity::{EmailTokenPurpose, email_token};
+use entity::{EmailTokenPurpose, IdentityProvider, email_token};
 use lettre::Address;
 use sea_orm::sea_query::Expr;
 use sea_orm::{ActiveModelTrait, ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter, Set};
@@ -57,12 +57,23 @@ pub fn normalize_email(raw: &str) -> Result<Address, AppError> {
     Address::new(local, domain).map_err(|_| invalid())
 }
 
-/// Stores a fresh token and returns its plaintext (only ever put into the email).
+/// Stores a fresh token for an email address and returns its plaintext (only ever put into the email).
 pub async fn issue(
     db: &impl ConnectionTrait,
     purpose: EmailTokenPurpose,
     user_id: Option<Uuid>,
     email: &str,
+) -> Result<String, AppError> {
+    issue_for(db, purpose, user_id, IdentityProvider::Email, email).await
+}
+
+/// [`issue`] for the identity `(provider, subject)`, e.g. a Telegram account.
+pub async fn issue_for(
+    db: &impl ConnectionTrait,
+    purpose: EmailTokenPurpose,
+    user_id: Option<Uuid>,
+    provider: IdentityProvider,
+    subject: &str,
 ) -> Result<String, AppError> {
     let (token, token_hash) = refresh::generate();
     let now = Utc::now();
@@ -71,7 +82,8 @@ pub async fn issue(
         token_hash: Set(token_hash),
         purpose: Set(purpose),
         user_id: Set(user_id),
-        email: Set(email.to_owned()),
+        email: Set(subject.to_owned()),
+        provider: Set(provider),
         expires_at: Set((now + TOKEN_TTL).fixed_offset()),
         used_at: Set(None),
         created_at: Set(now.fixed_offset()),

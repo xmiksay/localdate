@@ -3,6 +3,7 @@ pub mod areas;
 pub mod auth;
 pub mod cleanup;
 pub mod config;
+pub mod detached;
 pub mod discovery;
 pub mod error;
 pub mod interests;

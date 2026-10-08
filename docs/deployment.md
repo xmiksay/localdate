@@ -7,7 +7,7 @@ Production runs on the k8s cluster behind ingress-nginx + cert-manager (`letsenc
 | Object | What |
 |---|---|
 | `ConfigMap localdate` | non-secret env (`BIND_ADDR`, `PHOTO_DIR`, `RUST_LOG`, `CLEANUP_INTERVAL_SECS`, `TRUST_PROXY_HEADERS=true`, `APP_BASE_URL`, `EMAIL_FROM`, `VAPID_SUBJECT`) |
-| `Secret localdate` | `POSTGRES_PASSWORD`, `JWT_SECRET`, optional `SMTP_URL`, optional `GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET`, optional `VAPID_PUBLIC_KEY` + `VAPID_PRIVATE_KEY` — **not in git**, created by hand (below) |
+| `Secret localdate` | `POSTGRES_PASSWORD`, `JWT_SECRET`, optional `TELEGRAM_CLIENT_ID` + `TELEGRAM_CLIENT_SECRET`, optional `TELEGRAM_BOT_TOKEN`, optional `SMTP_URL`, optional `GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET`, optional `VAPID_PUBLIC_KEY` + `VAPID_PRIVATE_KEY` — **not in git**, created by hand (below) |
 | `StatefulSet localdate-db` + headless `Service` | Postgres 18, 5 Gi PVC `data-localdate-db-0` |
 | `NetworkPolicy localdate-db` | only `app=localdate-api` pods may reach 5432 |
 | `Deployment localdate-api` | 1 replica, `Recreate`, 768 Mi memory limit, 5 Gi PVC `localdate-photos` at `/data/photos` |
@@ -126,6 +126,45 @@ kubectl -n localdate rollout restart deployment/localdate-api
 refuses to start with only one of the two values. The pod needs outbound HTTPS to `oauth2.googleapis.com`
 and `www.googleapis.com` (token endpoint, signing keys). Rotating the client secret only needs the Secret
 updated; Google accounts stay linked (they are keyed by Google's account id, not the client).
+
+## Telegram login and reset messages (optional)
+
+Two independent switches. Without `TELEGRAM_CLIENT_ID` / `TELEGRAM_CLIENT_SECRET` Telegram login is off
+(`GET /api/auth/providers` → `telegram: false`, the button is hidden). Without `TELEGRAM_BOT_TOKEN` the bot
+sends no password-reset links (accounts reset by email only). Login uses Telegram's OpenID Connect flow
+(`oauth.telegram.org`), like Google; no Telegram script is loaded on our pages.
+
+1. In [@BotFather](https://t.me/BotFather): `/newbot` (or pick the existing bot); note its **token**.
+2. BotFather → the bot → **Login Widget**: add the Allowed URLs `https://localdate.mmik.cz` and
+   `https://localdate.mmik.cz/api/auth/oauth/telegram/callback` (= `{APP_BASE_URL}/api/auth/oauth/telegram/callback`;
+   for local dev add the `http://localhost:5173/…` one too, if BotFather accepts it). Copy the **Client ID** and
+   **Client Secret** shown there. Leave the signing algorithm (Login Widget → Advanced) at **RS256** — the API
+   accepts only RS256 ID tokens.
+3. Put the values into the Secret and restart:
+
+```sh
+kubectl -n localdate patch secret localdate --type merge \
+  -p '{"stringData":{"TELEGRAM_CLIENT_ID":"<id>","TELEGRAM_CLIENT_SECRET":"<secret>","TELEGRAM_BOT_TOKEN":"123456789:AA…"}}'
+kubectl -n localdate rollout restart deployment/localdate-api
+```
+
+The API refuses to start with only one of the client values, a bot token that does not look like
+`<digits>:<secret>`, or — with both login and the bot set — a token of another bot than the login client (the
+token's numeric prefix must equal `TELEGRAM_CLIENT_ID`: users grant message access to the bot they log in with). The pod needs outbound HTTPS to `oauth.telegram.org` (token endpoint, signing keys) and
+`api.telegram.org` (`sendMessage`). The bot token is never logged. Telegram accounts are keyed by the numeric
+Telegram user id, so rotating the client secret or the bot token keeps them linked.
+
+**Check on the first real login** (the docs leave these open; the code follows the documented answer):
+
+- **Client ID = `aud`.** The ID token's `aud` must equal `TELEGRAM_CLIENT_ID`; Telegram documents `aud` as the bot
+  id. If BotFather's Client ID differs, every login ends in `#error=oauth_failed` (logged as an audience mismatch).
+- **RS256.** A token signed with another algorithm is refused (`oauth_failed`); keep BotFather's default.
+- **Nonce.** The API sends a `nonce` but accepts a Telegram ID token without one (a wrong one is always refused).
+  Decode one real ID token (log it once in a dev build): if it carries the `nonce`, tighten the Telegram preset to
+  `NonceCheck::Required` in `backend/api/src/auth/oauth/config.rs`, like Google.
+- **Bot access.** After a Telegram login, request a password reset by username: the link must arrive in the chat
+  with the bot. If it does not (the `telegram:bot_access` consent missing or declined, or the user blocked the bot),
+  the API logs "sending Telegram message failed" with Telegram's reason.
 
 ## Web Push (optional)
 
