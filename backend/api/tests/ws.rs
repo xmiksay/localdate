@@ -133,3 +133,42 @@ async fn pushes_wave_match_and_message_events() {
         "again"
     );
 }
+
+#[tokio::test]
+async fn ban_closes_open_sockets_and_refuses_new_ones_with_4403() {
+    let app = TestApp::new().await;
+    let url = serve(&app).await;
+    let admin = app.admin("mod").await;
+    let bob = app.register("bob").await;
+    let eva = app.register("eva").await;
+    let mut ws_bob = ready_socket(&url, &bob).await;
+    let mut ws_bob2 = ready_socket(&url, &bob).await;
+    let mut ws_eva = ready_socket(&url, &eva).await;
+
+    let (status, _) = app
+        .post_as(
+            &format!("/api/admin/users/{}/ban", bob.user_id),
+            &admin.access_token,
+            json!({}),
+        )
+        .await;
+    assert_eq!(status, axum::http::StatusCode::NO_CONTENT);
+    assert_eq!(next(&mut ws_bob).await, Err(4403));
+    assert_eq!(next(&mut ws_bob2).await, Err(4403));
+
+    let mut ws = connect(&url).await;
+    auth(&mut ws, &bob.access_token).await;
+    assert_eq!(next(&mut ws).await, Err(4403));
+
+    // Others stay connected.
+    ws_eva
+        .send(Message::Ping(vec![].into()))
+        .await
+        .expect("ping");
+    let frame = tokio::time::timeout(Duration::from_secs(5), ws_eva.next())
+        .await
+        .expect("pong in time")
+        .expect("open")
+        .expect("ok");
+    assert!(matches!(frame, Message::Pong(_)));
+}

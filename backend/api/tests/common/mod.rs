@@ -252,6 +252,33 @@ impl TestApp {
         self.state.config.photo_dir.join(file_name)
     }
 
+    /// Two currently visible users wave at each other; returns the match id.
+    pub async fn match_up(&self, a: &Tokens, b: &Tokens) -> String {
+        self.post_as(
+            "/api/waves",
+            &a.access_token,
+            json!({ "to_user_id": b.user_id }),
+        )
+        .await;
+        let (_, res) = self
+            .post_as(
+                "/api/waves",
+                &b.access_token,
+                json!({ "to_user_id": a.user_id }),
+            )
+            .await;
+        res["match_id"].as_str().expect("match id").to_owned()
+    }
+
+    /// Registers `username` and grants the admin role the way the CLI does.
+    pub async fn admin(&self, username: &str) -> Tokens {
+        let t = self.register(username).await;
+        localdate_api::admin::set_admin(&self.db, username, true)
+            .await
+            .expect("grant admin");
+        t
+    }
+
     pub async fn register(&self, username: &str) -> Tokens {
         let (status, body) = self
             .post(

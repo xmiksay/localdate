@@ -2,6 +2,8 @@ import type { WsEvent } from './types'
 
 const MAX_BACKOFF_MS = 30_000
 const EVENT_TYPES = ['ready', 'message', 'match', 'wave']
+/** Server close code for a suspended account, see docs/api.md. */
+export const CLOSE_BANNED = 4403
 
 export const backoffDelay = (attempt: number) => Math.min(MAX_BACKOFF_MS, 1000 * 2 ** attempt)
 
@@ -23,9 +25,11 @@ export interface WsClientOptions {
   /** `force` is set after a connection died before `ready`, i.e. the token was likely rejected. */
   getToken: (force: boolean) => Promise<string | null>
   onEvent: (e: WsEvent) => void
+  /** Called once when the server closes with 4403; the client stops and does not reconnect. */
+  onBanned: () => void
 }
 
-export function createWsClient({ getToken, onEvent }: WsClientOptions) {
+export function createWsClient({ getToken, onEvent, onBanned }: WsClientOptions) {
   let socket: WebSocket | null = null
   let timer: ReturnType<typeof setTimeout> | undefined
   let attempt = 0
@@ -56,9 +60,14 @@ export function createWsClient({ getToken, onEvent }: WsClientOptions) {
       }
       onEvent(ev)
     }
-    ws.onclose = () => {
+    ws.onclose = (e) => {
       if (socket !== ws) return
       socket = null
+      if (e.code === CLOSE_BANNED) {
+        running = false
+        onBanned()
+        return
+      }
       scheduleReconnect()
     }
   }

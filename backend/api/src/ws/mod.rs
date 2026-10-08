@@ -13,15 +13,16 @@ use axum::routing::get;
 use serde::Deserialize;
 use uuid::Uuid;
 
-use crate::auth::jwt;
+use crate::auth::extractor::{Account, account_status, verify_access};
+use crate::error::AppError;
 use crate::state::AppState;
 
 pub use event::ServerEvent;
-pub use hub::Hub;
+pub use hub::{CloseReason, Hub};
+
+use hub::Outbound;
 
 const AUTH_TIMEOUT: Duration = Duration::from_secs(10);
-/// Application close code of docs/api.md for a bad or missing token.
-pub const CLOSE_UNAUTHORIZED: u16 = 4401;
 
 pub fn router() -> Router<AppState> {
     Router::new().route("/ws", get(upgrade))
@@ -45,20 +46,25 @@ async fn upgrade(ws: WebSocketUpgrade, State(state): State<AppState>) -> Respons
 }
 
 /// Waits for the auth frame; protocol pings/pongs before it are skipped by the stack.
-async fn authenticate(socket: &mut WebSocket, secret: &str) -> Option<Uuid> {
+async fn authenticate(socket: &mut WebSocket, state: &AppState) -> Result<Uuid, AppError> {
     loop {
-        match socket.recv().await? {
-            Ok(Message::Text(text)) => return jwt::verify(secret, &auth_token(&text)?),
-            Ok(Message::Ping(_) | Message::Pong(_)) => {}
-            _ => return None,
+        match socket.recv().await {
+            Some(Ok(Message::Text(text))) => {
+                let token = auth_token(&text).ok_or(AppError::Unauthorized)?;
+                return Ok(verify_access(&state.db, &state.config.jwt_secret, &token)
+                    .await?
+                    .id);
+            }
+            Some(Ok(Message::Ping(_) | Message::Pong(_))) => {}
+            _ => return Err(AppError::Unauthorized),
         }
     }
 }
 
-async fn reject(mut socket: WebSocket) {
+async fn close(mut socket: WebSocket, reason: CloseReason) {
     let frame = CloseFrame {
-        code: CLOSE_UNAUTHORIZED,
-        reason: "unauthorized".into(),
+        code: reason.code(),
+        reason: reason.text().into(),
     };
     let _ = socket.send(Message::Close(Some(frame))).await;
 }
@@ -69,18 +75,25 @@ async fn send_event(socket: &mut WebSocket, event: &ServerEvent) -> Result<(), (
 }
 
 async fn session(mut socket: WebSocket, state: AppState) {
-    let user = tokio::time::timeout(
-        AUTH_TIMEOUT,
-        authenticate(&mut socket, &state.config.jwt_secret),
-    )
-    .await
-    .ok()
-    .flatten();
-    let Some(user) = user else {
-        return reject(socket).await;
+    let user = match tokio::time::timeout(AUTH_TIMEOUT, authenticate(&mut socket, &state)).await {
+        Ok(Ok(user)) => user,
+        Ok(Err(AppError::Banned)) => return close(socket, CloseReason::Banned).await,
+        Ok(Err(AppError::Internal)) => return close(socket, CloseReason::Internal).await,
+        _ => return close(socket, CloseReason::Unauthorized).await,
     };
 
     let (id, mut events) = state.hub.subscribe(user);
+    // A ban committed between the auth check and `subscribe` disconnected nothing; re-check.
+    let refused = match account_status(&state.db, user).await {
+        Ok(Account::Active { .. }) => None,
+        Ok(Account::Banned) => Some(CloseReason::Banned),
+        Ok(Account::Missing) => Some(CloseReason::Unauthorized),
+        Err(_) => Some(CloseReason::Internal),
+    };
+    if let Some(reason) = refused {
+        state.hub.unsubscribe(user, id);
+        return close(socket, reason).await;
+    }
     // Subscribed before `ready` so nothing pushed in between is lost; `ready` goes to this socket only.
     if send_event(&mut socket, &ServerEvent::Ready).await.is_err() {
         state.hub.unsubscribe(user, id);
@@ -88,12 +101,18 @@ async fn session(mut socket: WebSocket, state: AppState) {
     }
     loop {
         tokio::select! {
-            event = events.recv() => {
-                let Some(event) = event else { break };
-                if send_event(&mut socket, &event).await.is_err() {
-                    break;
+            out = events.recv() => match out {
+                Some(Outbound::Event(event)) => {
+                    if send_event(&mut socket, &event).await.is_err() {
+                        break;
+                    }
                 }
-            }
+                Some(Outbound::Close(reason)) => {
+                    state.hub.unsubscribe(user, id);
+                    return close(socket, reason).await;
+                }
+                None => break,
+            },
             frame = socket.recv() => match frame {
                 // Pings are answered by the protocol layer; other client frames are ignored.
                 Some(Ok(Message::Close(_))) | Some(Err(_)) | None => break,

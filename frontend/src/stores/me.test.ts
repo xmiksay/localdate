@@ -23,8 +23,8 @@ beforeEach(() => {
   vi.resetAllMocks()
 })
 
-async function loadWith(me: MeResponse) {
-  vi.mocked(meApi.getMe).mockResolvedValue(me)
+async function loadWith(me: Omit<MeResponse, 'is_admin'>, is_admin = false) {
+  vi.mocked(meApi.getMe).mockResolvedValue({ ...me, is_admin })
   const s = useMeStore()
   await s.load()
   return s
@@ -72,5 +72,18 @@ describe('me store photos', () => {
       ['p2', 0],
       ['p3', 1],
     ])
+  })
+})
+
+describe('me store admin flag', () => {
+  it('exposes is_admin and clears it on reset', async () => {
+    const s = await loadWith({ user, profile, filter: DEFAULT_FILTER }, true)
+    expect(s.isAdmin).toBe(true)
+    s.reset()
+    expect(s.isAdmin).toBe(false)
+  })
+
+  it('defaults to non-admin', async () => {
+    expect((await loadWith({ user, profile: null, filter: null })).isAdmin).toBe(false)
   })
 })

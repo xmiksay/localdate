@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { ApiError, freshAccessToken, get, post, setAuthHooks } from './client'
+import { ApiError, freshAccessToken, get, post, request, setAuthHooks } from './client'
 import { tokenStorage } from './tokens'
 
 const json = (status: number, body: unknown) =>
@@ -13,13 +13,15 @@ const tokens = {
 
 const fetchMock = vi.fn()
 const authLost = vi.fn()
+const banned = vi.fn()
 
 beforeEach(() => {
   localStorage.clear()
   fetchMock.mockReset()
   authLost.mockReset()
+  banned.mockReset()
   vi.stubGlobal('fetch', fetchMock)
-  setAuthHooks({ onAuthLost: authLost })
+  setAuthHooks({ onAuthLost: authLost, onBanned: banned })
   tokenStorage.set('old-a', 'old-r')
 })
 
@@ -92,6 +94,40 @@ describe('api client', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1)
     expect(authLost).not.toHaveBeenCalled()
   })
+
+  it('clears tokens and signals a ban on 403 banned', async () => {
+    fetchMock.mockResolvedValue(err(403, 'banned'))
+    await expect(get('/me')).rejects.toMatchObject({ code: 'banned', status: 403 })
+    expect(tokenStorage.access()).toBeNull()
+    expect(tokenStorage.refresh()).toBeNull()
+    expect(banned).toHaveBeenCalledOnce()
+  })
+
+  it('signals a ban on anonymous requests too (login)', async () => {
+    tokenStorage.clear()
+    fetchMock.mockResolvedValue(err(403, 'banned'))
+    await expect(
+      request('/auth/login', { method: 'POST', body: {}, anon: true }),
+    ).rejects.toMatchObject({ code: 'banned' })
+    expect(banned).toHaveBeenCalledOnce()
+  })
+
+  it('does not treat other 403s as a ban', async () => {
+    fetchMock.mockResolvedValue(err(403, 'forbidden'))
+    await expect(get('/x')).rejects.toMatchObject({ code: 'forbidden' })
+    expect(banned).not.toHaveBeenCalled()
+    expect(tokenStorage.access()).toBe('old-a')
+  })
+
+  it('signals a ban when the refresh call is rejected as banned', async () => {
+    fetchMock.mockImplementation(async (url: string) =>
+      url === '/api/auth/refresh' ? err(403, 'banned') : err(401, 'unauthorized'),
+    )
+    await expect(get('/me')).rejects.toMatchObject({ code: 'banned', status: 403 })
+    expect(banned).toHaveBeenCalledOnce()
+    expect(authLost).not.toHaveBeenCalled()
+    expect(tokenStorage.refresh()).toBeNull()
+  })
 })
 
 describe('freshAccessToken', () => {
@@ -114,5 +150,11 @@ describe('freshAccessToken', () => {
     fetchMock.mockRejectedValue(new Error('offline'))
     expect(await freshAccessToken(true)).toBe('old-a')
     expect(authLost).not.toHaveBeenCalled()
+  })
+
+  it('signals a ban when the WebSocket token refresh is rejected as banned', async () => {
+    fetchMock.mockResolvedValue(err(403, 'banned'))
+    expect(await freshAccessToken(true)).toBeNull()
+    expect(banned).toHaveBeenCalledOnce()
   })
 })

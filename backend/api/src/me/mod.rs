@@ -18,7 +18,7 @@ use crate::error::AppError;
 use crate::state::AppState;
 
 pub use filter::FilterDto;
-pub use photos::PhotoDto;
+pub use photos::{PhotoDto, media_url};
 pub use profile::ProfileDto;
 
 pub fn router() -> Router<AppState> {
@@ -37,6 +37,7 @@ struct MeDto {
     user: UserDto,
     profile: Option<ProfileDto>,
     filter: Option<FilterDto>,
+    is_admin: bool,
 }
 
 async fn get_me(State(state): State<AppState>, auth: AuthUser) -> Result<Json<MeDto>, AppError> {
@@ -48,6 +49,7 @@ async fn get_me(State(state): State<AppState>, auth: AuthUser) -> Result<Json<Me
         user: (&user).into(),
         profile: profile::load(&state.db, auth.id).await?,
         filter: filter::load(&state.db, auth.id).await?.map(Into::into),
+        is_admin: user.is_admin,
     }))
 }
 

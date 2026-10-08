@@ -7,5 +7,5 @@ pub mod refresh;
 mod routes;
 pub mod validation;
 
-pub use extractor::AuthUser;
+pub use extractor::{AdminUser, AuthUser};
 pub use routes::{UserDto, router};

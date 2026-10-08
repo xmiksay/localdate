@@ -46,3 +46,13 @@ pub enum ReportReason {
     #[sea_orm(string_value = "other")]
     Other,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumIter, DeriveActiveEnum, Serialize, Deserialize)]
+#[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "report_resolution")]
+#[serde(rename_all = "snake_case")]
+pub enum ReportResolution {
+    #[sea_orm(string_value = "dismissed")]
+    Dismissed,
+    #[sea_orm(string_value = "banned")]
+    Banned,
+}

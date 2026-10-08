@@ -6,9 +6,11 @@ import BaseButton from '@/components/ui/BaseButton.vue'
 import PageHeading from '@/components/ui/PageHeading.vue'
 import { LOCALES, setLocale, type Locale } from '@/i18n'
 import { useAuthStore } from '@/stores/auth'
+import { useMeStore } from '@/stores/me'
 
 const { t, locale } = useT()
 const auth = useAuthStore()
+const me = useMeStore()
 </script>
 
 <template>
@@ -52,6 +54,13 @@ const auth = useAuthStore()
       <p v-if="auth.user" class="text-muted">
         {{ t('settings.loggedInAs', { username: auth.user.username }) }}
       </p>
+      <RouterLink
+        v-if="me.isAdmin"
+        :to="{ name: 'admin' }"
+        class="flex min-h-12 items-center justify-center rounded-full border-2 border-plum bg-paper px-6 font-semibold text-plum hover:bg-plum/5"
+      >
+        {{ t('settings.admin') }}
+      </RouterLink>
       <BaseButton variant="ghost" block @click="auth.logout()">{{ t('common.logout') }}</BaseButton>
     </section>
   </div>

@@ -40,11 +40,16 @@ pub struct PhotoDto {
     pub position: i16,
 }
 
+/// Public URL of a stored photo file.
+pub fn media_url(file_name: &str) -> String {
+    format!("/media/{file_name}")
+}
+
 impl From<photo::Model> for PhotoDto {
     fn from(p: photo::Model) -> Self {
         Self {
             id: p.id,
-            url: format!("/media/{}", p.file_name),
+            url: media_url(&p.file_name),
             position: p.position,
         }
     }

@@ -1359,6 +1359,7 @@ dependencies = [
  "axum",
  "base64",
  "chrono",
+ "clap",
  "dotenvy",
  "entity",
  "futures-util",

@@ -24,7 +24,8 @@ use crate::me::PhotoDto;
 use crate::state::AppState;
 
 /// $1 = viewer, $2 = candidate ids (empty = everyone). Mirrors `rules::mutually_visible` plus
-/// blocks, active windows and the photo requirement. The bounding box (viewer's max distance,
+/// blocks, active windows, bans and the photo requirement. A ban ends the window, so the ban join
+/// is a second line of defence. The bounding box (viewer's max distance,
 /// with an antimeridian-safe longitude test) only narrows candidates; the haversine check decides.
 const SQL: &str = r#"
 SELECT ow.user_id, ow.starts_at, dist.d AS distance_m, op.display_name,
@@ -36,6 +37,7 @@ JOIN visibility_window ow
   ON ow.user_id <> mw.user_id AND ow.ended_at IS NULL AND ow.ends_at > now()
 JOIN filter ofl ON ofl.user_id = ow.user_id
 JOIN profile op ON op.user_id = ow.user_id
+JOIN "user" ou ON ou.id = ow.user_id AND ou.banned_at IS NULL
 CROSS JOIN LATERAL (SELECT
     mf.max_distance_m / 110000.0 AS dlat,
     mf.max_distance_m / 110000.0 / GREATEST(cos(radians(mw.lat)), 1e-6) AS dlon) bb

@@ -82,6 +82,8 @@ async fn register(
         username: Set(username),
         password_hash: Set(password_hash),
         created_at: Set(Utc::now().fixed_offset()),
+        is_admin: Set(false),
+        banned_at: Set(None),
     }
     .insert(&state.db)
     .await
@@ -116,6 +118,10 @@ async fn login(
     let ok =
         body.password.chars().count() <= 128 && password::verify_async(body.password, hash).await?;
     let user = found.filter(|_| ok).ok_or(AppError::InvalidCredentials)?;
+    // Only after the password matched, so the ban doesn't reveal that the account exists.
+    if user.banned_at.is_some() {
+        return Err(AppError::Banned);
+    }
 
     let refresh_token = refresh::issue(&state.db, user.id, Uuid::new_v4()).await?;
     Ok(Json(Tokens {

@@ -15,6 +15,7 @@ use uuid::Uuid;
 use super::messages::MessageDto;
 use crate::auth::AuthUser;
 use crate::error::AppError;
+use crate::me::media_url;
 use crate::safety::blocked_with;
 use crate::state::AppState;
 
@@ -107,7 +108,7 @@ pub async fn summaries(
         .await?
     {
         // Descending position, so the primary photo (0) overwrites last.
-        photos.insert(p.user_id, format!("/media/{}", p.file_name));
+        photos.insert(p.user_id, media_url(&p.file_name));
     }
     let mut last: HashMap<Uuid, message::Model> = message::Entity::find()
         .from_raw_sql(Statement::from_sql_and_values(

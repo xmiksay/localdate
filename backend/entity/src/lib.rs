@@ -15,4 +15,4 @@ pub mod visibility_window;
 pub mod wave;
 
 mod enums;
-pub use enums::{Gender, Reason, ReportReason, WindowKind};
+pub use enums::{Gender, Reason, ReportReason, ReportResolution, WindowKind};

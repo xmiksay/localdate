@@ -3,6 +3,9 @@
 Base path `/api`, JSON bodies, `Authorization: Bearer <access_token>` on everything except
 `/auth/*` and `/interests`. Timestamps RFC 3339 UTC. IDs are UUID strings unless noted.
 
+Every authenticated request checks the account: a deleted account gets `401 unauthorized`,
+a banned one `403 banned` — the 15-minute access token is no grace period.
+
 ## Errors
 
 Every non-2xx response: `{ "error": { "code": "snake_case_code", "message": "human readable" } }`.
@@ -14,11 +17,14 @@ Internal/DB errors are logged and returned as `500 internal` with a generic mess
 | 401 | `unauthorized` | missing/invalid/expired access token |
 | 401 | `invalid_credentials` | login failed |
 | 401 | `invalid_refresh_token` | refresh token unknown, expired or revoked |
-| 403 | `forbidden` | not a participant / blocked |
+| 403 | `forbidden` | not a participant / blocked / match partner banned; `/admin/*` for non-admins |
+| 403 | `banned` | account suspended: any authenticated request, login (after a correct password), refresh |
 | 404 | `not_found` | |
 | 409 | `username_taken` | register |
 | 409 | `no_active_window` | `/nearby`, `/waves`, `/me/location`, `PATCH /me/window` without own active window |
 | 409 | `not_visible` | wave target is not currently mutually visible |
+| 409 | `cannot_ban_admin` | `POST /admin/users/{id}/ban` on an admin (incl. yourself) |
+| 409 | `already_resolved` | `POST /admin/reports/{id}/dismiss` on a resolved report |
 | 422 | `underage` | birth date < 18 years ago |
 | 422 | `profile_incomplete` | window start without profile + filter + ≥ 1 photo |
 | 422 | `photo_limit` | 7th photo |
@@ -76,7 +82,7 @@ Username: trimmed, lowercased, `[a-z0-9_]{3,32}`. Password: 10–128 chars.
 
 | Method & path | Body | 2xx response |
 |---|---|---|
-| `GET /me` | — | `{ user: User, profile: Profile \| null, filter: Filter \| null }` |
+| `GET /me` | — | `{ user: User, profile: Profile \| null, filter: Filter \| null, is_admin: boolean }` |
 | `DELETE /me` | — | `204` — hard delete everything incl. photo files |
 | `PUT /me/profile` | `{ display_name, birth_date, gender, bio, interest_ids: number[] }` | `200 Profile` |
 | `GET /interests` | — | `200 Interest[]` |
@@ -117,7 +123,7 @@ Band = smallest of 200 / 500 / 1000 / 2000 / 5000 / 10000 m that the real distan
 |---|---|---|
 | `POST /waves` | `{ to_user_id }` | `200 { matched: boolean, match_id: string \| null }` |
 | `GET /waves/incoming` | — | `200 NearbyProfile[]` — senders with a pending (unexpired) wave to me who are still visible, same order as `/nearby` |
-| `GET /matches` | — | `200 MatchSummary[]` newest activity first, excluding blocked |
+| `GET /matches` | — | `200 MatchSummary[]` newest activity first, excluding blocked and banned partners |
 | `GET /matches/{id}/messages?before=<message_id>&limit=50` | — | `200 Message[]` newest first, limit ≤ 100 |
 | `POST /matches/{id}/messages` | `{ body }` | `201 Message` |
 
@@ -134,10 +140,47 @@ and both waves are deleted.
 | `DELETE /blocks/{user_id}` | — | `204` |
 | `POST /reports` | `{ user_id, reason: 'spam'\|'harassment'\|'fake'\|'underage'\|'other', note?: string ≤ 1000 }` | `201` empty body — also blocks; blank note stored as null |
 
+## Admin (moderation)
+
+Admins only (`is_admin`, granted with `localdate-api admin grant <username>`); everyone else gets
+`403 forbidden`. Coordinates and birth dates are never exposed here either.
+
+```ts
+type ReportStatus = 'open' | 'resolved'
+type Resolution = 'dismissed' | 'banned'
+interface UserRef { id: string; username: string }
+interface AdminReport {
+  id: string; reason: ReportReason; note: string | null; created_at: string
+  resolved_at: string | null; resolution: Resolution | null
+  resolved_by: UserRef | null   // null while open, or when that admin's account was deleted
+  reporter: UserRef | null      // null when the reporter deleted their account
+  subject: {
+    id: string; username: string; display_name: string | null; photo_url: string | null
+    banned_at: string | null; is_admin: boolean
+    open_reports: number        // open reports against this subject, this one included
+  }
+}
+```
+
+| Method & path | Body | 2xx response |
+|---|---|---|
+| `GET /admin/reports?status=open\|resolved` | — | `200 AdminReport[]`, at most 200. No `status` = both, open first. Open: oldest first (queue order); resolved: most recently resolved first |
+| `POST /admin/reports/{id}/dismiss` | — | `204` — resolves this one report as `dismissed`; `409 already_resolved`, `404` unknown |
+| `POST /admin/users/{id}/ban` | — | `204` — soft ban (idempotent): see below; `409 cannot_ban_admin`, `404` unknown |
+| `POST /admin/users/{id}/unban` | — | `204` — clears `banned_at` only (idempotent); `404` unknown |
+
+Ban: sets `banned_at` (kept if already banned), revokes every refresh token, ends the active window
+(coordinates wiped, its waves deleted), resolves all open reports against the user as `banned`
+(`resolved_by` = the admin), and closes the user's WebSockets with `4403`. A banned user is invisible in
+`/nearby` and `/waves/incoming`, missing from other users' `/matches`, and messaging them
+(either direction) is `403 forbidden`. Reports against an account that is deleted disappear with it.
+
 ## WebSocket `/api/ws`
 
 Client connects, then sends `{ "type": "auth", "token": "<access_token>" }` within 10 s.
 Invalid/expired token or timeout → server closes with code `4401` (client refreshes the token before reconnecting).
+A banned account → `4403`, both at auth time and for open sockets when the ban happens (client logs out,
+no reconnect). A server-side failure while checking the account → `1011` (client retries with backoff).
 Server → client events:
 
 ```ts

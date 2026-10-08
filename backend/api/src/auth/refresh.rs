@@ -12,6 +12,7 @@ use sea_orm::{
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
+use super::extractor::lock_unbanned;
 use crate::error::AppError;
 
 const REFRESH_TTL_DAYS: i64 = 30;
@@ -67,7 +68,7 @@ async fn revoke_family(db: &impl ConnectionTrait, family_id: Uuid) -> Result<(),
     Ok(())
 }
 
-/// Consumes `presented` and returns `(user_id, replacement token)`.
+/// Consumes `presented` and returns `(user_id, replacement token)`; a banned owner is `403 banned`.
 /// A revoked token being presented again means it leaked: the whole family is revoked.
 pub async fn rotate(db: &DatabaseConnection, presented: &str) -> Result<(Uuid, String), AppError> {
     let row = refresh_token::Entity::find()
@@ -76,7 +77,15 @@ pub async fn rotate(db: &DatabaseConnection, presented: &str) -> Result<(Uuid, S
         .await?
         .ok_or(AppError::InvalidRefreshToken)?;
 
+    let txn = db.begin().await.context("begin refresh txn")?;
+    // Before the revoked check: a ban revokes every token, and the client must learn why.
+    match lock_unbanned(&txn, row.user_id).await {
+        Ok(()) => {}
+        Err(AppError::Unauthorized) => return Err(AppError::InvalidRefreshToken),
+        Err(e) => return Err(e),
+    }
     if row.revoked_at.is_some() {
+        txn.rollback().await.context("rollback refresh txn")?;
         revoke_family(db, row.family_id).await?;
         return Err(AppError::InvalidRefreshToken);
     }
@@ -84,7 +93,6 @@ pub async fn rotate(db: &DatabaseConnection, presented: &str) -> Result<(Uuid, S
         return Err(AppError::InvalidRefreshToken);
     }
 
-    let txn = db.begin().await.context("begin refresh txn")?;
     // Conditional update makes concurrent use of one token race-safe: only one caller wins.
     let claimed = refresh_token::Entity::update_many()
         .col_expr(
@@ -104,6 +112,20 @@ pub async fn rotate(db: &DatabaseConnection, presented: &str) -> Result<(Uuid, S
     let next = issue(&txn, row.user_id, row.family_id).await?;
     txn.commit().await.context("commit refresh txn")?;
     Ok((row.user_id, next))
+}
+
+/// Every live token of `user` (ban).
+pub async fn revoke_all(db: &impl ConnectionTrait, user: Uuid) -> Result<(), AppError> {
+    refresh_token::Entity::update_many()
+        .col_expr(
+            refresh_token::Column::RevokedAt,
+            Expr::current_timestamp().into(),
+        )
+        .filter(refresh_token::Column::UserId.eq(user))
+        .filter(refresh_token::Column::RevokedAt.is_null())
+        .exec(db)
+        .await?;
+    Ok(())
 }
 
 /// Logout: revokes the presented token's whole family. Unknown tokens are ignored.
