@@ -12,6 +12,7 @@ use sea_orm::{
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use super::duration::{Length, MAX_AHEAD, Until, check_minutes};
 use super::geo::{ensure_valid, round_coord};
 use crate::areas::{self, AreaRef};
 use crate::auth::AuthUser;
@@ -20,8 +21,6 @@ use crate::error::{AppError, AppJson};
 use crate::state::AppState;
 
 pub const MAX_WAVES_PER_WINDOW: u64 = 20;
-const MINUTES: [i64; 4] = [30, 60, 120, 240];
-const MAX_AHEAD: Duration = Duration::hours(12);
 
 #[derive(Serialize)]
 pub struct WindowDto {
@@ -61,7 +60,9 @@ impl WindowDto {
 pub struct StartBody {
     kind: Option<WindowKind>,
     area_id: Option<Uuid>,
-    minutes: i64,
+    minutes: Option<i64>,
+    until: Option<Until>,
+    tz: Option<String>,
     lat: f64,
     lon: f64,
 }
@@ -69,16 +70,6 @@ pub struct StartBody {
 #[derive(Deserialize)]
 pub struct ExtendBody {
     extend_minutes: i64,
-}
-
-fn check_minutes(field: &str, minutes: i64) -> Result<Duration, AppError> {
-    if MINUTES.contains(&minutes) {
-        Ok(Duration::minutes(minutes))
-    } else {
-        Err(AppError::validation(format!(
-            "{field} must be 30, 60, 120 or 240"
-        )))
-    }
 }
 
 /// The window kind and, for an area window, its area; `kind` defaults to timed, which takes no area.
@@ -180,7 +171,7 @@ pub async fn start_window(
     auth: AuthUser,
     AppJson(body): AppJson<StartBody>,
 ) -> Result<(StatusCode, Json<WindowDto>), AppError> {
-    let length = check_minutes("minutes", body.minutes)?;
+    let length = Length::requested(body.minutes, body.until, body.tz.as_deref())?;
     let (lat, lon) = check_coords(body.lat, body.lon)?;
     let (kind, area_id) = requested_kind(body.kind, body.area_id)?;
 
@@ -198,9 +189,11 @@ pub async fn start_window(
         return Err(AppError::ProfileIncomplete);
     }
 
-    let now = Utc::now();
     let txn = state.db.begin().await?;
     lock_unbanned(&txn, auth.id).await?;
+    // After the lock, so a wait on it cannot shorten the window or skew it from `starts_at`.
+    let now = Utc::now();
+    let ends_at = length.ends_at(now)?;
     if let Some(id) = area_id {
         // Unrounded: rounding could move a point at the edge in or out of the circle.
         let a = areas::lock_active(&txn, id).await?;
@@ -220,7 +213,7 @@ pub async fn start_window(
         lon: Set(Some(lon)),
         location_updated_at: Set(now.fixed_offset()),
         starts_at: Set(now.fixed_offset()),
-        ends_at: Set((now + length).fixed_offset()),
+        ends_at: Set(ends_at.fixed_offset()),
         ended_at: Set(None),
     }
     .insert(&txn)
@@ -275,19 +268,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn minutes_are_limited_to_presets() {
-        for m in MINUTES {
-            assert!(check_minutes("minutes", m).is_ok());
-        }
-        for m in [0, 45, -30, 480] {
-            assert!(matches!(
-                check_minutes("minutes", m),
-                Err(AppError::Validation(_))
-            ));
-        }
-    }
-
-    #[test]
     fn kind_and_area_id_must_agree() {
         use WindowKind::{Area, Timed};
         let id = Uuid::from_u128(7);
@@ -326,7 +306,7 @@ mod tests {
         let late = now + Duration::hours(11);
         assert_eq!(
             extended_end(late, now, Duration::minutes(240)),
-            now + Duration::hours(12)
+            now + MAX_AHEAD
         );
     }
 }

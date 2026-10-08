@@ -37,6 +37,8 @@ pub enum AppError {
     OutsideArea,
     #[error("you left the area, the window has ended")]
     LeftArea,
+    #[error("less than 30 minutes are left until midnight")]
+    TooCloseToMidnight,
     #[error("area is referenced by windows, deactivate it instead")]
     AreaInUse,
     #[error("you must be at least 18 years old")]
@@ -75,6 +77,7 @@ impl AppError {
             | Self::AlreadyResolved
             | Self::OutsideArea
             | Self::LeftArea
+            | Self::TooCloseToMidnight
             | Self::AreaInUse => StatusCode::CONFLICT,
             Self::Underage
             | Self::ProfileIncomplete
@@ -101,6 +104,7 @@ impl AppError {
             Self::AlreadyResolved => "already_resolved",
             Self::OutsideArea => "outside_area",
             Self::LeftArea => "left_area",
+            Self::TooCloseToMidnight => "too_close_to_midnight",
             Self::AreaInUse => "area_in_use",
             Self::Underage => "underage",
             Self::ProfileIncomplete => "profile_incomplete",
@@ -204,6 +208,7 @@ mod tests {
             (AppError::AlreadyResolved, 409, "already_resolved"),
             (AppError::OutsideArea, 409, "outside_area"),
             (AppError::LeftArea, 409, "left_area"),
+            (AppError::TooCloseToMidnight, 409, "too_close_to_midnight"),
             (AppError::AreaInUse, 409, "area_in_use"),
             (AppError::Underage, 422, "underage"),
             (AppError::ProfileIncomplete, 422, "profile_incomplete"),

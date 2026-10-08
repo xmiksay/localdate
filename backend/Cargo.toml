@@ -16,6 +16,7 @@ argon2 = "0.5"
 axum = { version = "0.8", features = ["multipart", "ws"] }
 base64 = "0.22"
 chrono = { version = "0.4", features = ["serde"] }
+chrono-tz = "0.10"
 clap = { version = "4", features = ["derive"] }
 dotenvy = "0.15"
 http-body-util = "0.1"

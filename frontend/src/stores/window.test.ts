@@ -62,6 +62,14 @@ describe('window store', () => {
     expect(s.isActive).toBe(true)
   })
 
+  it('start passes an end-of-day duration through', async () => {
+    vi.mocked(windowApi.startWindow).mockResolvedValue(win(300))
+    const s = useWindowStore()
+    await s.start('end_of_day', { lat: 50.1, lon: 14.4 })
+    expect(windowApi.startWindow).toHaveBeenCalledWith('end_of_day', 50.1, 14.4, undefined)
+    expect(s.remainingMs).toBe(300 * 60_000)
+  })
+
   it('start passes the area id for an area window', async () => {
     const w: Window = { ...win(60), kind: 'area', area: { id: 'a1', name: 'Nádraží' } }
     vi.mocked(windowApi.startWindow).mockResolvedValue(w)

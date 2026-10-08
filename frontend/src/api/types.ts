@@ -4,6 +4,8 @@ export type Reason = 'date' | 'meet'
 export type DistanceBand = 'lt_200m' | 'lt_500m' | 'lt_1km' | 'lt_2km' | 'lt_5km' | 'lt_10km'
 export type WaveState = 'none' | 'sent' | 'received' | 'matched'
 export type WindowMinutes = 30 | 60 | 120 | 240
+/** How long a new window runs: preset minutes, or until the user's local midnight. */
+export type WindowDuration = WindowMinutes | 'end_of_day'
 export type ReportReason = 'spam' | 'harassment' | 'fake' | 'underage' | 'other'
 export type WindowKind = 'timed' | 'area'
 export type AreaKind = 'city_centre' | 'train_station' | 'venue' | 'other'
@@ -26,6 +28,7 @@ export type ErrorCode =
   | 'no_active_window'
   | 'outside_area'
   | 'left_area'
+  | 'too_close_to_midnight'
   | 'area_in_use'
   | 'not_visible'
   | 'cannot_ban_admin'
@@ -53,6 +56,7 @@ export const ERROR_CODES: (ErrorCode | ClientErrorCode)[] = [
   'no_active_window',
   'outside_area',
   'left_area',
+  'too_close_to_midnight',
   'area_in_use',
   'not_visible',
   'cannot_ban_admin',
