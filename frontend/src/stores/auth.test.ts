@@ -126,17 +126,19 @@ describe('auth store', () => {
       email: true,
       google: true,
       telegram: true,
+      facebook: true,
       password_reset: true,
     })
     await s.loadProviders()
     expect(s.emailEnabled).toBe(true)
-    expect(s.oauthProviders).toEqual(['google', 'telegram'])
+    expect(s.oauthProviders).toEqual(['google', 'telegram', 'facebook'])
     expect(s.passwordResetEnabled).toBe(true)
     expect(s.resetByUsernameOnly).toBe(false)
     vi.mocked(authApi.getProviders).mockResolvedValue({
       email: false,
       google: false,
       telegram: true,
+      facebook: false,
       password_reset: true,
     })
     await s.loadProviders()
@@ -146,6 +148,7 @@ describe('auth store', () => {
       email: false,
       google: false,
       telegram: false,
+      facebook: false,
       password_reset: false,
     })
     await s.loadProviders()

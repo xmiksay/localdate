@@ -7,8 +7,14 @@ describe('parseOAuthFragment', () => {
       kind: 'code',
       code: 'abc_-1',
       redirect: '/matches/m1',
+      photo: null,
     })
-    expect(parseOAuthFragment('code=abc')).toEqual({ kind: 'code', code: 'abc', redirect: null })
+    expect(parseOAuthFragment('code=abc')).toEqual({
+      kind: 'code',
+      code: 'abc',
+      redirect: null,
+      photo: null,
+    })
   })
 
   it('drops a redirect that would leave the app', () => {
@@ -17,6 +23,7 @@ describe('parseOAuthFragment', () => {
         kind: 'code',
         code: 'abc',
         redirect: null,
+        photo: null,
       })
     }
   })
@@ -26,7 +33,19 @@ describe('parseOAuthFragment', () => {
       kind: 'linked',
       provider: 'google',
       redirect: '/settings',
+      photo: null,
     })
+  })
+
+  it('reads the photo import outcome and ignores unknown ones', () => {
+    expect(parseOAuthFragment('#code=abc&photo=pending')).toMatchObject({ photo: 'pending' })
+    expect(parseOAuthFragment('#linked=facebook&photo=full')).toEqual({
+      kind: 'linked',
+      provider: 'facebook',
+      redirect: null,
+      photo: 'full',
+    })
+    expect(parseOAuthFragment('#code=abc&photo=teapot')).toMatchObject({ photo: null })
   })
 
   it('reads known error codes and maps the rest to unknown', () => {
@@ -40,7 +59,7 @@ describe('parseOAuthFragment', () => {
   })
 
   it('is none without a usable key', () => {
-    for (const h of ['', '#', '#code=', '#linked=facebook', '#token=abc']) {
+    for (const h of ['', '#', '#code=', '#linked=twitter', '#token=abc', '#photo=imported']) {
       expect(parseOAuthFragment(h)).toEqual({ kind: 'none' })
     }
   })

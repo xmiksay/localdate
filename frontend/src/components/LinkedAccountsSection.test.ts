@@ -7,6 +7,7 @@ import * as identitiesApi from '@/api/identities'
 import * as oauthApi from '@/api/oauth'
 import type { Identity, IdentityProvider } from '@/api/types'
 import { i18n } from '@/i18n'
+import { useIdentitiesStore } from '@/stores/identities'
 import LinkedAccountsSection from './LinkedAccountsSection.vue'
 
 vi.mock('@/api/auth')
@@ -21,11 +22,12 @@ const identity = (provider: IdentityProvider, subject: string): Identity => ({
   created_at: '2026-10-01T10:00:00Z',
 })
 
-async function render(identities: Identity[], telegram = false) {
+async function render(identities: Identity[], telegram = false, facebook = false) {
   vi.mocked(authApi.getProviders).mockResolvedValue({
     email: false,
     google: true,
     telegram,
+    facebook,
     password_reset: false,
   })
   vi.mocked(identitiesApi.getIdentities).mockResolvedValue({ has_password: true, identities })
@@ -78,5 +80,34 @@ describe('LinkedAccountsSection', () => {
     expect(oauthApi.oauthLink).toHaveBeenCalledWith('google', { redirect: '/settings', lang: 'cs' })
     expect(assign).toHaveBeenCalledWith('https://accounts.example/x')
     vi.unstubAllGlobals()
+  })
+
+  it('offers the picture import only next to Facebook and sends it when ticked', async () => {
+    vi.mocked(oauthApi.oauthLink).mockResolvedValue({ url: 'https://fb.example/x' })
+    vi.stubGlobal('location', { ...window.location, assign: vi.fn() })
+    const label = i18n.global.t('oauth.importPhoto', { from: 'z Facebooku' })
+    expect((await render([], true)).text()).not.toContain(label)
+    const w = await render([], false, true)
+    expect(w.text()).toContain(label)
+    expect(w.findAll('input[type="checkbox"]')).toHaveLength(1)
+    await w.find('input[type="checkbox"]').setValue(true)
+    await w
+      .findAll('button')
+      .find((b) => b.text().includes('Facebook'))!
+      .trigger('click')
+    await flushPromises()
+    expect(oauthApi.oauthLink).toHaveBeenCalledWith('facebook', {
+      redirect: '/settings',
+      lang: 'cs',
+      import_photo: true,
+    })
+    vi.unstubAllGlobals()
+  })
+
+  it('shows the import outcome of a finished link', async () => {
+    const w = await render([identity('facebook', '123')])
+    useIdentitiesStore().justImportedPhoto = 'full'
+    await flushPromises()
+    expect(w.text()).toContain(i18n.global.t('oauth.photo.full'))
   })
 })

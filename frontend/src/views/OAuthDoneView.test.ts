@@ -101,5 +101,45 @@ describe('OAuthDoneView', () => {
     const { router } = await open('#linked=google')
     expect(router.currentRoute.value.fullPath).toBe('/settings')
     expect(useIdentitiesStore().justLinkedProvider).toBe('google')
+    expect(useIdentitiesStore().justImportedPhoto).toBeNull()
+  })
+
+  it('hands the import outcome of a link on to settings', async () => {
+    await open('#linked=facebook&photo=imported')
+    expect(useIdentitiesStore().justLinkedProvider).toBe('facebook')
+    expect(useIdentitiesStore().justImportedPhoto).toBe('imported')
+  })
+
+  it('a login to an existing account goes straight on, whatever photo the fragment claims', async () => {
+    vi.mocked(oauthApi.oauthExchange).mockResolvedValue({ session: tokens })
+    const { router } = await open('#code=c1&photo=failed&redirect=%2Fmatches%2Fm1')
+    expect(router.currentRoute.value.fullPath).toBe('/matches/m1')
+  })
+
+  it('tells a new account its picture waits, then shows the outcome after sign-up', async () => {
+    vi.mocked(oauthApi.oauthExchange).mockResolvedValue(signup)
+    const { router, wrapper } = await open('#code=c1&photo=pending')
+    expect(wrapper.text()).toContain(i18n.global.t('oauth.photo.pending'))
+
+    vi.mocked(oauthApi.oauthSignup).mockResolvedValue({ ...tokens, photo: 'full' })
+    await wrapper.find('input').setValue('bob')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+    expect(wrapper.text()).toContain(i18n.global.t('oauth.photo.full'))
+    expect(router.currentRoute.value.path).toBe('/auth/oauth/done')
+    await wrapper.find('button').trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.fullPath).toBe('/')
+  })
+
+  it('a sign-up without a held picture goes straight on', async () => {
+    vi.mocked(oauthApi.oauthExchange).mockResolvedValue(signup)
+    const { router, wrapper } = await open('#code=c1&photo=none')
+    expect(wrapper.text()).toContain(i18n.global.t('oauth.photo.none'))
+    vi.mocked(oauthApi.oauthSignup).mockResolvedValue(tokens)
+    await wrapper.find('input').setValue('bob')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+    expect(router.currentRoute.value.fullPath).toBe('/')
   })
 })

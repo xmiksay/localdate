@@ -233,6 +233,19 @@ spec:
                   name: localdate
                   key: TELEGRAM_BOT_TOKEN
                   optional: true
+            # Optional: without them Facebook login is off (providers.facebook = false).
+            - name: FACEBOOK_APP_ID
+              valueFrom:
+                secretKeyRef:
+                  name: localdate
+                  key: FACEBOOK_APP_ID
+                  optional: true
+            - name: FACEBOOK_APP_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: localdate
+                  key: FACEBOOK_APP_SECRET
+                  optional: true
             # Optional: without them the API starts with Web Push turned off.
             - name: VAPID_PUBLIC_KEY
               valueFrom:

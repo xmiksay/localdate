@@ -47,7 +47,7 @@ pub(super) enum Channel {
 }
 
 impl Channel {
-    /// From a stored identity; `None` for a provider that cannot carry a link (Google: there is
+    /// From a stored identity; `None` for a provider that cannot carry a link (Google, Facebook: there is
     /// no way to message the account).
     fn of(identity: &user_identity::Model) -> Option<Self> {
         match identity.provider {
@@ -56,7 +56,7 @@ impl Channel {
                 .ok()
                 .map(Self::Email),
             IdentityProvider::Telegram => identity.subject.parse().ok().map(Self::Telegram),
-            IdentityProvider::Google => None,
+            IdentityProvider::Google | IdentityProvider::Facebook => None,
         }
     }
 

@@ -20,7 +20,8 @@ pub struct Issued {
 }
 
 /// Stores a fresh grant and returns its plaintext. `binding` must be set for codes (it is the
-/// sha256 of the flow state) and `None` for sign-up tokens; `user_id` only for `Login`.
+/// sha256 of the flow state) and `None` for sign-up tokens; `user_id` only for `Login`; `photo`
+/// (an imported picture, WebP) only for the sign-up purposes.
 pub async fn issue(
     db: &impl ConnectionTrait,
     purpose: OAuthGrantPurpose,
@@ -28,6 +29,7 @@ pub async fn issue(
     subject: &str,
     user_id: Option<Uuid>,
     binding: Option<String>,
+    photo: Option<Vec<u8>>,
 ) -> Result<Issued, AppError> {
     let (token, token_hash) = refresh::generate();
     let now = Utc::now();
@@ -47,6 +49,7 @@ pub async fn issue(
         expires_at: Set(expires_at.fixed_offset()),
         used_at: Set(None),
         created_at: Set(now.fixed_offset()),
+        photo: Set(photo),
     }
     .insert(db)
     .await?;

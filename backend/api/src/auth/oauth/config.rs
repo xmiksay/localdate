@@ -29,7 +29,32 @@ const TELEGRAM_JWKS_TTL: Duration = Duration::from_secs(60 * 60);
 pub enum SubjectSource {
     /// A claim of the verified ID token: a string as is, an integer in decimal (Telegram's `id`).
     IdTokenClaim(String),
-    // Providers without a usable ID token (Facebook, #17) get a userinfo-endpoint variant here.
+    /// A field of a userinfo-style endpoint called with the access token (Facebook's Graph `/me`),
+    /// for providers whose web login hands out no ID token.
+    Userinfo(Userinfo),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Userinfo {
+    /// Called as `GET {endpoint}?fields={field}` with `Authorization: Bearer <access token>`.
+    pub endpoint: String,
+    pub field: String,
+    /// Adds Graph's `appsecret_proof` (HMAC-SHA256 of the access token keyed with the client
+    /// secret), so a leaked access token alone cannot call the API as this app.
+    pub appsecret_proof: bool,
+    /// Where the profile picture can be imported from; `None` = the provider offers no import.
+    pub picture: Option<PictureSource>,
+}
+
+/// The provider's profile picture: a JSON endpoint naming an image URL on the provider's CDN.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PictureSource {
+    /// Graph `/me/picture`, called with `redirect=false` and the same token (+ proof) as userinfo.
+    pub endpoint: String,
+    /// The image may only come from these hosts or their subdomains (`fbcdn.net`).
+    pub hosts: Vec<String>,
+    /// Off only in tests, whose fake CDN is plain http on 127.0.0.1.
+    pub https_only: bool,
 }
 
 /// How the ID token's `nonce` is checked against the flow cookie's.
@@ -178,6 +203,54 @@ pub fn from_env(base_url: Option<&str>, creds: Credentials) -> Result<Vec<OidcCo
     Ok(providers)
 }
 
+// --- Facebook (#17) ---------------------------------------------------------------------------
+
+const FACEBOOK_GRAPH: &str = "https://graph.facebook.com/v25.0";
+const FACEBOOK_AUTH: &str = "https://www.facebook.com/v25.0/dialog/oauth";
+
+/// Facebook Login (OAuth 2.0 code flow, not OIDC): the account id is the app-scoped `id` from Graph
+/// `/me`; scope `public_profile` only, which needs no App Review. `FACEBOOK_APP_ID` +
+/// `FACEBOOK_APP_SECRET`, both or neither.
+pub fn facebook(
+    base_url: Option<&str>,
+    app_id: Option<String>,
+    app_secret: Option<String>,
+) -> Result<Option<OidcConfig>> {
+    let Some((client_id, client_secret)) =
+        credentials("FACEBOOK_APP_ID", "FACEBOOK_APP_SECRET", app_id, app_secret)?
+    else {
+        return Ok(None);
+    };
+    let Some(base) = base_url else {
+        bail!("APP_BASE_URL is required for Facebook login");
+    };
+    Ok(Some(OidcConfig {
+        provider: Provider::Facebook,
+        client_id,
+        client_secret,
+        redirect_uri: callback_uri(base, Provider::Facebook),
+        // No ID token, so no issuer or signing keys.
+        issuers: Vec::new(),
+        auth_endpoint: FACEBOOK_AUTH.into(),
+        token_endpoint: format!("{FACEBOOK_GRAPH}/oauth/access_token"),
+        jwks_uri: String::new(),
+        scope: "public_profile".into(),
+        subject: SubjectSource::Userinfo(Userinfo {
+            endpoint: format!("{FACEBOOK_GRAPH}/me"),
+            field: "id".into(),
+            appsecret_proof: true,
+            picture: Some(PictureSource {
+                endpoint: format!("{FACEBOOK_GRAPH}/me/picture"),
+                hosts: vec!["fbcdn.net".into()],
+                https_only: true,
+            }),
+        }),
+        // Never consulted: the nonce is an ID token check and Userinfo has no ID token.
+        nonce: NonceCheck::Required,
+        jwks_ttl: Duration::ZERO,
+    }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -261,6 +334,33 @@ mod tests {
         assert!(IfPresent.accepts(None, "n"));
         let google = from_env(Some("https://a.cz"), google(some("id"), some("s"))).expect("ok");
         assert_eq!(google[0].nonce, Required);
+    }
+
+    #[test]
+    fn facebook_needs_both_credentials_and_a_base_url() {
+        assert!(
+            facebook(Some("https://a.cz"), None, None)
+                .expect("off")
+                .is_none()
+        );
+        let on = facebook(Some("https://a.cz/"), some("app"), some("fb-app-secret"))
+            .expect("valid")
+            .expect("on");
+        assert_eq!(on.provider, Provider::Facebook);
+        assert_eq!(
+            on.redirect_uri,
+            "https://a.cz/api/auth/oauth/facebook/callback"
+        );
+        assert_eq!(on.scope, "public_profile");
+        let SubjectSource::Userinfo(info) = &on.subject else {
+            panic!("userinfo subject");
+        };
+        assert_eq!(info.field, "id");
+        assert!(info.appsecret_proof);
+        assert!(info.picture.as_ref().is_some_and(|p| p.https_only));
+        assert!(facebook(Some("https://a.cz"), None, some("secret")).is_err());
+        assert!(facebook(None, some("app"), some("secret")).is_err());
+        assert!(!format!("{on:?}").contains("fb-app-secret"));
     }
 
     #[test]

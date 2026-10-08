@@ -39,6 +39,9 @@ pub struct Flow {
     pub linker: Option<Linker>,
     /// Unix seconds.
     pub exp: i64,
+    /// Import the provider's profile picture in the callback (only set for providers offering it).
+    #[serde(default)]
+    pub import_photo: bool,
 }
 
 /// Who started a link flow, and with which access token.
@@ -68,6 +71,7 @@ impl Flow {
             redirect,
             linker,
             exp: chrono::Utc::now().timestamp() + COOKIE_TTL_SECS,
+            import_photo: false,
         }
     }
 }

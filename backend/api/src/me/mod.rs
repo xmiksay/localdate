@@ -4,7 +4,7 @@ mod filter;
 mod identities;
 mod image_proc;
 mod password;
-mod photos;
+pub(crate) mod photos;
 mod profile;
 
 use axum::extract::State;

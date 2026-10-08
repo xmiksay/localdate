@@ -3,7 +3,8 @@ use sea_orm::entity::prelude::*;
 use crate::{IdentityProvider, OAuthGrantPurpose};
 
 /// A one-time OAuth callback code or a pending sign-up token; only its sha256 is stored.
-/// `user_id` is set for `login` only; `binding` (sha256 of the flow state) for codes only.
+/// `user_id` is set for `login` only; `binding` (sha256 of the flow state) for codes only;
+/// `photo` (an imported profile picture, already WebP) for sign-up grants only.
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
 #[sea_orm(table_name = "oauth_grant")]
 pub struct Model {
@@ -19,6 +20,7 @@ pub struct Model {
     pub expires_at: DateTimeWithTimeZone,
     pub used_at: Option<DateTimeWithTimeZone>,
     pub created_at: DateTimeWithTimeZone,
+    pub photo: Option<Vec<u8>>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

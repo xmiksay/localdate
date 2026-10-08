@@ -101,6 +101,7 @@ impl FakeProvider {
                 "id",
                 NonceCheck::IfPresent,
             ),
+            Provider::Facebook => panic!("Facebook has no ID token; use common/facebook.rs"),
         };
         OidcConfig {
             provider,

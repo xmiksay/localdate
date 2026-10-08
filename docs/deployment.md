@@ -7,7 +7,7 @@ Production runs on the k8s cluster behind ingress-nginx + cert-manager (`letsenc
 | Object | What |
 |---|---|
 | `ConfigMap localdate` | non-secret env (`BIND_ADDR`, `PHOTO_DIR`, `RUST_LOG`, `CLEANUP_INTERVAL_SECS`, `TRUST_PROXY_HEADERS=true`, `APP_BASE_URL`, `EMAIL_FROM`, `VAPID_SUBJECT`) |
-| `Secret localdate` | `POSTGRES_PASSWORD`, `JWT_SECRET`, optional `TELEGRAM_CLIENT_ID` + `TELEGRAM_CLIENT_SECRET`, optional `TELEGRAM_BOT_TOKEN`, optional `SMTP_URL`, optional `GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET`, optional `VAPID_PUBLIC_KEY` + `VAPID_PRIVATE_KEY` — **not in git**, created by hand (below) |
+| `Secret localdate` | `POSTGRES_PASSWORD`, `JWT_SECRET`, optional `TELEGRAM_CLIENT_ID` + `TELEGRAM_CLIENT_SECRET`, optional `TELEGRAM_BOT_TOKEN`, optional `SMTP_URL`, optional `GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET`, optional `FACEBOOK_APP_ID` + `FACEBOOK_APP_SECRET`, optional `VAPID_PUBLIC_KEY` + `VAPID_PRIVATE_KEY` — **not in git**, created by hand (below) |
 | `StatefulSet localdate-db` + headless `Service` | Postgres 18, 5 Gi PVC `data-localdate-db-0` |
 | `NetworkPolicy localdate-db` | only `app=localdate-api` pods may reach 5432 |
 | `Deployment localdate-api` | 1 replica, `Recreate`, 768 Mi memory limit, 5 Gi PVC `localdate-photos` at `/data/photos` |
@@ -165,6 +165,40 @@ Telegram user id, so rotating the client secret or the bot token keeps them link
 - **Bot access.** After a Telegram login, request a password reset by username: the link must arrive in the chat
   with the bot. If it does not (the `telegram:bot_access` consent missing or declined, or the user blocked the bot),
   the API logs "sending Telegram message failed" with Telegram's reason.
+
+## Facebook login (optional)
+
+Without `FACEBOOK_APP_ID` / `FACEBOOK_APP_SECRET` the API runs with Facebook off
+(`GET /api/auth/providers` → `facebook: false`, the button is hidden). The app asks only for
+`public_profile` (the app-scoped user id, plus the profile picture when the user ticks the import box), which
+needs **no App Review**. To turn it on:
+
+1. <https://developers.facebook.com/apps> → **Create app**, use case *Authenticate and request data from users
+   with Facebook Login*. Keep the default permission `public_profile` only; add nothing else (no `email`).
+2. **Facebook Login → Settings**: *Client OAuth login* and *Web OAuth login* on, *Enforce HTTPS* and *Use Strict
+   Mode for redirect URIs* on, **Valid OAuth Redirect URIs**:
+   `https://localdate.mmik.cz/api/auth/oauth/facebook/callback`
+   (= `{APP_BASE_URL}/api/auth/oauth/facebook/callback`; Facebook accepts `http://localhost` redirects only while
+   the app is in Development mode, so use a separate dev app for `http://localhost:5173/...`).
+3. **App settings → Basic**: App Domains `localdate.mmik.cz`, a **Privacy Policy URL** and **User data deletion →
+   Data deletion instructions URL** — both are required before the app can go Live. The instructions page should
+   say: delete the account in the app (Settings → *Smazat účet*, which is `DELETE /api/me` and hard-deletes the
+   account, its Facebook link and all photos), or just remove the Facebook link under Settings → Propojené účty
+   (and the app in Facebook's *Apps and websites* settings). These pages are not part of this repo yet; publish
+   them before going Live.
+4. Switch the app to **Live** mode (top bar). In Development mode only the app's roles can log in.
+5. Copy *App ID* and *App secret* into the Secret and restart:
+
+```sh
+kubectl -n localdate patch secret localdate --type merge \
+  -p '{"stringData":{"FACEBOOK_APP_ID":"<app id>","FACEBOOK_APP_SECRET":"<app secret>"}}'
+kubectl -n localdate rollout restart deployment/localdate-api
+```
+
+The API refuses to start with only one of the two values, or without `APP_BASE_URL`. The pod needs outbound
+HTTPS to `graph.facebook.com` (token, `/me`, `/me/picture`) and, for the picture import, `*.fbcdn.net`.
+Facebook user ids are **app-scoped**: keep using the same app. Resetting the app secret is fine (update the Secret,
+restart), but a new App ID gives every user a new id, so their existing Facebook links would no longer match.
 
 ## Web Push (optional)
 

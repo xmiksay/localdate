@@ -16,6 +16,7 @@ use uuid::Uuid;
 
 pub mod areas;
 pub mod email;
+pub mod facebook;
 pub mod oauth;
 pub mod oidc_fake;
 pub mod photos;

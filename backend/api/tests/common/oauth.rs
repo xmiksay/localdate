@@ -221,7 +221,7 @@ impl TestApp {
     }
 }
 
-fn started(resp: &Raw, provider_url: &str) -> Started {
+pub fn started(resp: &Raw, provider_url: &str) -> Started {
     let set = resp.set_cookie.as_deref().expect("flow cookie");
     let cookie = set.split(';').next().expect("cookie pair").to_owned();
     let url = url::Url::parse(provider_url).expect("provider url");

@@ -13,6 +13,7 @@ mod m20261008_000010_push;
 mod m20261008_000011_password_reset;
 mod m20261008_000012_google_identity;
 mod m20261008_000013_telegram_identity;
+mod m20261008_000014_facebook_identity;
 
 /// Append-only: never edit a shipped migration, add a new one at the end of the list.
 pub struct Migrator;
@@ -34,6 +35,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20261008_000011_password_reset::Migration),
             Box::new(m20261008_000012_google_identity::Migration),
             Box::new(m20261008_000013_telegram_identity::Migration),
+            Box::new(m20261008_000014_facebook_identity::Migration),
         ]
     }
 }

@@ -40,7 +40,7 @@ Internal/DB errors are logged and returned as `500 internal` with a generic mess
 | 429 | `rate_limited` | per-IP throttle: login, register, `/auth/email/start`, `/auth/email/signup`, `/auth/password/forgot`, `POST /me/identities/email`, `PUT /me/password`, `/auth/oauth/{provider}/start` · `/link`, `/auth/oauth/signup` (never the callback: refusing it would waste the provider's code; its flow was counted at start) |
 | 429 | `wave_limit` | > 20 waves in one window |
 | 503 | `email_disabled` | any email endpoint while the server has no mailer (`GET /auth/providers` → `email: false`); `/auth/password/forgot` with an email address while there is no mailer, or with a username while there is neither a mailer nor a Telegram bot (`password_reset: false`) |
-| 503 | `provider_disabled` | `POST /auth/oauth/{provider}/link` while that provider is not configured (`GET /auth/providers` → `google` / `telegram: false`) |
+| 503 | `provider_disabled` | `POST /auth/oauth/{provider}/link` while that provider is not configured (`GET /auth/providers` → `google` / `telegram` / `facebook: false`) |
 
 ## Shared types
 
@@ -88,13 +88,15 @@ interface MatchSummary {
   last_message: Message | null
 }
 interface Tokens { access_token: string; refresh_token: string; user: User }
-type IdentityProvider = 'email' | 'google' | 'telegram'   // later: 'facebook'
-type OAuthProvider = 'google' | 'telegram'   // providers signed in through /auth/oauth/{provider}
+type IdentityProvider = 'email' | 'google' | 'telegram' | 'facebook'
+type OAuthProvider = 'google' | 'telegram' | 'facebook'   // providers signed in through /auth/oauth/{provider}
+type PhotoImportOutcome = 'pending' | 'imported' | 'full' | 'none' | 'failed'   // `photo=` on /auth/oauth/done (Facebook)
 interface Identity {
   id: string; provider: IdentityProvider
   subject: string            // email: the normalized address (it is the caller's own, shown in full)
                              // google: Google's opaque account id (`sub`) — not meant for display
                              // telegram: the numeric Telegram user id (`id` claim) in decimal — not shown either
+                             // facebook: the app-scoped user id from Graph `/me` — not meant for display
   verified_at: string; created_at: string
 }
 type EmailTokenPurpose = 'login' | 'signup' | 'link'
@@ -126,7 +128,7 @@ answers the same `401 invalid_credentials` as a wrong password (same argon2 timi
 
 | Method & path | Body | 2xx response |
 |---|---|---|
-| `GET /auth/providers` | — | `200 { email: boolean, google: boolean, telegram: boolean, password_reset: boolean }` — which login methods this server offers; `password_reset`: a reset link can be sent at all (a mailer or the Telegram bot is configured). With the bot only, reset works by username alone |
+| `GET /auth/providers` | — | `200 { email: boolean, google: boolean, telegram: boolean, facebook: boolean, password_reset: boolean }` — which login methods this server offers; `password_reset`: a reset link can be sent at all (a mailer or the Telegram bot is configured). With the bot only, reset works by username alone |
 | `POST /auth/email/start` | `{ email, lang?: MailLang }` | `202` (empty) — always, whether or not the address has an account |
 | `POST /auth/email/preview` | `{ token }` | `200 EmailPreview` — never consumes the token |
 | `POST /auth/email/verify` | `{ token }` | `200 Tokens` — login tokens only, consumed |
@@ -211,11 +213,11 @@ client credentials: `GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET`, `TELEGRAM_CLIEN
 
 | Method & path | Body | 2xx response |
 |---|---|---|
-| `GET /auth/oauth/{provider}/start?redirect=<path>` | — | `302` to the provider (login or sign-up); sets the flow cookie |
-| `POST /auth/oauth/{provider}/link` (auth) | `{ redirect?: string, lang?: MailLang }` | `200 { url: string }` — navigate the browser there; sets the flow cookie |
+| `GET /auth/oauth/{provider}/start?redirect=<path>&import_photo=1` | — | `302` to the provider (login or sign-up); sets the flow cookie. `import_photo` (`1`/`true`, optional): see Facebook below |
+| `POST /auth/oauth/{provider}/link` (auth) | `{ redirect?: string, lang?: MailLang, import_photo?: boolean }` | `200 { url: string }` — navigate the browser there; sets the flow cookie |
 | `GET /auth/oauth/{provider}/callback?code&state` | — (the provider redirects here) | `302 /auth/oauth/done#…` |
 | `POST /auth/oauth/exchange` | `{ code }` | `200 OAuthExchange` — needs the flow cookie, code consumed |
-| `POST /auth/oauth/signup` | `{ token, username }` | `201 Tokens` (token consumed, account + identity created) |
+| `POST /auth/oauth/signup` | `{ token, username }` | `201 Tokens & { photo?: 'imported' \| 'full' \| 'failed' }` (token consumed, account + identity created; `photo` only when the sign-up holds an imported picture, see Facebook below) |
 
 The SPA starts a login with a plain navigation to `start` (no fetch); linking needs the bearer token, so
 it is a `POST` returning the provider URL. Both set an **HttpOnly, SameSite=Lax** cookie `ld_oauth`
@@ -234,6 +236,7 @@ when one was given):
 |---|---|
 | `#code=<one-time code>` | login or sign-up: `POST /auth/oauth/exchange { code }` within 60 s, from the same browser |
 | `#linked=<provider>` | link mode: the identity was added to the account that started the flow |
+| `&photo=<PhotoImportOutcome>` | appended to `#linked=…`, or to `#code=…` of a **new** account, only when a picture import was asked for and the provider offers one (Facebook below); never with `#error=`, never for a login to an existing account |
 | `#error=<code>` | `cancelled` (denied at the provider), `invalid_state` (cookie missing / expired / tampered, `state` mismatch, wrong provider), `oauth_failed` (code exchange or ID token check failed), `provider_disabled`, `banned`, `identity_taken` (link: that provider account belongs to another user), `unauthorized` (link: the account is gone, or its password was reset / changed after the access token that started the flow — that session was ended, so its link flow dies with it), `rate_limited`, `internal` |
 
 ID tokens are checked against the provider's JWKS (RS256, cached, refetched for an unknown `kid`): `iss`,
@@ -254,6 +257,30 @@ not consumed — consumption, ban check and session are one transaction), or `{ 
 (`400 validation`, `409 username_taken` — the token stays usable). A provider account linked elsewhere in the
 meantime → `400 invalid_token`. The new account has no password and goes through onboarding like any other.
 
+### Facebook login and profile picture import
+
+Facebook (`{provider}` = `facebook`, offered when the server has `FACEBOOK_APP_ID` + `FACEBOOK_APP_SECRET`) uses
+the same endpoints, cookie, fragments and errors. It is plain OAuth 2.0 (no ID token): scope `public_profile`
+only, the identity subject is the **app-scoped user id** from Graph `/me?fields=id`, called with the access
+token and its `appsecret_proof`. No email or other profile data is requested or stored.
+
+`import_photo` (on `start` / `link`) asks to add the Facebook profile picture to the account's photos — for a
+**new account** (sign-up) or a **link** only. A login to an account the Facebook account is already linked to
+never imports (the flag is ignored, no `photo=`), and so does every provider without a picture (Google). The
+picture is fetched inside the callback — the only time the server holds the Facebook access token, which is never
+stored — and only after the account checks passed (a banned, taken or superseded flow downloads nothing):
+
+| `photo=` | Meaning |
+|---|---|
+| `pending` | sign-up (`#code` → `{ signup }`): the picture is fetched and kept with the sign-up token; the outcome comes in the `POST /auth/oauth/signup` response as `photo: 'imported' \| 'full' \| 'failed'` |
+| `imported` | link: added as the account's last photo |
+| `full` | link: the account already has the maximum of 6 photos; nothing added |
+| `none` | link or sign-up: the Facebook account only has the default silhouette |
+| `failed` | link or sign-up: lookup, download or decoding failed (or the image is not on Facebook's CDN, is over 10 MB, or is not an image) |
+
+A failed import never fails the sign-up or link itself; with `none` / `failed` the signup response has no `photo`. The picture runs through the normal upload pipeline
+(decode limits, EXIF stripped, WebP, ≤ 1280 px) and then behaves like any uploaded photo (`DELETE /me/photos/{id}`).
+
 ## Me / profile
 
 | Method & path | Body | 2xx response |
@@ -273,7 +300,7 @@ meantime → `400 invalid_token`. The new account has no password and goes throu
 | `POST /me/identities/email/confirm` | `{ token }` | `201 Identity` |
 | `DELETE /me/identities/{id}` | — | `204`; `409 last_login_method` if it is the only identity of a passwordless account; another user's / unknown id → `404` |
 
-Google is linked through `POST /auth/oauth/google/link` (above) and unlinked here like any identity.
+Google and Facebook are linked through `POST /auth/oauth/{provider}/link` (above) and unlinked here like any identity.
 
 Linking: `POST /me/identities/email` mails a link token bound to the caller to that address — or, if the
 address is already linked to any account (the caller's included), a short notice instead, so the answer

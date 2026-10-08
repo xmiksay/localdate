@@ -35,7 +35,7 @@ pub struct Config {
     pub ws_idle_timeout: Duration,
     /// Web Push identity; `None` (no VAPID keys set) turns push off.
     pub vapid: Option<VapidConfig>,
-    /// Configured OAuth providers (Google, Telegram); one without client credentials is absent = disabled.
+    /// Configured OAuth providers (Google, Telegram, Facebook); one without client credentials is absent = disabled.
     pub oauth: Vec<OidcConfig>,
     /// `APP_BASE_URL`: the PWA origin, no trailing slash. Email and OAuth redirect URIs derive from
     /// it; its scheme decides whether cookies get `Secure`.
@@ -108,6 +108,20 @@ impl Config {
             bail!("JWT_SECRET must be at least {MIN_JWT_SECRET_BYTES} bytes");
         }
         let app_base_url = app_base_url(std::env::var("APP_BASE_URL").ok())?;
+        let mut oauth = oauth::config::from_env(
+            app_base_url.as_deref(),
+            oauth::config::Credentials {
+                google_id: std::env::var("GOOGLE_CLIENT_ID").ok(),
+                google_secret: std::env::var("GOOGLE_CLIENT_SECRET").ok(),
+                telegram_id: std::env::var("TELEGRAM_CLIENT_ID").ok(),
+                telegram_secret: std::env::var("TELEGRAM_CLIENT_SECRET").ok(),
+            },
+        )?;
+        oauth.extend(oauth::config::facebook(
+            app_base_url.as_deref(),
+            std::env::var("FACEBOOK_APP_ID").ok(),
+            std::env::var("FACEBOOK_APP_SECRET").ok(),
+        )?);
         let config = Self {
             database_url: var("DATABASE_URL")?,
             jwt_secret,
@@ -135,15 +149,7 @@ impl Config {
                 std::env::var("VAPID_PRIVATE_KEY").ok(),
                 std::env::var("VAPID_SUBJECT").ok(),
             )?,
-            oauth: oauth::config::from_env(
-                app_base_url.as_deref(),
-                oauth::config::Credentials {
-                    google_id: std::env::var("GOOGLE_CLIENT_ID").ok(),
-                    google_secret: std::env::var("GOOGLE_CLIENT_SECRET").ok(),
-                    telegram_id: std::env::var("TELEGRAM_CLIENT_ID").ok(),
-                    telegram_secret: std::env::var("TELEGRAM_CLIENT_SECRET").ok(),
-                },
-            )?,
+            oauth,
             telegram_bot: telegram::telegram_bot(
                 std::env::var("TELEGRAM_BOT_TOKEN").ok(),
                 app_base_url.as_deref(),

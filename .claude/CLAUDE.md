@@ -27,11 +27,12 @@ waves, and chats after a mutual wave.
   (`reset/deliver.rs`: email + Telegram channels, run after the response via `AppState::detached` = `detached.rs`;
   `telegram/` = the bot for reset links: `TelegramBot` trait, `HttpBot` sendMessage, `MemoryBot`, `TelegramService` in
   `AppState::telegram`, `None` without `TELEGRAM_BOT_TOKEN`) (`replace_password` = hash + `credentials_changed_at` + revoke sessions + delete push subscriptions + void mailed tokens, shared with `PUT /me/password`; both close
-  the account's sockets with 4401 after commit); `oauth/` = generic OIDC code flow (Google, Telegram — subject = numeric `id` claim): `config` per-provider
-  `OidcConfig` + env presets + `SubjectSource`, `OAuthService` registry `Provider → Oidc` in `AppState::oauth`, `cookie`
+  the account's sockets with 4401 after commit); `oauth/` = generic OIDC / OAuth 2.0 code flow (Google, Telegram — subject = numeric `id` claim, Facebook):
+  `config` per-provider `OidcConfig` + env presets + `SubjectSource` (`IdTokenClaim` | `Userinfo` = Graph `/me` + `appsecret_proof`), `OAuthService` registry `Provider → Oidc` in `AppState::oauth`, `cookie`
   signed `ld_oauth` flow cookie + PKCE + `safe_redirect`, `oidc` client + single-flight/stale-tolerant JWKS cache +
-  ID token checks, `grant` one-time codes / sign-up tokens in `oauth_grant`, `notice` link notice mail, `flow`
-  start/link/callback/exchange/signup), `mail.rs` (`Mailer` trait: lettre SMTP, dev log,
+  ID token checks + userinfo calls, `grant` one-time codes / sign-up tokens in `oauth_grant` (+ pending imported photo),
+  `notice` link notice mail, `import` profile picture import (CDN host allowlist, size cap, `photos::to_webp`/`add`),
+  `flow` start/link/callback, `exchange` exchange/signup), `mail.rs` (`Mailer` trait: lettre SMTP, dev log,
   `MemoryMailer` for tests), `me/` (profile, photos + `image_proc`, filter, `identities` = linked login methods +
   email linking, `password` = change / first password, `DELETE /me`), `discovery/` (`geo` bands/haversine, `rules::mutually_visible` = spec,
   `duration` presets/12 h cap/end of day, `window`, `location` (location updates + area leave check), `nearby` = the **only runtime visibility SQL**,
@@ -65,7 +66,9 @@ waves, and chats after a mutual wave.
   (+ `_as(provider)`)/`oauth_exchange`, `settle_messages` (waits for detached work + mail/bot sends);
   `tests/oauth_login.rs` / `oauth_link.rs` / `oauth_hardening.rs`. `common/telegram.rs`: `with_telegram(email, bot)`,
   `claims(started, id)`, `telegram_signup` / `telegram_link`, `bot_messages_to`; `tests/telegram_login.rs` +
-  `telegram_reset.rs` cover #14.
+  `telegram_reset.rs` cover #14. `common/facebook.rs`: `TestApp::with_facebook()` + `FakeFacebook` (token, `/me`,
+  `/me/picture`, CDN; checks PKCE + `appsecret_proof`), `fb_start`/`fb_link`/`fb_return`/`fb_signup`;
+  `tests/oauth_facebook.rs` / `oauth_facebook_photo.rs` (import, photo cap, SSRF refusals) cover #17.
   `tests/visibility_agreement.rs` = SQL ↔ rule cross-check.
 - `frontend/src/`: `api/` (typed client with single-flight refresh, `ws.ts`, per-domain modules, `types.ts` mirrors
   docs/api.md; any `403 banned` or WS close `4403` → `onBanned` → logout + suspended notice on `/login`),

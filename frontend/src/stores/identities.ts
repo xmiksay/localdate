@@ -2,7 +2,7 @@ import { ref } from 'vue'
 import { defineStore } from 'pinia'
 import * as identitiesApi from '@/api/identities'
 import { oauthLink } from '@/api/oauth'
-import type { Identity, OAuthProvider } from '@/api/types'
+import type { Identity, OAuthProvider, PhotoImportOutcome } from '@/api/types'
 import { mailLang } from '@/i18n'
 import { normalizeEmail } from '@/utils/validation'
 
@@ -15,6 +15,8 @@ export const useIdentitiesStore = defineStore('identities', () => {
   const justLinked = ref<string | null>(null)
   /** Provider an OAuth link flow just added, shown once like `justLinked`. */
   const justLinkedProvider = ref<OAuthProvider | null>(null)
+  /** What became of a picture import asked for with that link, shown alongside it. */
+  const justImportedPhoto = ref<PhotoImportOutcome | null>(null)
 
   let loading: Promise<void> | null = null
 
@@ -45,8 +47,9 @@ export const useIdentitiesStore = defineStore('identities', () => {
   }
 
   /** The provider URL to send the browser to; the flow returns via `/auth/oauth/done`. */
-  async function startOAuthLink(provider: OAuthProvider, redirect: string) {
-    return (await oauthLink(provider, { redirect, lang: mailLang() })).url
+  async function startOAuthLink(provider: OAuthProvider, redirect: string, importPhoto = false) {
+    const body = { redirect, lang: mailLang(), ...(importPhoto ? { import_photo: true } : {}) }
+    return (await oauthLink(provider, body)).url
   }
 
   async function remove(id: string) {
@@ -60,6 +63,7 @@ export const useIdentitiesStore = defineStore('identities', () => {
     loaded.value = false
     justLinked.value = null
     justLinkedProvider.value = null
+    justImportedPhoto.value = null
   }
 
   return {
@@ -68,6 +72,7 @@ export const useIdentitiesStore = defineStore('identities', () => {
     loaded,
     justLinked,
     justLinkedProvider,
+    justImportedPhoto,
     load,
     linkEmail,
     startOAuthLink,

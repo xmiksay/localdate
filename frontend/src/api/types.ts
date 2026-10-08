@@ -190,8 +190,15 @@ export interface Tokens {
   user: User
 }
 /** Providers signed in through `/auth/oauth/{provider}`; the one list the UI iterates. */
-export const OAUTH_PROVIDERS = ['google', 'telegram'] as const
+export const OAUTH_PROVIDERS = ['google', 'telegram', 'facebook'] as const
 export type OAuthProvider = (typeof OAUTH_PROVIDERS)[number]
+/** Providers whose profile picture can be imported during login / link (`import_photo`). */
+export const PHOTO_IMPORT_PROVIDERS: readonly OAuthProvider[] = ['facebook']
+/** `photo=` on `/auth/oauth/done`: what became of an asked-for picture import. */
+export const PHOTO_IMPORT_OUTCOMES = ['pending', 'imported', 'full', 'none', 'failed'] as const
+export type PhotoImportOutcome = (typeof PHOTO_IMPORT_OUTCOMES)[number]
+/** `POST /auth/oauth/signup`: `photo` only when the sign-up held an imported picture (`pending`). */
+export type OAuthSignedUp = Tokens & { photo?: 'imported' | 'full' | 'failed' }
 export type IdentityProvider = 'email' | OAuthProvider
 /** Language of a sent email; the server falls back to 'cs'. */
 export type MailLang = 'cs' | 'en'
