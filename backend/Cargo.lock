@@ -1366,6 +1366,7 @@ dependencies = [
  "image",
  "jsonwebtoken",
  "migration",
+ "percent-encoding",
  "rust-embed",
  "sea-orm",
  "serde",

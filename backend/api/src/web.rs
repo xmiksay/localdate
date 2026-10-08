@@ -6,6 +6,7 @@ use axum::http::{HeaderMap, Method, StatusCode, Uri, header};
 use axum::response::{IntoResponse, Response};
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use percent_encoding::percent_decode_str;
 use rust_embed::{EmbeddedFile, RustEmbed};
 
 /// Release builds embed the bundle, debug builds read it from disk. `allow_missing` lets the crate
@@ -17,10 +18,10 @@ pub struct Dist;
 
 const INDEX: &str = "index.html";
 /// Vite content-hashes everything under `assets/`, so a name never changes meaning.
-const IMMUTABLE: &str = "public, max-age=31536000, immutable";
+pub const IMMUTABLE: &str = "public, max-age=31536000, immutable";
 /// Unhashed entry points (index.html, sw.js, workbox, manifest, icons) must revalidate, or a
 /// deploy would keep clients on stale bundles; the ETag makes that revalidation a cheap 304.
-const NO_CACHE: &str = "no-cache";
+pub const NO_CACHE: &str = "no-cache";
 
 /// Fallback handler: an embedded file, else the SPA shell for route-like paths, else 404.
 pub async fn serve<E: RustEmbed>(method: Method, uri: Uri, headers: HeaderMap) -> Response {
@@ -31,16 +32,31 @@ pub async fn serve<E: RustEmbed>(method: Method, uri: Uri, headers: HeaderMap) -
         )
             .into_response();
     }
-    let path = uri.path().trim_start_matches('/');
-    let found = (!path.is_empty()).then(|| E::get(path)).flatten();
-    match found {
-        Some(file) => respond(path, &file, &headers),
-        None if looks_like_file(path) => StatusCode::NOT_FOUND.into_response(),
+    let Some(path) = asset_name(uri.path()) else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    match E::get(&path) {
+        Some(file) => respond(&path, &file, &headers),
+        None if looks_like_file(&path) => StatusCode::NOT_FOUND.into_response(),
         None => match E::get(INDEX) {
             Some(file) => respond(INDEX, &file, &headers),
             None => StatusCode::NOT_FOUND.into_response(),
         },
     }
+}
+
+/// The percent-decoded bundle-relative name, or `None` if it could leave the bundle folder.
+/// Debug builds resolve names against the disk (and rust-embed follows a symlink in the last
+/// component), so `..`, `.`, empty (absolute-making) segments, `\` and NUL are refused up front.
+fn asset_name(uri_path: &str) -> Option<String> {
+    let decoded = percent_decode_str(uri_path).decode_utf8().ok()?;
+    let name = decoded.strip_prefix('/').unwrap_or(&decoded);
+    let dir_like = name.strip_suffix('/').unwrap_or(name);
+    let safe = dir_like.is_empty()
+        || dir_like
+            .split('/')
+            .all(|s| !matches!(s, "" | "." | "..") && !s.contains(['\\', '\0']));
+    safe.then(|| name.to_owned())
 }
 
 fn respond(name: &str, file: &EmbeddedFile, headers: &HeaderMap) -> Response {
@@ -103,6 +119,32 @@ mod tests {
             "icon.svg",
         ] {
             assert_eq!(cache_control(name), NO_CACHE, "{name}");
+        }
+    }
+
+    #[test]
+    fn asset_names_are_decoded_and_cannot_escape_the_bundle() {
+        assert_eq!(asset_name("/").as_deref(), Some(""));
+        assert_eq!(asset_name("/nearby/").as_deref(), Some("nearby/"));
+        assert_eq!(
+            asset_name("/assets/a-1.js").as_deref(),
+            Some("assets/a-1.js")
+        );
+        assert_eq!(asset_name("/caf%C3%A9.png").as_deref(), Some("café.png"));
+        for bad in [
+            "/../Cargo.toml",
+            "/assets/../sw.js",
+            "/%2e%2e/Cargo.toml",
+            "/assets/%2E%2E/sw.js",
+            "/./sw.js",
+            "//etc/passwd",
+            "/%2fetc/passwd",
+            "/assets//a.js",
+            "/a%5c..%5cb",
+            "/a%00.js",
+            "/%ff",
+        ] {
+            assert_eq!(asset_name(bad), None, "{bad}");
         }
     }
 

@@ -3,6 +3,7 @@ use std::net::SocketAddr;
 use anyhow::{Context, Result};
 use localdate_api::config::Config;
 use localdate_api::state::AppState;
+use localdate_api::web::Dist;
 use migration::{Migrator, MigratorTrait};
 use sea_orm::Database;
 use tracing_subscriber::EnvFilter;
@@ -13,6 +14,12 @@ async fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()))
         .init();
+
+    if Dist::get("index.html").is_none() {
+        tracing::warn!(
+            "frontend bundle not found (build it with `make build`); non-API paths will 404"
+        );
+    }
 
     let config = Config::from_env()?;
     let db = Database::connect(&config.database_url)

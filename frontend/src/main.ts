@@ -8,6 +8,7 @@ import { useMatchesStore } from './stores/matches'
 import { useMeStore } from './stores/me'
 import { useNearbyStore } from './stores/nearby'
 import { useWindowStore } from './stores/window'
+import { reloadAfterPreloadError } from './utils/preloadReload'
 import './assets/main.css'
 
 const app = createApp(App)
@@ -30,5 +31,13 @@ watch(
     if (router.currentRoute.value.meta.requiresAuth) router.replace({ name: 'login' })
   },
 )
+
+window.addEventListener('vite:preloadError', (event) => {
+  const reloading = reloadAfterPreloadError(
+    () => window.sessionStorage,
+    () => window.location.reload(),
+  )
+  if (reloading) event.preventDefault()
+})
 
 app.mount('#app')
