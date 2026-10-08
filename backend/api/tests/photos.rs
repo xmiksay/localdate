@@ -81,6 +81,29 @@ async fn oversized_upload_is_unsupported_image() {
 }
 
 #[tokio::test]
+async fn oversize_dimensions_are_unsupported_image() {
+    let app = TestApp::new().await;
+    let t = app.register("eva").await;
+    // Tiny file, but one edge over image_proc::MAX_INPUT_EDGE (10 000).
+    let (status, body) = app
+        .post_multipart(
+            "/api/me/photos",
+            &t.access_token,
+            "file",
+            &png_bytes(10_001, 1),
+        )
+        .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(body["error"]["code"], "unsupported_image");
+    assert_eq!(
+        std::fs::read_dir(&app.state.config.photo_dir)
+            .expect("dir")
+            .count(),
+        0
+    );
+}
+
+#[tokio::test]
 async fn seventh_photo_is_photo_limit() {
     let app = TestApp::new().await;
     let t = app.register("eva").await;

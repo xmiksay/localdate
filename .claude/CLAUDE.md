@@ -6,6 +6,7 @@ waves, and chats after a mutual wave.
 
 - Architecture, data model, config: [docs/architecture.md](../docs/architecture.md)
 - HTTP / WebSocket contract (source of truth for FE ↔ BE): [docs/api.md](../docs/api.md)
+- Deployment (Dockerfile, ghcr image jobs in ci.yml, `deploy/k8s.yml`, secrets, backups): [docs/deployment.md](../docs/deployment.md)
 - Tasks: GitHub issues in `xmiksay/localdate`
 
 ## Stack
@@ -13,7 +14,8 @@ waves, and chats after a mutual wave.
 - `backend/` — Rust workspace: `api` (Axum, binary `localdate-api`), `entity` (SeaORM), `migration`.
   `anyhow` in main/setup, typed `AppError` (→ `{error:{code,message}}`) in handlers, `tracing`.
 - `frontend/` — Vue 3 `<script setup>` + TS + Vite + Tailwind + Pinia + vue-i18n (cs default, en) + vite-plugin-pwa.
-- Postgres on the host (no docker-compose); photos on local disk (`PHOTO_DIR`). Deploy target: Kubernetes.
+- Postgres on the host (no docker-compose); photos on local disk (`PHOTO_DIR`). Deploy: Kubernetes, namespace
+  `localdate`, single API replica (in-process WS hub) + Postgres StatefulSet, ingress `localdate.mmik.cz`.
 
 ## Code map
 
@@ -27,12 +29,14 @@ waves, and chats after a mutual wave.
   own JSON 404 fallback so it never gets the shell; `build.rs` rebuilds on dist changes and refuses a
   release build without it), `safety.rs` (blocks/reports, `is_blocked_between`, `blocked_with` — both also cover banned accounts),
   `admin/` (report queue, soft ban/unban, `set_admin` for the CLI), `error.rs`
-  (`AppError`, `AppJson`, `parse_id`), `rate_limit.rs`. New domain = module with `router()` merged in `lib.rs`.
+  (`AppError`, `AppJson`, `parse_id`), `rate_limit.rs` (per-IP bucket; `TRUST_PROXY_HEADERS` keys on the
+  first `X-Forwarded-For` entry). New domain = module with `router()` merged in `lib.rs`.
   `AuthUser` loads the account on every request (deleted → 401, banned → 403 `banned`); `AdminUser` also
   needs `is_admin`; `lock_unbanned` (`FOR SHARE`) guards window/wave/refresh writes against a concurrent ban.
   `main.rs` is a clap CLI: no subcommand = serve, `admin grant|revoke <username>` (refuses with pending migrations).
 - `backend/api/tests/common/mod.rs`: `TestApp` harness (fresh DB per test, `register`, `onboard`, `open_window`,
-  `visible_user`, `match_up`, `admin`, multipart helpers; `with_frontend::<F>()` serves a fixture bundle from `tests/fixtures/dist`);
+  `visible_user`, `match_up`, `admin`, multipart helpers; `with_frontend::<F>()` serves a fixture bundle from `tests/fixtures/dist`;
+  `with_config(|c| …)` tweaks the `Config`, e.g. to enable the rate limiter);
   `common/areas.rs`: `area`, `area_user`, `start_area_window`. `tests/visibility_agreement.rs` = SQL ↔ rule cross-check.
 - `frontend/src/`: `api/` (typed client with single-flight refresh, `ws.ts`, per-domain modules, `types.ts` mirrors
   docs/api.md; any `403 banned` or WS close `4403` → `onBanned` → logout + suspended notice on `/login`),
@@ -51,10 +55,12 @@ make install           # npm ci
 make run-api           # API on BIND_ADDR, runs migrations on start
 make run-web           # Vite on :5173, proxies /api, /media, WS
 make build             # npm run build, then cargo build --release (binary embeds frontend/dist)
-make lint              # cargo fmt --check, clippy -D warnings, eslint, vue-tsc
+make lint              # check-pins (Dockerfile vs toolchain pins), cargo fmt --check, clippy -D warnings, eslint, vue-tsc
 make test              # test-unit (cargo --lib/--bins + vitest) + test-integration (cargo tests/)
 make migrate
 make admin-grant ADMIN=<username>   # / admin-revoke — moderator role via `localdate-api admin …`
+make image             # docker build -t localdate:dev .
+make deploy            # kubectl apply -f deploy/k8s.yml (current context!)
 ```
 
 Copy `.env.example` → `.env`. Local DB: role/db `localdate` (password `localdate`, CREATEDB for test DBs).

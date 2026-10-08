@@ -10,7 +10,7 @@ endif
 BE := cd backend &&
 FE := cd frontend &&
 
-.PHONY: help install build lint fmt test test-unit test-integration migrate run-api run-web admin-grant admin-revoke clean
+.PHONY: help install build lint check-pins fmt test test-unit test-integration migrate run-api run-web admin-grant admin-revoke image deploy clean
 
 help: ## List targets
 	@grep -hE '^[a-z-]+:.*##' Makefile | awk -F':.*## ' '{printf "  %-18s %s\n", $$1, $$2}'
@@ -22,11 +22,17 @@ build: ## Build frontend, then the release API binary that embeds it
 	$(FE) npm run build
 	$(BE) cargo build --release
 
-lint: ## fmt check + clippy + eslint + vue-tsc
+lint: check-pins ## pin check + fmt check + clippy + eslint + vue-tsc
 	$(BE) cargo fmt --all -- --check
 	$(BE) cargo clippy --all-targets -- -D warnings
 	$(FE) npm run lint
 	$(FE) npm run typecheck
+
+check-pins: ## Dockerfile base images match rust-toolchain.toml and .nvmrc
+	@rust=$$(sed -n 's/^channel *= *"\(.*\)"/\1/p' rust-toolchain.toml); \
+	node=$$(tr -d '[:space:]' < .nvmrc); \
+	grep -q "^FROM rust:$$rust-" Dockerfile || { echo "Dockerfile: expected FROM rust:$$rust-… (rust-toolchain.toml)"; exit 1; }; \
+	grep -q "^FROM node:$$node-" Dockerfile || { echo "Dockerfile: expected FROM node:$$node-… (.nvmrc)"; exit 1; }
 
 fmt: ## Format backend and frontend
 	$(BE) cargo fmt --all
@@ -57,6 +63,12 @@ admin-grant: ## Make ADMIN=<username> an admin (DATABASE_URL)
 admin-revoke: ## Take the admin role from ADMIN=<username>
 	@test -n "$(ADMIN)" || { echo "usage: make admin-revoke ADMIN=<username>"; exit 1; }
 	$(BE) cargo run -p localdate-api -- admin revoke $(ADMIN)
+
+image: ## Build the container image localdate:dev
+	docker build -t localdate:dev .
+
+deploy: ## Apply deploy/k8s.yml to the current kubectl context (Secret must exist, see docs/deployment.md)
+	kubectl apply -f deploy/k8s.yml
 
 clean: ## Remove build artefacts
 	$(BE) cargo clean

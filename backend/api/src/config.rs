@@ -13,10 +13,14 @@ pub struct Config {
     pub jwt_secret: String,
     pub photo_dir: PathBuf,
     pub bind_addr: SocketAddr,
-    /// Per-IP limiter on register/login; tests disable it (oneshot has no ConnectInfo).
+    /// Per-IP limiter on register/login. Always on in `from_env`; the test harness turns it off
+    /// (every test client would share one bucket) except in the rate-limit tests.
     pub rate_limit: bool,
     /// Period of the background cleanup job (`CLEANUP_INTERVAL_SECS`).
     pub cleanup_interval: Duration,
+    /// Rate-limit on `X-Forwarded-For` instead of the peer (`TRUST_PROXY_HEADERS`); only safe
+    /// behind a proxy that overwrites the header.
+    pub trust_proxy_headers: bool,
 }
 
 impl Config {
@@ -35,6 +39,8 @@ impl Config {
                 .context("BIND_ADDR must be host:port")?,
             rate_limit: true,
             cleanup_interval: cleanup_interval(std::env::var("CLEANUP_INTERVAL_SECS").ok())?,
+            trust_proxy_headers: flag(std::env::var("TRUST_PROXY_HEADERS").ok())
+                .context("TRUST_PROXY_HEADERS must be true or false")?,
         })
     }
 }
@@ -53,6 +59,16 @@ fn cleanup_interval(raw: Option<String>) -> Result<Duration> {
     Ok(Duration::from_secs(secs))
 }
 
+/// Unset means false; anything but a recognised boolean is an error rather than a silent false.
+fn flag(raw: Option<String>) -> Result<bool> {
+    let Some(raw) = raw else { return Ok(false) };
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "true" | "1" => Ok(true),
+        "false" | "0" => Ok(false),
+        other => bail!("not a boolean: {other:?}"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -66,6 +82,20 @@ mod tests {
         );
         for bad in ["0", "-5", "5m", ""] {
             assert!(cleanup_interval(Some(bad.into())).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn flag_defaults_false_and_rejects_garbage() {
+        assert_eq!(flag(None).ok(), Some(false));
+        for t in ["true", " TRUE ", "1"] {
+            assert_eq!(flag(Some(t.into())).ok(), Some(true), "{t}");
+        }
+        for f in ["false", "False", "0"] {
+            assert_eq!(flag(Some(f.into())).ok(), Some(false), "{f}");
+        }
+        for bad in ["", "yes", "on", "2"] {
+            assert!(flag(Some(bad.into())).is_err(), "{bad}");
         }
     }
 }

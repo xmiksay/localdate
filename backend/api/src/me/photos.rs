@@ -130,10 +130,21 @@ async fn upload(
         return Err(AppError::PhotoLimit);
     }
     let bytes = read_file_field(multipart).await?;
-    let webp = tokio::task::spawn_blocking(move || image_proc::to_webp(&bytes))
+    // Each decode can take ~128 MiB plus resize buffers; the permit bounds concurrent ones so a
+    // burst of uploads queues instead of blowing the pod's memory limit.
+    let permit = state
+        .image_permits
+        .clone()
+        .acquire_owned()
         .await
-        .map_err(|e| anyhow::anyhow!("image task failed: {e}"))?
-        .ok_or(AppError::UnsupportedImage)?;
+        .map_err(|e| anyhow::anyhow!("image semaphore closed: {e}"))?;
+    let webp = tokio::task::spawn_blocking(move || {
+        let _permit = permit;
+        image_proc::to_webp(&bytes)
+    })
+    .await
+    .map_err(|e| anyhow::anyhow!("image task failed: {e}"))?
+    .map_err(|_| AppError::UnsupportedImage)?;
 
     let id = Uuid::new_v4();
     let file_name = format!("{id}.webp");

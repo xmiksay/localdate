@@ -31,7 +31,7 @@ Internal/DB errors are logged and returned as `500 internal` with a generic mess
 | 422 | `underage` | birth date < 18 years ago |
 | 422 | `profile_incomplete` | window start without profile + filter + ≥ 1 photo |
 | 422 | `photo_limit` | 7th photo |
-| 422 | `unsupported_image` | not decodable jpeg/png/webp or > 10 MB |
+| 422 | `unsupported_image` | not decodable jpeg/png/webp, > 10 MB, an edge > 10 000 px or > 32 Mi pixels (~33 MP) |
 | 429 | `rate_limited` | login/register throttle |
 | 429 | `wave_limit` | > 20 waves in one window |
 
