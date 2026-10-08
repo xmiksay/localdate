@@ -3,6 +3,7 @@ import { createPinia } from 'pinia'
 import App from './App.vue'
 import { i18n, setLocale } from './i18n'
 import router from './router'
+import { useAdminStore } from './stores/admin'
 import { useAuthStore } from './stores/auth'
 import { useMatchesStore } from './stores/matches'
 import { useMeStore } from './stores/me'
@@ -28,6 +29,7 @@ watch(
     useWindowStore().clear()
     useNearbyStore().reset()
     useMatchesStore().reset()
+    useAdminStore().reset()
     if (router.currentRoute.value.meta.requiresAuth) router.replace({ name: 'login' })
   },
 )

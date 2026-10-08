@@ -19,6 +19,8 @@ pub enum AppError {
     InvalidRefreshToken,
     #[error("forbidden")]
     Forbidden,
+    #[error("this account has been suspended")]
+    Banned,
     #[error("not found")]
     NotFound,
     #[error("username already taken")]
@@ -27,6 +29,10 @@ pub enum AppError {
     NoActiveWindow,
     #[error("user is not currently visible")]
     NotVisible,
+    #[error("admins cannot be banned")]
+    CannotBanAdmin,
+    #[error("report is already resolved")]
+    AlreadyResolved,
     #[error("you must be at least 18 years old")]
     Underage,
     #[error("profile, filter and at least one photo are required")]
@@ -54,9 +60,13 @@ impl AppError {
             Self::Unauthorized | Self::InvalidCredentials | Self::InvalidRefreshToken => {
                 StatusCode::UNAUTHORIZED
             }
-            Self::Forbidden => StatusCode::FORBIDDEN,
+            Self::Forbidden | Self::Banned => StatusCode::FORBIDDEN,
             Self::NotFound => StatusCode::NOT_FOUND,
-            Self::UsernameTaken | Self::NoActiveWindow | Self::NotVisible => StatusCode::CONFLICT,
+            Self::UsernameTaken
+            | Self::NoActiveWindow
+            | Self::NotVisible
+            | Self::CannotBanAdmin
+            | Self::AlreadyResolved => StatusCode::CONFLICT,
             Self::Underage
             | Self::ProfileIncomplete
             | Self::PhotoLimit
@@ -73,10 +83,13 @@ impl AppError {
             Self::InvalidCredentials => "invalid_credentials",
             Self::InvalidRefreshToken => "invalid_refresh_token",
             Self::Forbidden => "forbidden",
+            Self::Banned => "banned",
             Self::NotFound => "not_found",
             Self::UsernameTaken => "username_taken",
             Self::NoActiveWindow => "no_active_window",
             Self::NotVisible => "not_visible",
+            Self::CannotBanAdmin => "cannot_ban_admin",
+            Self::AlreadyResolved => "already_resolved",
             Self::Underage => "underage",
             Self::ProfileIncomplete => "profile_incomplete",
             Self::PhotoLimit => "photo_limit",
@@ -170,10 +183,13 @@ mod tests {
             (AppError::InvalidCredentials, 401, "invalid_credentials"),
             (AppError::InvalidRefreshToken, 401, "invalid_refresh_token"),
             (AppError::Forbidden, 403, "forbidden"),
+            (AppError::Banned, 403, "banned"),
             (AppError::NotFound, 404, "not_found"),
             (AppError::UsernameTaken, 409, "username_taken"),
             (AppError::NoActiveWindow, 409, "no_active_window"),
             (AppError::NotVisible, 409, "not_visible"),
+            (AppError::CannotBanAdmin, 409, "cannot_ban_admin"),
+            (AppError::AlreadyResolved, 409, "already_resolved"),
             (AppError::Underage, 422, "underage"),
             (AppError::ProfileIncomplete, 422, "profile_incomplete"),
             (AppError::PhotoLimit, 422, "photo_limit"),

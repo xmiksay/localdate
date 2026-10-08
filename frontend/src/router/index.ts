@@ -7,6 +7,7 @@ declare module 'vue-router' {
     requiresAuth?: boolean
     guestOnly?: boolean
     onboarding?: boolean
+    requiresAdmin?: boolean
   }
 }
 
@@ -55,6 +56,12 @@ const router = createRouter({
         },
         { path: 'profile', name: 'profile', component: () => import('@/views/ProfileView.vue') },
         { path: 'settings', name: 'settings', component: () => import('@/views/SettingsView.vue') },
+        {
+          path: 'admin',
+          name: 'admin',
+          component: () => import('@/views/AdminView.vue'),
+          meta: { requiresAdmin: true },
+        },
       ],
     },
     {
@@ -87,6 +94,7 @@ router.beforeEach(async (to) => {
     if (!me.isOnboarded && !to.meta.onboarding) return { name: 'onboarding' }
     if (me.isOnboarded && to.meta.onboarding) return { name: 'nearby' }
   }
+  if (to.meta.requiresAdmin && !me.isAdmin) return { name: 'nearby' }
   return true
 })
 

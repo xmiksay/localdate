@@ -9,6 +9,8 @@ pub struct Model {
     pub username: String,
     pub password_hash: String,
     pub created_at: DateTimeWithTimeZone,
+    pub is_admin: bool,
+    pub banned_at: Option<DateTimeWithTimeZone>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

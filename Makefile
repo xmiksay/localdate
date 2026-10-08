@@ -10,7 +10,7 @@ endif
 BE := cd backend &&
 FE := cd frontend &&
 
-.PHONY: help install build lint fmt test test-unit test-integration migrate run-api run-web clean
+.PHONY: help install build lint fmt test test-unit test-integration migrate run-api run-web admin-grant admin-revoke clean
 
 help: ## List targets
 	@grep -hE '^[a-z-]+:.*##' Makefile | awk -F':.*## ' '{printf "  %-18s %s\n", $$1, $$2}'
@@ -49,6 +49,14 @@ run-api: ## Run API server (applies migrations on start)
 
 run-web: ## Run Vite dev server
 	$(FE) npm run dev
+
+admin-grant: ## Make ADMIN=<username> an admin (DATABASE_URL)
+	@test -n "$(ADMIN)" || { echo "usage: make admin-grant ADMIN=<username>"; exit 1; }
+	$(BE) cargo run -p localdate-api -- admin grant $(ADMIN)
+
+admin-revoke: ## Take the admin role from ADMIN=<username>
+	@test -n "$(ADMIN)" || { echo "usage: make admin-revoke ADMIN=<username>"; exit 1; }
+	$(BE) cargo run -p localdate-api -- admin revoke $(ADMIN)
 
 clean: ## Remove build artefacts
 	$(BE) cargo clean

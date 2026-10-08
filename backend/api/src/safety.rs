@@ -11,7 +11,7 @@ use entity::{ReportReason, block, profile, report, user};
 use sea_orm::sea_query::OnConflict;
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, Condition, ConnectionTrait, DbErr, EntityTrait, PaginatorTrait,
-    QueryFilter, QueryOrder, Set, TransactionTrait,
+    QueryFilter, QueryOrder, QuerySelect, Set, TransactionTrait,
 };
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -29,7 +29,8 @@ pub fn router() -> Router<AppState> {
         .route("/reports", axum::routing::post(create_report))
 }
 
-/// True when either user has blocked the other.
+/// True when either user has blocked the other, or either is banned: every block-aware call
+/// site hides banned accounts the same way.
 pub async fn is_blocked_between(
     db: &impl ConnectionTrait,
     a: Uuid,
@@ -51,10 +52,11 @@ pub async fn is_blocked_between(
         )
         .count(db)
         .await?;
-    Ok(n > 0)
+    Ok(n > 0 || !banned_among(db, [a, b]).await?.is_empty())
 }
 
-/// Everyone `me` has blocked or who has blocked `me` — filter list queries with this set.
+/// Everyone `me` has blocked or who has blocked `me`, plus every banned account — filter list
+/// queries with this set. Bans are rare, so the banned set stays small.
 pub async fn blocked_with(db: &impl ConnectionTrait, me: Uuid) -> Result<HashSet<Uuid>, DbErr> {
     let rows = block::Entity::find()
         .filter(
@@ -64,7 +66,7 @@ pub async fn blocked_with(db: &impl ConnectionTrait, me: Uuid) -> Result<HashSet
         )
         .all(db)
         .await?;
-    Ok(rows
+    let mut hidden: HashSet<Uuid> = rows
         .into_iter()
         .map(|b| {
             if b.blocker_id == me {
@@ -73,7 +75,28 @@ pub async fn blocked_with(db: &impl ConnectionTrait, me: Uuid) -> Result<HashSet
                 b.blocker_id
             }
         })
-        .collect())
+        .collect();
+    let banned: Vec<Uuid> = user::Entity::find()
+        .select_only()
+        .column(user::Column::Id)
+        .filter(user::Column::BannedAt.is_not_null())
+        .into_tuple()
+        .all(db)
+        .await?;
+    hidden.extend(banned);
+    Ok(hidden)
+}
+
+/// The subset of `ids` whose accounts are banned.
+async fn banned_among(db: &impl ConnectionTrait, ids: [Uuid; 2]) -> Result<Vec<Uuid>, DbErr> {
+    user::Entity::find()
+        .select_only()
+        .column(user::Column::Id)
+        .filter(user::Column::Id.is_in(ids))
+        .filter(user::Column::BannedAt.is_not_null())
+        .into_tuple()
+        .all(db)
+        .await
 }
 
 async fn insert_block(
@@ -202,11 +225,14 @@ async fn create_report(
     let txn = state.db.begin().await?;
     report::ActiveModel {
         id: Set(Uuid::new_v4()),
-        reporter_id: Set(auth.id),
+        reporter_id: Set(Some(auth.id)),
         reported_id: Set(body.user_id),
         reason: Set(body.reason),
         note: Set(note),
         created_at: Set(Utc::now().fixed_offset()),
+        resolved_at: Set(None),
+        resolved_by: Set(None),
+        resolution: Set(None),
     }
     .insert(&txn)
     .await?;

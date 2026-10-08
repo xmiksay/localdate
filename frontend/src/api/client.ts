@@ -17,6 +17,7 @@ export class ApiError extends Error {
 type Hooks = {
   onTokens?: (t: Tokens) => void
   onAuthLost?: () => void
+  onBanned?: () => void
 }
 const hooks: Hooks = {}
 
@@ -24,6 +25,13 @@ const hooks: Hooks = {}
 export function setAuthHooks(h: Hooks) {
   hooks.onTokens = h.onTokens
   hooks.onAuthLost = h.onAuthLost
+  hooks.onBanned = h.onBanned
+}
+
+/** A suspended account has no session to keep: drop tokens and let the app show why. */
+export function signalBanned() {
+  tokenStorage.clear()
+  hooks.onBanned?.()
 }
 
 async function parseError(res: Response): Promise<ApiError> {
@@ -38,26 +46,31 @@ async function parseError(res: Response): Promise<ApiError> {
   return new ApiError('unknown', res.status, res.statusText)
 }
 
-let refreshing: Promise<boolean> | null = null
+type RefreshResult = 'ok' | 'failed' | 'banned'
+let refreshing: Promise<RefreshResult> | null = null
 
 /** One in-flight refresh shared by all concurrent 401s. */
-function refreshTokens(): Promise<boolean> {
-  refreshing ??= (async () => {
+function refreshTokens(): Promise<RefreshResult> {
+  refreshing ??= (async (): Promise<RefreshResult> => {
     const refresh = tokenStorage.refresh()
-    if (!refresh) return false
+    if (!refresh) return 'failed'
     try {
       const res = await fetch(`${BASE}/auth/refresh`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ refresh_token: refresh }),
       })
-      if (!res.ok) return false
+      if (!res.ok) {
+        if ((await parseError(res)).code !== 'banned') return 'failed'
+        signalBanned()
+        return 'banned'
+      }
       const t = (await res.json()) as Tokens
       tokenStorage.set(t.access_token, t.refresh_token)
       hooks.onTokens?.(t)
-      return true
+      return 'ok'
     } catch {
-      return false
+      return 'failed'
     }
   })().finally(() => {
     refreshing = null
@@ -125,8 +138,12 @@ export async function request<T>(path: string, o: RequestOptions = {}): Promise<
   if (res.status === 401 && !o.anon) {
     const err = await parseError(res.clone())
     if (err.code === 'unauthorized') {
-      if (await refreshTokens()) {
+      const refreshed = await refreshTokens()
+      if (refreshed === 'ok') {
         res = await send(path, o)
+      } else if (refreshed === 'banned') {
+        // `signalBanned` already ended the session; plain auth loss would hide the reason.
+        throw new ApiError('banned', 403, 'account suspended')
       } else {
         tokenStorage.clear()
         hooks.onAuthLost?.()
@@ -134,7 +151,11 @@ export async function request<T>(path: string, o: RequestOptions = {}): Promise<
       }
     }
   }
-  if (!res.ok) throw await parseError(res)
+  if (!res.ok) {
+    const err = await parseError(res)
+    if (err.code === 'banned') signalBanned()
+    throw err
+  }
   // 204 and e.g. `201` from POST /reports carry no body.
   const text = await res.text()
   return (text ? JSON.parse(text) : undefined) as T

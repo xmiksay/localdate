@@ -1,5 +1,5 @@
 import { onScopeDispose, watch } from 'vue'
-import { freshAccessToken } from '@/api/client'
+import { freshAccessToken, signalBanned } from '@/api/client'
 import { createWsClient } from '@/api/ws'
 import { useAuthStore } from '@/stores/auth'
 import { useMatchesStore } from '@/stores/matches'
@@ -17,6 +17,7 @@ export function useRealtime() {
       if (ev.type === 'ready') void matches.loadMatches().catch(() => undefined)
       else matches.applyEvent(ev)
     },
+    onBanned: signalBanned,
   })
 
   watch(

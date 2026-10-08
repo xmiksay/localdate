@@ -17,10 +17,13 @@ export type ErrorCode =
   | 'invalid_credentials'
   | 'invalid_refresh_token'
   | 'forbidden'
+  | 'banned'
   | 'not_found'
   | 'username_taken'
   | 'no_active_window'
   | 'not_visible'
+  | 'cannot_ban_admin'
+  | 'already_resolved'
   | 'underage'
   | 'profile_incomplete'
   | 'photo_limit'
@@ -38,10 +41,13 @@ export const ERROR_CODES: (ErrorCode | ClientErrorCode)[] = [
   'invalid_credentials',
   'invalid_refresh_token',
   'forbidden',
+  'banned',
   'not_found',
   'username_taken',
   'no_active_window',
   'not_visible',
+  'cannot_ban_admin',
+  'already_resolved',
   'underage',
   'profile_incomplete',
   'photo_limit',
@@ -135,6 +141,7 @@ export interface MeResponse {
   user: User
   profile: Profile | null
   filter: Filter | null
+  is_admin: boolean
 }
 export interface Credentials {
   username: string
@@ -148,6 +155,35 @@ export interface BlockedUser {
 export interface WaveResult {
   matched: boolean
   match_id: string | null
+}
+
+export type ReportStatus = 'open' | 'resolved'
+export type Resolution = 'dismissed' | 'banned'
+export interface UserRef {
+  id: string
+  username: string
+}
+export interface AdminReport {
+  id: string
+  reason: ReportReason
+  note: string | null
+  created_at: string
+  resolved_at: string | null
+  resolution: Resolution | null
+  /** null while open, or when that admin's account was deleted */
+  resolved_by: UserRef | null
+  /** null when the reporter deleted their account */
+  reporter: UserRef | null
+  subject: {
+    id: string
+    username: string
+    display_name: string | null
+    photo_url: string | null
+    banned_at: string | null
+    is_admin: boolean
+    /** open reports against this subject, this one included */
+    open_reports: number
+  }
 }
 
 export type WsEvent =

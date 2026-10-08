@@ -20,20 +20,25 @@ waves, and chats after a mutual wave.
 - `backend/api/src/`: `auth/` (password, jwt, refresh rotation, `AuthUser` extractor), `me/` (profile, photos +
   `image_proc`, filter, `DELETE /me`), `discovery/` (`geo` bands/haversine, `rules::mutually_visible` = spec,
   `window`, `nearby` = the **only runtime visibility SQL**, reused by waves, + shared-interest ranking),
-  `social/` (waves, matches, messages), `ws/` (hub + session), `cleanup.rs` (retention job spawned from
-  `main`; tests call `run_once(db, shift)`), `web.rs` (router fallback serving the `rust-embed`ded
+  `social/` (waves, matches, messages), `ws/` (hub + session, `Hub::disconnect` on ban), `cleanup.rs` (retention
+  job spawned from `main`; tests call `run_once(db, shift)`), `web.rs` (router fallback serving the `rust-embed`ded
   `frontend/dist`: files, SPA `index.html` fallback, cache headers/ETag, traversal guard; `/api` has its
   own JSON 404 fallback so it never gets the shell; `build.rs` rebuilds on dist changes and refuses a
-  release build without it), `safety.rs` (blocks/reports, `is_blocked_between`, `blocked_with`), `error.rs`
+  release build without it), `safety.rs` (blocks/reports, `is_blocked_between`, `blocked_with` — both also cover banned accounts),
+  `admin/` (report queue, soft ban/unban, `set_admin` for the CLI), `error.rs`
   (`AppError`, `AppJson`, `parse_id`), `rate_limit.rs`. New domain = module with `router()` merged in `lib.rs`.
+  `AuthUser` loads the account on every request (deleted → 401, banned → 403 `banned`); `AdminUser` also
+  needs `is_admin`; `lock_unbanned` (`FOR SHARE`) guards window/wave/refresh writes against a concurrent ban.
+  `main.rs` is a clap CLI: no subcommand = serve, `admin grant|revoke <username>` (refuses with pending migrations).
 - `backend/api/tests/common/mod.rs`: `TestApp` harness (fresh DB per test, `register`, `onboard`, `open_window`,
-  `visible_user`, multipart helpers; `with_frontend::<F>()` serves a fixture bundle from `tests/fixtures/dist`).
+  `visible_user`, `match_up`, `admin`, multipart helpers; `with_frontend::<F>()` serves a fixture bundle from `tests/fixtures/dist`).
 - `frontend/src/`: `api/` (typed client with single-flight refresh, `ws.ts`, per-domain modules, `types.ts` mirrors
-  docs/api.md), `stores/` (auth, me, window, nearby, matches, safety), `composables/` (geolocation sharing,
-  realtime), `i18n/cs.ts` (source of truth; `en.ts` typed against it; `i18n/plural.ts` = Czech one/few/many rule;
-  `i18n/typed.ts` `useT()` = key-checked `t`, use it instead of `useI18n`, enforced by ESLint),
-  `utils/interests.ts` (`sharedFirst` chips, `byOverlapThenBand` client-side nearby order),
-  `SharedInterestsBadge.vue`, `components/ui/` primitives.
+  docs/api.md; any `403 banned` or WS close `4403` → `onBanned` → logout + suspended notice on `/login`),
+  `stores/` (auth, me, window, nearby, matches, safety, admin), `views/AdminView.vue` (`/admin`, admins only),
+  `composables/` (geolocation sharing, realtime), `i18n/cs.ts` (source of truth; `en.ts` typed against it;
+  `i18n/plural.ts` = Czech one/few/many rule; `i18n/typed.ts` `useT()` = key-checked `t`, use it instead of
+  `useI18n`, enforced by ESLint), `utils/interests.ts` (`sharedFirst` chips, `byOverlapThenBand` client-side
+  nearby order), `SharedInterestsBadge.vue`, `components/ui/` primitives.
 
 ## Commands (always via make)
 
@@ -45,6 +50,7 @@ make build             # npm run build, then cargo build --release (binary embed
 make lint              # cargo fmt --check, clippy -D warnings, eslint, vue-tsc
 make test              # test-unit (cargo --lib/--bins + vitest) + test-integration (cargo tests/)
 make migrate
+make admin-grant ADMIN=<username>   # / admin-revoke — moderator role via `localdate-api admin …`
 ```
 
 Copy `.env.example` → `.env`. Local DB: role/db `localdate` (password `localdate`, CREATEDB for test DBs).

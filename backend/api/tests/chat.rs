@@ -11,25 +11,8 @@ const LON: f64 = 14.4210;
 async fn matched(app: &TestApp, a_name: &str, b_name: &str) -> (Tokens, Tokens, String) {
     let a = app.visible_user(a_name, LAT, LON).await;
     let b = app.visible_user(b_name, LAT + 0.0027, LON).await;
-    let id = match_up(app, &a, &b).await;
+    let id = app.match_up(&a, &b).await;
     (a, b, id)
-}
-
-async fn match_up(app: &TestApp, a: &Tokens, b: &Tokens) -> String {
-    app.post_as(
-        "/api/waves",
-        &a.access_token,
-        json!({ "to_user_id": b.user_id }),
-    )
-    .await;
-    let (_, res) = app
-        .post_as(
-            "/api/waves",
-            &b.access_token,
-            json!({ "to_user_id": a.user_id }),
-        )
-        .await;
-    res["match_id"].as_str().expect("match id").to_owned()
 }
 
 async fn say(app: &TestApp, t: &Tokens, id: &str, body: &str) -> (StatusCode, Value) {
@@ -165,7 +148,7 @@ async fn matches_are_ordered_by_latest_activity_with_last_message() {
     let app = TestApp::new().await;
     let (a, b, with_b) = matched(&app, "anna", "bob").await;
     let c = app.visible_user("carl", LAT, LON + 0.0027).await;
-    let with_c = match_up(&app, &a, &c).await;
+    let with_c = app.match_up(&a, &c).await;
 
     // c's match is newer and has no messages yet.
     let (_, list) = app.get("/api/matches", Some(&a.access_token)).await;

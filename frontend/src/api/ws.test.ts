@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { backoffDelay, createWsClient, wsUrl } from './ws'
+import { backoffDelay, CLOSE_BANNED, createWsClient, wsUrl } from './ws'
 import type { WsEvent } from './types'
 
 class FakeWebSocket {
@@ -8,7 +8,7 @@ class FakeWebSocket {
   closed = false
   onopen: (() => void) | null = null
   onmessage: ((m: { data: unknown }) => void) | null = null
-  onclose: (() => void) | null = null
+  onclose: ((e: { code: number }) => void) | null = null
   constructor(public url: string) {
     FakeWebSocket.instances.push(this)
   }
@@ -24,8 +24,8 @@ class FakeWebSocket {
   receive(data: unknown) {
     this.onmessage?.({ data: typeof data === 'string' ? data : JSON.stringify(data) })
   }
-  drop() {
-    this.onclose?.()
+  drop(code = 1006) {
+    this.onclose?.({ code })
   }
 }
 
@@ -43,8 +43,9 @@ afterEach(() => {
 
 function setup(getToken = vi.fn().mockResolvedValue('tok')) {
   const events: WsEvent[] = []
-  const client = createWsClient({ getToken, onEvent: (e) => events.push(e) })
-  return { client, events, getToken }
+  const onBanned = vi.fn()
+  const client = createWsClient({ getToken, onEvent: (e) => events.push(e), onBanned })
+  return { client, events, getToken, onBanned }
 }
 
 describe('backoffDelay', () => {
@@ -129,5 +130,25 @@ describe('ws client', () => {
     expect(FakeWebSocket.instances).toHaveLength(0)
     await vi.advanceTimersByTimeAsync(1000)
     expect(FakeWebSocket.instances).toHaveLength(1)
+  })
+
+  it('stops for good and signals a ban on close code 4403', async () => {
+    const { client, onBanned } = setup()
+    client.start()
+    await vi.advanceTimersByTimeAsync(0)
+    last().open()
+    last().receive({ type: 'ready' })
+    last().drop(CLOSE_BANNED)
+    expect(onBanned).toHaveBeenCalledOnce()
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(FakeWebSocket.instances).toHaveLength(1)
+  })
+
+  it('does not signal a ban on other close codes', async () => {
+    const { client, onBanned } = setup()
+    client.start()
+    await vi.advanceTimersByTimeAsync(0)
+    last().drop(4401)
+    expect(onBanned).not.toHaveBeenCalled()
   })
 })

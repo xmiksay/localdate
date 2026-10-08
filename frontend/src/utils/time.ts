@@ -17,3 +17,10 @@ export function formatMessageTime(iso: string, locale: string, now = new Date())
     sameDay ? { hour: '2-digit', minute: '2-digit' } : { day: 'numeric', month: 'short' },
   ).format(d)
 }
+
+/** Full date and time, e.g. for moderation timestamps. */
+export function formatDateTime(iso: string, locale: string): string {
+  return new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short' }).format(
+    new Date(iso),
+  )
+}

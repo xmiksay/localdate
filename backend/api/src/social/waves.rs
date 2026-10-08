@@ -11,6 +11,7 @@ use uuid::Uuid;
 
 use super::matches::{find_between, find_or_create, summaries};
 use crate::auth::AuthUser;
+use crate::auth::extractor::lock_unbanned;
 use crate::discovery::nearby::{self, NearbyProfile};
 use crate::discovery::window::{self, MAX_WAVES_PER_WINDOW};
 use crate::error::{AppError, AppJson};
@@ -44,6 +45,7 @@ pub async fn post_wave(
     let now = Utc::now().fixed_offset();
 
     let txn = state.db.begin().await?;
+    lock_unbanned(&txn, me).await?;
     // The row lock serializes this sender's waves, so the 20-per-window count cannot be raced.
     let win = window::active_locked(&txn, me)
         .await?

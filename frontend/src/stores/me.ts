@@ -19,6 +19,7 @@ export const useMeStore = defineStore('me', () => {
   const photos = ref<Photo[]>([])
   const interests = ref<Interest[]>([])
   const loaded = ref(false)
+  const isAdmin = ref(false)
 
   const isOnboarded = computed(
     () => profile.value !== null && photos.value.length > 0 && filter.value !== null,
@@ -30,6 +31,7 @@ export const useMeStore = defineStore('me', () => {
     profile.value = me.profile
     photos.value = me.profile?.photos ?? []
     filter.value = me.filter
+    isAdmin.value = me.is_admin
     loaded.value = true
   }
 
@@ -64,6 +66,7 @@ export const useMeStore = defineStore('me', () => {
     profile.value = null
     filter.value = null
     photos.value = []
+    isAdmin.value = false
     loaded.value = false
   }
 
@@ -73,6 +76,7 @@ export const useMeStore = defineStore('me', () => {
     photos,
     interests,
     loaded,
+    isAdmin,
     isOnboarded,
     load,
     loadInterests,

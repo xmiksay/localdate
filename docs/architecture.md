@@ -58,15 +58,31 @@ Debug builds (clippy, tests) need no bundle: they read `frontend/dist` from disk
 - **Expired windows** are closed lazily (`ended_at` set, pending waves deleted) when next read;
   the cleanup job (below) closes them the same way, then deletes them a day later.
 - **Safety** — block (hides both ways, hides match, forbids messages), report
-  (stored for manual moderation, also blocks), account deletion (hard delete of all
+  (also blocks; lands in the moderation queue, below), account deletion (hard delete of all
   rows and photo files).
+- **Moderation** — admins (`user.is_admin`, set only with `localdate-api admin grant|revoke <username>`)
+  work the report queue at `/admin` (`admin/` module, docs/api.md "Admin"): dismiss a report, or
+  **soft-ban** the subject. A ban (one transaction, `admin::ban`) first locks the user row `FOR UPDATE`, then
+  sets `banned_at`, revokes every refresh token, ends the active window (`window::end`, coordinates wiped,
+  its waves deleted) and resolves all open reports on the user as `banned`; after commit
+  `Hub::disconnect(user, CloseReason::Banned)` closes their sockets (`4403`). Transactions that create what
+  only an unbanned user may own — `start_window`, `post_wave`, `refresh::rotate` — read the user row
+  `FOR SHARE` (`auth::extractor::lock_unbanned`): they either wait for a running ban and then answer
+  `403 banned`, or finish first and the ban cleans up after them. Login (after a correct password),
+  refresh and every authenticated request answer `403 banned`; the nearby SQL joins `user.banned_at IS NULL`
+  as a second line of defence, and `safety::is_blocked_between` / `blocked_with` treat banned accounts like
+  blocked ones, so `/matches` drops them and messaging them is 403. Unban clears `banned_at` only. Admins
+  cannot be banned (`409 cannot_ban_admin`) — revoke the role first. A banned user cannot delete their own
+  account (every request is 403); that is an operator task for now.
+  The `admin grant|revoke` CLI never migrates: with pending migrations it exits non-zero and asks for
+  `make migrate` (or a server start) first.
 - **Age** — birth date mandatory, < 18 rejected at onboarding. Profiles expose age, never the date.
 
 ## Data model
 
 | Table | Columns (all timestamps `timestamptz`) |
 |---|---|
-| `user` | id uuid PK, username text UNIQUE (lowercase, `[a-z0-9_]{3,32}`), password_hash text (argon2id), created_at |
+| `user` | id uuid PK, username text UNIQUE (lowercase, `[a-z0-9_]{3,32}`), password_hash text (argon2id), created_at, is_admin bool (default false), banned_at NULL |
 | `refresh_token` | id uuid PK, user_id FK, token_hash text UNIQUE (sha256), family_id uuid, expires_at, revoked_at NULL, created_at |
 | `profile` | user_id PK/FK, display_name text (1–40), birth_date date, gender enum(male,female,other), bio text (≤ 500), updated_at |
 | `photo` | id uuid PK, user_id FK, file_name text, position smallint (0 = primary), created_at; max 6 per user |
@@ -78,9 +94,10 @@ Debug builds (clippy, tests) need no bundle: they read `frontend/dist` from disk
 | `match` (Rust module `matches`) | id uuid PK, user_a FK, user_b FK (user_a < user_b, UNIQUE pair), created_at |
 | `message` | id uuid PK, match_id FK, sender_id FK, body text (1–2000), created_at |
 | `block` | (blocker_id, blocked_id) PK, created_at |
-| `report` | id uuid PK, reporter_id FK, reported_id FK, reason enum(spam,harassment,fake,underage,other), note text NULL, created_at |
+| `report` | id uuid PK, reporter_id FK NULL (**ON DELETE SET NULL** — evidence outlives the reporter's account), reported_id FK, reason enum(spam,harassment,fake,underage,other), note text NULL, created_at, resolved_at NULL, resolved_by FK NULL (ON DELETE SET NULL), resolution enum(dismissed,banned) NULL (CHECK: set together with resolved_at); partial index on reported_id of open reports |
 
-`reason` enum: `date`, `meet`. All user FKs `ON DELETE CASCADE`. `wave.window_id` cascades too;
+`reason` enum: `date`, `meet`. All user FKs `ON DELETE CASCADE` except the two `report` ones marked above;
+reports *about* a deleted account cascade away with it. `wave.window_id` cascades too;
 `match`/`message` have no FK to windows, so deleting windows never touches chats.
 
 ## Cleanup job and retention
@@ -106,8 +123,9 @@ nearby query), plus `shift`.
 Username + password (argon2id), no password reset (needs a linked email/Telegram — follow-up issue).
 JWT HS256 access token (15 min, `sub` = user id) + opaque refresh token (30 days, stored hashed,
 rotated on every use; reuse of a revoked token revokes the whole family). The frontend keeps both in
-`localStorage` (accepted XSS trade-off — strict CSP mitigates). Access tokens are trusted without a DB
-lookup, so a deleted account's token stays valid ≤ 15 min (FK cascade makes writes fail safely).
+`localStorage` (accepted XSS trade-off — strict CSP mitigates). Every authenticated request (and WS auth)
+also loads the account by primary key (`auth::extractor::verify_access`): a deleted account gets 401 and a
+banned one `403 banned` at once, instead of the token living out its 15 minutes.
 Login/register rate-limited per peer IP (in-memory token bucket) — behind an ingress this needs trusted
 `X-Forwarded-For` handling (see the k8s issue).
 

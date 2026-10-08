@@ -49,7 +49,7 @@ pub struct SendBody {
     body: String,
 }
 
-/// Unknown or foreign matches are 404 (don't reveal existence); blocked pairs are 403.
+/// Unknown or foreign matches are 404 (don't reveal existence); blocked or banned pairs are 403.
 async fn participant_match(
     db: &impl ConnectionTrait,
     me: Uuid,

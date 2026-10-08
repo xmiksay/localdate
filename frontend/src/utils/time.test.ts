@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatCountdown } from './time'
+import { formatCountdown, formatDateTime } from './time'
 
 describe('formatCountdown', () => {
   it('formats minutes and seconds', () => {
@@ -13,5 +13,14 @@ describe('formatCountdown', () => {
   })
   it('never goes negative', () => {
     expect(formatCountdown(-5)).toBe('00:00')
+  })
+})
+
+describe('formatDateTime', () => {
+  it('includes date and time in the given locale', () => {
+    const s = formatDateTime('2026-03-15T12:00:00Z', 'en')
+    expect(s).toContain('2026')
+    expect(s).toMatch(/Mar/)
+    expect(s).toMatch(/\d{1,2}:\d{2}/)
   })
 })

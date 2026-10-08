@@ -14,6 +14,7 @@ use uuid::Uuid;
 
 use super::geo::{round_coord, valid_coords};
 use crate::auth::AuthUser;
+use crate::auth::extractor::lock_unbanned;
 use crate::error::{AppError, AppJson};
 use crate::state::AppState;
 
@@ -90,7 +91,11 @@ fn extended_end(ends_at: DateTime<Utc>, now: DateTime<Utc>, extra: Duration) -> 
 }
 
 /// Closes a window, forgets where it was and drops the waves it sent.
-async fn end(db: &impl ConnectionTrait, w: vw::Model, now: DateTime<Utc>) -> Result<(), AppError> {
+pub(crate) async fn end(
+    db: &impl ConnectionTrait,
+    w: vw::Model,
+    now: DateTime<Utc>,
+) -> Result<(), AppError> {
     wave::Entity::delete_many()
         .filter(wave::Column::WindowId.eq(w.id))
         .exec(db)
@@ -104,7 +109,10 @@ async fn end(db: &impl ConnectionTrait, w: vw::Model, now: DateTime<Utc>) -> Res
 }
 
 /// The caller's open window row, expired or not.
-async fn open_window(db: &impl ConnectionTrait, user: Uuid) -> Result<Option<vw::Model>, AppError> {
+pub(crate) async fn open_window(
+    db: &impl ConnectionTrait,
+    user: Uuid,
+) -> Result<Option<vw::Model>, AppError> {
     Ok(vw::Entity::find()
         .filter(vw::Column::UserId.eq(user))
         .filter(vw::Column::EndedAt.is_null())
@@ -173,6 +181,7 @@ pub async fn start_window(
 
     let now = Utc::now();
     let txn = state.db.begin().await?;
+    lock_unbanned(&txn, auth.id).await?;
     if let Some(old) = open_window(&txn, auth.id).await? {
         end(&txn, old, now).await?;
     }

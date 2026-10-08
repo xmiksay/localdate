@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import * as authApi from '@/api/auth'
+import { ApiError, signalBanned } from '@/api/client'
 import { tokenStorage } from '@/api/tokens'
 import { useAuthStore } from './auth'
 
@@ -52,5 +53,56 @@ describe('auth store', () => {
     expect(authApi.logout).toHaveBeenCalledWith('r1')
     expect(s.isAuthed).toBe(false)
     expect(tokenStorage.access()).toBeNull()
+  })
+
+  it('a ban signalled by the API client logs out and flags the account suspended', async () => {
+    vi.mocked(authApi.login).mockResolvedValue(tokens)
+    const s = useAuthStore()
+    await s.login({ username: 'bob', password: 'x'.repeat(10) })
+    signalBanned()
+    expect(s.isAuthed).toBe(false)
+    expect(s.user).toBeNull()
+    expect(s.suspended).toBe(true)
+    expect(tokenStorage.access()).toBeNull()
+  })
+
+  it('login rejected as banned leaves the store suspended', async () => {
+    vi.mocked(authApi.login).mockImplementation(async () => {
+      // The real client signals before throwing; the API module is mocked here.
+      signalBanned()
+      throw new ApiError('banned', 403, 'banned')
+    })
+    const s = useAuthStore()
+    await expect(s.login({ username: 'bob', password: 'x'.repeat(10) })).rejects.toThrow()
+    expect(s.isAuthed).toBe(false)
+    expect(s.suspended).toBe(true)
+  })
+
+  it('a successful login clears the suspended flag', async () => {
+    const s = useAuthStore()
+    s.markBanned()
+    vi.mocked(authApi.login).mockResolvedValue(tokens)
+    await s.login({ username: 'bob', password: 'x'.repeat(10) })
+    expect(s.suspended).toBe(false)
+  })
+
+  it('a later failed login on another account clears the ban notice and shows its own error', async () => {
+    const s = useAuthStore()
+    signalBanned()
+    expect(s.suspended).toBe(true)
+    vi.mocked(authApi.login).mockRejectedValue(
+      new ApiError('invalid_credentials', 401, 'invalid username or password'),
+    )
+    await expect(s.login({ username: 'eva', password: 'x'.repeat(10) })).rejects.toMatchObject({
+      code: 'invalid_credentials',
+    })
+    expect(s.suspended).toBe(false)
+  })
+
+  it('logging out clears the ban notice', async () => {
+    const s = useAuthStore()
+    signalBanned()
+    await s.logout()
+    expect(s.suspended).toBe(false)
   })
 })

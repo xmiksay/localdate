@@ -1,6 +1,7 @@
 use std::net::SocketAddr;
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
+use clap::{Parser, Subcommand};
 use localdate_api::config::Config;
 use localdate_api::state::AppState;
 use localdate_api::web::Dist;
@@ -8,13 +9,75 @@ use migration::{Migrator, MigratorTrait};
 use sea_orm::Database;
 use tracing_subscriber::EnvFilter;
 
+#[derive(Parser)]
+#[command(
+    version,
+    about = "localdate API server; without a subcommand it serves"
+)]
+struct Cli {
+    #[command(subcommand)]
+    command: Option<Command>,
+}
+
+#[derive(Subcommand)]
+enum Command {
+    /// Manage the admin role (needs only DATABASE_URL)
+    Admin {
+        #[command(subcommand)]
+        action: AdminAction,
+    },
+}
+
+#[derive(Subcommand)]
+enum AdminAction {
+    /// Make <username> an admin
+    Grant { username: String },
+    /// Take the admin role away from <username>
+    Revoke { username: String },
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     dotenvy::dotenv().ok();
+    let cli = Cli::parse();
     tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()))
         .init();
+    match cli.command {
+        None => serve().await,
+        Some(Command::Admin { action }) => admin(action).await,
+    }
+}
 
+async fn admin(action: AdminAction) -> Result<()> {
+    let url = std::env::var("DATABASE_URL").context("DATABASE_URL is required")?;
+    let db = Database::connect(&url)
+        .await
+        .context("connecting to database")?;
+    // Schema changes stay with `make migrate` / server start; the CLI must not apply them.
+    let pending = Migrator::get_pending_migrations(&db)
+        .await
+        .context("checking migrations")?;
+    if !pending.is_empty() {
+        bail!(
+            "{} pending migration(s): run `make migrate` (or start the server) first",
+            pending.len()
+        );
+    }
+    let (username, grant) = match &action {
+        AdminAction::Grant { username } => (username, true),
+        AdminAction::Revoke { username } => (username, false),
+    };
+    localdate_api::admin::set_admin(&db, username, grant).await?;
+    println!(
+        "{} admin role {} {username}",
+        if grant { "granted" } else { "revoked" },
+        if grant { "to" } else { "from" },
+    );
+    Ok(())
+}
+
+async fn serve() -> Result<()> {
     if Dist::get("index.html").is_none() {
         tracing::warn!(
             "frontend bundle not found (build it with `make build`); non-API paths will 404"

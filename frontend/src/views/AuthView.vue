@@ -44,7 +44,8 @@ async function submit() {
     await (isRegister.value ? auth.register(creds) : auth.login(creds))
     await router.replace('/')
   } catch (e) {
-    failure.value = errorMessage(e)
+    // A ban is explained by the suspended notice; don't repeat it below the form.
+    failure.value = auth.suspended ? null : errorMessage(e)
   } finally {
     busy.value = false
   }
@@ -57,6 +58,15 @@ async function submit() {
       <p class="font-display text-5xl font-semibold italic text-coral">{{ t('app.name') }}</p>
       <p class="mt-2 text-muted">{{ t('app.tagline') }}</p>
     </div>
+
+    <section
+      v-if="auth.suspended"
+      role="alert"
+      class="rounded-3xl border-2 border-danger bg-danger/10 p-5 text-danger"
+    >
+      <h2 class="font-display text-xl font-semibold">{{ t('auth.suspendedTitle') }}</h2>
+      <p class="mt-2 text-sm font-medium">{{ t('auth.suspendedBody') }}</p>
+    </section>
 
     <form class="flex flex-col gap-5" novalidate @submit.prevent="submit">
       <h1 class="font-display text-2xl font-semibold">
