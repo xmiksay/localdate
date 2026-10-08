@@ -1,0 +1,300 @@
+# localdate on Kubernetes: API (+ embedded PWA) and Postgres in namespace `localdate`.
+# The Secret `localdate` is NOT here — create it first, see deploy/secrets.example.yml and
+# docs/deployment.md. Apply with `make deploy`.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: localdate
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: localdate
+  namespace: localdate
+data:
+  BIND_ADDR: "0.0.0.0:3000"
+  PHOTO_DIR: /data/photos
+  RUST_LOG: info,sqlx=warn
+  CLEANUP_INTERVAL_SECS: "300"
+  # ingress-nginx overwrites X-Forwarded-For with the real client IP (default config), so the
+  # login/register rate limiter keys on it instead of on the ingress pod's address.
+  TRUST_PROXY_HEADERS: "true"
+---
+# ---------------------------------------------------------------- Postgres
+apiVersion: v1
+kind: Service
+metadata:
+  name: localdate-db
+  namespace: localdate
+spec:
+  clusterIP: None
+  selector:
+    app: localdate-db
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: localdate-db
+  namespace: localdate
+spec:
+  serviceName: localdate-db
+  replicas: 1
+  selector:
+    matchLabels:
+      app: localdate-db
+  template:
+    metadata:
+      labels:
+        app: localdate-db
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        # uid/gid of `postgres` in the official image; fsGroup makes the fresh volume writable.
+        runAsUser: 999
+        runAsGroup: 999
+        runAsNonRoot: true
+        fsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: postgres
+          image: postgres:18
+          ports:
+            - name: postgres
+              containerPort: 5432
+          env:
+            - name: POSTGRES_USER
+              value: localdate
+            - name: POSTGRES_DB
+              value: localdate
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: localdate
+                  key: POSTGRES_PASSWORD
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "localdate", "-d", "localdate"]
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", "localdate", "-d", "localdate"]
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 1Gi
+          volumeMounts:
+            # Postgres 18 images keep PGDATA at /var/lib/postgresql/18/docker; mount the parent.
+            - name: data
+              mountPath: /var/lib/postgresql
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 5Gi
+---
+# Only the API may reach the database (enforced when the CNI supports NetworkPolicy).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: localdate-db
+  namespace: localdate
+spec:
+  podSelector:
+    matchLabels:
+      app: localdate-db
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: localdate-api
+      ports:
+        - protocol: TCP
+          port: 5432
+---
+# ---------------------------------------------------------------- API
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: localdate-photos
+  namespace: localdate
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: localdate-api
+  namespace: localdate
+spec:
+  # One replica only: WebSocket push goes through an in-process hub, so a second replica would
+  # miss events for users connected to the other one. Multi-replica needs the fan-out from #22.
+  replicas: 1
+  # The photos volume is ReadWriteOnce: a rolling update would start the new pod while the old one
+  # still holds the volume (stuck on another node). Recreate stops the old pod first.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: localdate-api
+  template:
+    metadata:
+      labels:
+        app: localdate-api
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsUser: 10001
+        runAsGroup: 10001
+        runAsNonRoot: true
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: api
+          image: ghcr.io/xmiksay/localdate:master
+          # `master` is a moving tag (only pushed after CI passed); roll back by setting a
+          # `sha-<short>` tag, see docs/deployment.md.
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 3000
+          envFrom:
+            - configMapRef:
+                name: localdate
+          env:
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: localdate
+                  key: JWT_SECRET
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: localdate
+                  key: POSTGRES_PASSWORD
+            # $(POSTGRES_PASSWORD) is expanded by the kubelet; the password must be URL-safe.
+            - name: DATABASE_URL
+              value: postgres://localdate:$(POSTGRES_PASSWORD)@localdate-db:5432/localdate
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          # Migrations run on start; give a slow first boot time before liveness kicks in.
+          startupProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            periodSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              # Peak = 2 concurrent photo decodes (≤ 128 MiB each, plus resize buffers) on top of
+              # the baseline; see image_proc::MAX_INPUT_PIXELS and state::IMAGE_DECODE_PERMITS.
+              memory: 768Mi
+          volumeMounts:
+            - name: photos
+              mountPath: /data/photos
+      volumes:
+        - name: photos
+          persistentVolumeClaim:
+            claimName: localdate-photos
+---
+# Only the ingress controller may reach the API. Adjust the namespace label if the controller lives
+# elsewhere (`kubectl get pods -A -l app.kubernetes.io/name=ingress-nginx`). kubelet probes and
+# `kubectl exec` are not affected.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: localdate-api
+  namespace: localdate
+spec:
+  podSelector:
+    matchLabels:
+      app: localdate-api
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: 3000
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: localdate-api
+  namespace: localdate
+spec:
+  selector:
+    app: localdate-api
+  ports:
+    - name: http
+      port: 3000
+      targetPort: http
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: localdate
+  namespace: localdate
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    # Photo upload limit is 10 MiB plus multipart overhead (backend/api/src/me/photos.rs).
+    nginx.ingress.kubernetes.io/proxy-body-size: "11m"
+    # /api/ws is long-lived and server-push only; nginx would cut an idle socket after 60 s.
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - localdate.mmik.cz
+      secretName: localdate.mmik.cz
+  rules:
+    - host: localdate.mmik.cz
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: localdate-api
+                port:
+                  name: http

@@ -35,19 +35,29 @@ pub struct Tokens {
 
 impl TestApp {
     pub async fn new() -> Self {
-        Self::try_new(localdate_api::app)
+        Self::try_new(localdate_api::app, |_| {})
             .await
             .expect("test app setup")
     }
 
     /// Like `new`, but serving the embedded fixture bundle `F` instead of `frontend/dist`.
     pub async fn with_frontend<F: rust_embed::RustEmbed + 'static>() -> Self {
-        Self::try_new(localdate_api::app_with_frontend::<F>)
+        Self::try_new(localdate_api::app_with_frontend::<F>, |_| {})
             .await
             .expect("test app setup")
     }
 
-    async fn try_new(build: fn(AppState) -> Router) -> Result<Self> {
+    /// Like `new`, with the test `Config` adjusted by `tweak` (e.g. to enable the rate limiter).
+    pub async fn with_config(tweak: impl FnOnce(&mut Config)) -> Self {
+        Self::try_new(localdate_api::app, tweak)
+            .await
+            .expect("test app setup")
+    }
+
+    async fn try_new(
+        build: fn(AppState) -> Router,
+        tweak: impl FnOnce(&mut Config),
+    ) -> Result<Self> {
         // Walks up from the crate dir to the workspace-root .env; real env vars win.
         dotenvy::dotenv().ok();
         let admin_url = std::env::var("TEST_DATABASE_URL")
@@ -69,14 +79,16 @@ impl TestApp {
         Migrator::up(&db, None).await.context("migrate")?;
 
         let photo_dir = tempfile::tempdir()?;
-        let config = Config {
+        let mut config = Config {
             database_url: String::new(),
             jwt_secret: "test-secret-test-secret-test-secret-1".into(),
             photo_dir: photo_dir.path().to_path_buf(),
             bind_addr: "127.0.0.1:0".parse()?,
             rate_limit: false,
             cleanup_interval: std::time::Duration::from_secs(300),
+            trust_proxy_headers: false,
         };
+        tweak(&mut config);
         let state = AppState::new(db.clone(), config);
         let router = build(state.clone());
         Ok(Self {

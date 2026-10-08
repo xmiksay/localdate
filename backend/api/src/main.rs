@@ -1,4 +1,6 @@
+use std::io::IsTerminal;
 use std::net::SocketAddr;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
@@ -6,7 +8,7 @@ use localdate_api::config::Config;
 use localdate_api::state::AppState;
 use localdate_api::web::Dist;
 use migration::{Migrator, MigratorTrait};
-use sea_orm::Database;
+use sea_orm::{Database, DatabaseConnection};
 use tracing_subscriber::EnvFilter;
 
 #[derive(Parser)]
@@ -42,6 +44,8 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
     tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()))
+        // Colour escapes only for a terminal; piped/container logs (`kubectl logs`) stay plain.
+        .with_ansi(std::io::stdout().is_terminal())
         .init();
     match cli.command {
         None => serve().await,
@@ -77,6 +81,33 @@ async fn admin(action: AdminAction) -> Result<()> {
     Ok(())
 }
 
+/// How long `serve` keeps starting new DB connection attempts; one attempt itself can take up to the
+/// pool acquire timeout (30 s) when the host does not answer.
+const CONNECT_PATIENCE: Duration = Duration::from_secs(60);
+
+/// Delay before retry `attempt` (0-based): 1, 2, 4, 8 s, then 10 s.
+fn connect_backoff(attempt: u32) -> Duration {
+    Duration::from_secs(1u64 << attempt.min(4)).min(Duration::from_secs(10))
+}
+
+/// On k8s the API and Postgres start together; waiting here beats crash-looping until the DB is up.
+async fn connect_with_retry(url: &str) -> Result<DatabaseConnection> {
+    let started = Instant::now();
+    let mut attempt = 0;
+    loop {
+        match Database::connect(url).await {
+            Ok(db) => return Ok(db),
+            Err(e) if started.elapsed() < CONNECT_PATIENCE => {
+                let delay = connect_backoff(attempt);
+                tracing::warn!(error = %e, retry_in = ?delay, "database not reachable yet");
+                tokio::time::sleep(delay).await;
+                attempt += 1;
+            }
+            Err(e) => return Err(e).context("connecting to database"),
+        }
+    }
+}
+
 async fn serve() -> Result<()> {
     if Dist::get("index.html").is_none() {
         tracing::warn!(
@@ -85,9 +116,7 @@ async fn serve() -> Result<()> {
     }
 
     let config = Config::from_env()?;
-    let db = Database::connect(&config.database_url)
-        .await
-        .context("connecting to database")?;
+    let db = connect_with_retry(&config.database_url).await?;
     Migrator::up(&db, None)
         .await
         .context("running migrations")?;
@@ -137,4 +166,15 @@ async fn shutdown_signal() {
     let terminate = std::future::pending::<()>();
     tokio::select! { _ = ctrl_c => {}, _ = terminate => {} }
     tracing::info!("shutting down");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn connect_backoff_doubles_then_caps() {
+        let secs: Vec<u64> = (0..7).map(|a| connect_backoff(a).as_secs()).collect();
+        assert_eq!(secs, [1, 2, 4, 8, 10, 10, 10]);
+    }
 }

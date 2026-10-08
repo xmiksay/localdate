@@ -11,12 +11,15 @@ backend/            Cargo workspace
   entity/           SeaORM entities
   migration/        sea-orm-migration (append-only)
 frontend/           Vue 3 + TS + Vite + Tailwind + Pinia + vue-i18n PWA
-docs/               architecture.md (this), api.md (HTTP/WS contract)
-Makefile            single entry point for build / lint / test / run
+docs/               architecture.md (this), api.md (HTTP/WS contract), deployment.md
+deploy/             k8s.yml (namespace, Postgres, API, ingress), secrets.example.yml
+Dockerfile          node → rust → debian-slim; image ghcr.io/xmiksay/localdate (built and pushed by .github/workflows/ci.yml after the gate)
+Makefile            single entry point for build / lint / test / run / image / deploy
 ```
 
-Deployment target is Kubernetes (manifests are a follow-up issue). Local dev uses the
-host Postgres; there is no docker-compose.
+Deployment target is Kubernetes: one API replica plus a Postgres StatefulSet in namespace
+`localdate`, behind ingress-nginx at `localdate.mmik.cz` — see [deployment.md](deployment.md).
+Local dev uses the host Postgres; there is no docker-compose.
 
 The release `localdate-api` binary is the whole deployable: `make build` builds `frontend/dist`
 first and `rust-embed` compiles it into the binary. `backend/api/build.rs` makes cargo rebuild the
@@ -144,14 +147,20 @@ rotated on every use; reuse of a revoked token revokes the whole family). The fr
 `localStorage` (accepted XSS trade-off — strict CSP mitigates). Every authenticated request (and WS auth)
 also loads the account by primary key (`auth::extractor::verify_access`): a deleted account gets 401 and a
 banned one `403 banned` at once, instead of the token living out its 15 minutes.
-Login/register rate-limited per peer IP (in-memory token bucket) — behind an ingress this needs trusted
-`X-Forwarded-For` handling (see the k8s issue).
+Login/register rate-limited per client IP (in-memory token bucket, `rate_limit.rs`). The client IP is
+the peer address, or — with `TRUST_PROXY_HEADERS=true`, as in k8s — the first `X-Forwarded-For` entry
+(falling back to the peer when absent or unparsable); IPv6 is bucketed per /64. That is only sound because ingress-nginx, with its
+default `use-forwarded-headers`/`compute-full-forwarded-for` off, *overwrites* the header with the
+address it saw; a proxy that appends would let clients pick their bucket. Without the flag the header
+is ignored, so a directly exposed server cannot be bypassed by spoofing it.
 
 ## Photos
 
 Uploaded via multipart to the API, decoded with `image`, resized to max 1280 px long edge,
 re-encoded as lossless WebP via the pure-Rust `image` encoder (strips EXIF incl. GPS, honours orientation; no libwebp
-C dependency), written to `PHOTO_DIR/<uuid>.webp`.
+C dependency), written to `PHOTO_DIR/<uuid>.webp`. Inputs over 10 000 px on an edge or 32 Mi pixels are
+refused from the header, before decoding (decode allocation capped at 128 MiB), and at most two decodes run
+at once (`AppState::image_permits`), which bounds memory for the pod limit.
 Served publicly at `/media/<uuid>.webp` — filenames are unguessable v4 UUIDs, so `<img>` works
 without auth headers. S3 storage is a follow-up issue.
 
@@ -170,6 +179,7 @@ In-process broadcast hub keyed by user id — single API replica. Multi-replica 
 | `PHOTO_DIR` | `./data/photos` | created on start |
 | `BIND_ADDR` | `127.0.0.1:3000` | |
 | `CLEANUP_INTERVAL_SECS` | `300` | optional, default 300; period of the cleanup job |
+| `TRUST_PROXY_HEADERS` | `false` | optional (`true`/`false`/`1`/`0`), default false; rate-limit on `X-Forwarded-For` (see Auth) |
 | `RUST_LOG` | `info,sqlx=warn,localdate_api=debug` | sqlx logs every query at info |
 
 Frontend dev server (Vite, :5173) proxies `/api` and `/media` (incl. WS) to `BIND_ADDR`.
