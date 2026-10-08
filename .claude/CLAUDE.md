@@ -87,7 +87,8 @@ waves, and chats after a mutual wave.
   `cs/index.ts`; each `en/<domain>.ts` is typed against its cs module via `Messages<T>` in `i18n/messages.ts`;
   `i18n/plural.ts` = Czech one/few/many rule; `i18n/typed.ts` `useT()` = key-checked `t`, use it instead of
   `useI18n`, enforced by ESLint), `utils/interests.ts` (`sharedFirst` chips, `byOverlapThenBand` client-side
-  nearby order), `SharedInterestsBadge.vue`, `AreaPicker.vue` (area mode of the window start panel), `components/ui/`
+  nearby order), `utils/imageResize.ts` (`prepareUpload`: re-encode to a ≤ 2048 px JPEG unless already an accepted small file, before `PhotoManager` uploads),
+  `SharedInterestsBadge.vue`, `AreaPicker.vue` (area mode of the window start panel), `components/ui/`
   primitives (`PillRadios` = shared pill radiogroup).
 
 ## Commands (always via make)

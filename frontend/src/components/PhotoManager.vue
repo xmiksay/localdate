@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import { useT } from '@/i18n/typed'
 import { useMeStore } from '@/stores/me'
 import { errorMessage } from '@/utils/errors'
+import { prepareUpload } from '@/utils/imageResize'
 import { checkPhotoFile, MAX_PHOTOS, moveItem } from '@/utils/validation'
 import BaseButton from './ui/BaseButton.vue'
 import ErrorNote from './ui/ErrorNote.vue'
@@ -10,20 +11,21 @@ import ErrorNote from './ui/ErrorNote.vue'
 const { t } = useT()
 const me = useMeStore()
 const input = ref<HTMLInputElement | null>(null)
-const busy = ref(false)
+const phase = ref<'idle' | 'processing' | 'uploading'>('idle')
+const busy = computed(() => phase.value !== 'idle')
 const failure = ref<string | null>(null)
 
 const canAdd = computed(() => me.photos.length < MAX_PHOTOS)
 
 async function run(action: () => Promise<void>) {
   failure.value = null
-  busy.value = true
+  phase.value = 'uploading'
   try {
     await action()
   } catch (e) {
     failure.value = errorMessage(e)
   } finally {
-    busy.value = false
+    phase.value = 'idle'
   }
 }
 
@@ -32,8 +34,15 @@ async function onFiles(e: Event) {
   const files = Array.from(el.files ?? [])
   el.value = ''
   failure.value = null
-  for (const file of files) {
+  for (const picked of files) {
     if (me.photos.length >= MAX_PHOTOS) break
+    let file: File
+    phase.value = 'processing'
+    try {
+      file = await prepareUpload(picked)
+    } finally {
+      phase.value = 'idle'
+    }
     const check = checkPhotoFile(file)
     if (check !== 'ok') {
       failure.value = t(check === 'type' ? 'photos.errType' : 'photos.errSize')
@@ -127,7 +136,13 @@ function move(from: number, to: number) {
         @change="onFiles"
       />
       <BaseButton v-if="canAdd" variant="ghost" block :loading="busy" @click="input?.click()">
-        {{ busy ? t('photos.uploading') : t('photos.add') }}
+        {{
+          phase === 'processing'
+            ? t('photos.processing')
+            : busy
+              ? t('photos.uploading')
+              : t('photos.add')
+        }}
       </BaseButton>
     </div>
   </section>

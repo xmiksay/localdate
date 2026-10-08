@@ -55,6 +55,7 @@ const en: Messages<typeof cs> = {
     title: 'Photos',
     add: 'Add photo',
     uploading: 'Uploading…',
+    processing: 'Processing photo…',
     count: '{n} of {max}',
     primary: 'Main',
     moveUp: 'Move earlier',

@@ -53,6 +53,7 @@ export default {
     title: 'Fotky',
     add: 'Přidat fotku',
     uploading: 'Nahrávám…',
+    processing: 'Zpracovávám fotku…',
     count: '{n} z {max}',
     primary: 'Hlavní',
     moveUp: 'Posunout dopředu',
