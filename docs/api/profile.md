@@ -10,7 +10,7 @@ Part of the [API contract](../api.md); conventions, errors and shared types live
 | `DELETE /me` | — | `204` — hard delete everything incl. photo files |
 | `PUT /me/profile` | `{ display_name, birth_date, gender, bio, interest_ids: number[] }` | `200 Profile` |
 | `GET /interests` | — | `200 Interest[]` |
-| `POST /me/photos` | multipart field `file` | `201 Photo` (appended at last position) |
+| `POST /me/photos` | multipart field `file` | `201 Photo` (appended at last position); limits: 10 MiB, ≤ 10 000 px per edge, ≤ 32 Mi px — the client first re-encodes oversized or non-JPEG/PNG/WebP images to a ≤ 2048 px JPEG |
 | `DELETE /me/photos/{id}` | — | `204` (positions compacted) |
 | `PUT /me/photos/order` | `{ photo_ids: string[] }` (must be exactly the user's photos) | `200 Photo[]` |
 | `GET /me/filter` | — | `200 Filter` (defaults if never saved: 2000 m, [], 18, 99, [date, meet], 60) |

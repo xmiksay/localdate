@@ -55,6 +55,10 @@ nearby query), plus `shift`.
 
 ## Photos
 
+The client (`frontend/src/utils/imageResize.ts`) uploads a JPEG/PNG/WebP within 2048 px long edge and 10 MiB
+unchanged; anything else the browser can decode (bigger shots, HEIC on Safari, AVIF, …) is re-encoded as a 2048 px
+JPEG (q 0.9, transparency flattened onto white). Files it cannot decode keep their type, so the client's type check
+rejects non-JPEG/PNG/WebP ones before upload.
 Uploaded via multipart to the API, decoded with `image`, resized to max 1280 px long edge,
 re-encoded as lossless WebP via the pure-Rust `image` encoder (strips EXIF incl. GPS, honours orientation; no libwebp
 C dependency), written to `PHOTO_DIR/<uuid>.webp`. Inputs over 10 000 px on an edge or 32 Mi pixels are
