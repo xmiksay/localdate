@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { useI18n } from 'vue-i18n'
+import { useT } from '@/i18n/typed'
 import { useSafetyStore } from '@/stores/safety'
 import { errorMessage } from '@/utils/errors'
 import ReportDialog from './ReportDialog.vue'
@@ -12,7 +12,7 @@ const props = defineProps<{ userId: string; name: string }>()
 /** Fired after a successful block or report; the parent leaves the screen. */
 const emit = defineEmits<{ done: [] }>()
 
-const { t } = useI18n()
+const { t } = useT()
 const safety = useSafetyStore()
 const open = ref(false)
 const dialog = ref<'block' | 'report' | null>(null)

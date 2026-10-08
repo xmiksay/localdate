@@ -1,12 +1,12 @@
 <script setup lang="ts">
-import { useI18n } from 'vue-i18n'
+import { type MessageKey, useT } from '@/i18n/typed'
 import { useMatchesStore } from '@/stores/matches'
 
-const { t } = useI18n()
+const { t } = useT()
 const matches = useMatchesStore()
 
 // Add new top-level destinations here; keep to ≤ 5 so labels fit at 360 px.
-const items = [
+const items: { to: string; label: MessageKey; icon: string }[] = [
   {
     to: '/nearby',
     label: 'nav.nearby',

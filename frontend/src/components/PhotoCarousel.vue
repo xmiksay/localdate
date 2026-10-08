@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { useI18n } from 'vue-i18n'
+import { useT } from '@/i18n/typed'
 import type { Photo } from '@/api/types'
 
 defineProps<{ photos: Photo[]; name: string }>()
-const { t } = useI18n()
+const { t } = useT()
 const track = ref<HTMLElement | null>(null)
 const index = ref(0)
 

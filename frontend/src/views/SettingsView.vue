@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { useI18n } from 'vue-i18n'
+import { useT } from '@/i18n/typed'
 import FilterForm from '@/components/FilterForm.vue'
 import SafetySection from '@/components/SafetySection.vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
@@ -7,7 +7,7 @@ import PageHeading from '@/components/ui/PageHeading.vue'
 import { LOCALES, setLocale, type Locale } from '@/i18n'
 import { useAuthStore } from '@/stores/auth'
 
-const { t, locale } = useI18n()
+const { t, locale } = useT()
 const auth = useAuthStore()
 </script>
 

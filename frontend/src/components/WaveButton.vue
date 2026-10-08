@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { useI18n } from 'vue-i18n'
+import { useT } from '@/i18n/typed'
 import type { NearbyProfile } from '@/api/types'
 import { useNearbyStore } from '@/stores/nearby'
 import { errorMessage } from '@/utils/errors'
@@ -10,7 +10,7 @@ import ErrorNote from './ui/ErrorNote.vue'
 const props = defineProps<{ profile: NearbyProfile; label?: string }>()
 const emit = defineEmits<{ matched: [matchId: string] }>()
 
-const { t } = useI18n()
+const { t } = useT()
 const nearby = useNearbyStore()
 const busy = ref(false)
 const failure = ref<string | null>(null)

@@ -1,7 +1,7 @@
 //! `GET /nearby` and the single SQL definition of "mutually visible" shared with waves.
 
 use std::cmp::Reverse;
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 
 use axum::Json;
 use axum::extract::State;
@@ -140,7 +140,7 @@ pub async fn profiles(
         .filter(user_interest::Column::UserId.is_in(ids.iter().copied().chain([me])))
         .all(db)
         .await?;
-    let mine: BTreeSet<i32> = links
+    let mine: HashSet<i32> = links
         .iter()
         .filter(|l| l.user_id == me)
         .map(|l| l.interest_id)
@@ -153,7 +153,7 @@ pub async fn profiles(
         .map(|i| (i.id, i))
         .collect();
     let mut interests: HashMap<Uuid, Vec<interest::Model>> = HashMap::new();
-    for l in links {
+    for l in links.into_iter().filter(|l| l.user_id != me) {
         if let Some(i) = catalog.get(&l.interest_id) {
             interests.entry(l.user_id).or_default().push(i.clone());
         }
@@ -236,10 +236,11 @@ pub async fn profiles(
     Ok(out.into_iter().map(|(_, p)| p).collect())
 }
 
-/// Interest ids present on both sides, ascending.
-fn shared_ids(mine: &BTreeSet<i32>, theirs: impl Iterator<Item = i32>) -> Vec<i32> {
-    let theirs: BTreeSet<i32> = theirs.collect();
-    mine.intersection(&theirs).copied().collect()
+/// Interest ids present on both sides, ascending (`user_interest` is unique per user).
+fn shared_ids(mine: &HashSet<i32>, theirs: impl Iterator<Item = i32>) -> Vec<i32> {
+    let mut shared: Vec<i32> = theirs.filter(|id| mine.contains(id)).collect();
+    shared.sort_unstable();
+    shared
 }
 
 /// Most shared interests first, then nearest band, newest window, and `user_id` for stability.
@@ -304,10 +305,10 @@ mod tests {
 
     #[test]
     fn shared_ids_is_sorted_intersection() {
-        let mine = BTreeSet::from([9, 2, 5]);
-        assert_eq!(shared_ids(&mine, [5, 1, 9, 9].into_iter()), vec![5, 9]);
+        let mine = HashSet::from([9, 2, 5]);
+        assert_eq!(shared_ids(&mine, [9, 1, 5].into_iter()), vec![5, 9]);
         assert!(shared_ids(&mine, [1, 3].into_iter()).is_empty());
-        assert!(shared_ids(&BTreeSet::new(), [1].into_iter()).is_empty());
+        assert!(shared_ids(&HashSet::new(), [1].into_iter()).is_empty());
     }
 
     #[test]

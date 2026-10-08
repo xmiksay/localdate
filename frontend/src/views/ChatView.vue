@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
-import { useI18n } from 'vue-i18n'
+import { useT } from '@/i18n/typed'
 import { useRouter } from 'vue-router'
 import UserActionsMenu from '@/components/UserActionsMenu.vue'
 import AvatarImage from '@/components/ui/AvatarImage.vue'
@@ -13,7 +13,7 @@ import { formatMessageTime } from '@/utils/time'
 
 const MAX_BODY = 2000
 const props = defineProps<{ matchId: string }>()
-const { t, locale } = useI18n()
+const { t, locale } = useT()
 const router = useRouter()
 const auth = useAuthStore()
 const store = useMatchesStore()

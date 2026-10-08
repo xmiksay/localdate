@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { useI18n } from 'vue-i18n'
+import { useT } from '@/i18n/typed'
 import { ApiError } from '@/api/client'
 import { WINDOW_MINUTES, type WindowMinutes } from '@/api/types'
 import { currentPosition } from '@/composables/useGeolocation'
@@ -10,7 +10,7 @@ import { errorMessage } from '@/utils/errors'
 import BaseButton from './ui/BaseButton.vue'
 import ErrorNote from './ui/ErrorNote.vue'
 
-const { t } = useI18n()
+const { t } = useT()
 const me = useMeStore()
 const win = useWindowStore()
 

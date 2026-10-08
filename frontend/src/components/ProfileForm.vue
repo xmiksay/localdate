@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
-import { useI18n } from 'vue-i18n'
+import { useT } from '@/i18n/typed'
 import { ApiError } from '@/api/client'
 import { GENDERS, type Gender } from '@/api/types'
 import { useMeStore } from '@/stores/me'
@@ -15,7 +15,7 @@ import TextInput from './ui/TextInput.vue'
 defineProps<{ submitLabel: string }>()
 const emit = defineEmits<{ saved: [] }>()
 
-const { t } = useI18n()
+const { t } = useT()
 const me = useMeStore()
 
 const form = reactive({

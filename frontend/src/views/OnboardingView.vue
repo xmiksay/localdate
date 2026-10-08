@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { useI18n } from 'vue-i18n'
+import { useT } from '@/i18n/typed'
 import { useRouter } from 'vue-router'
 import FilterForm from '@/components/FilterForm.vue'
 import PhotoManager from '@/components/PhotoManager.vue'
@@ -11,7 +11,7 @@ import PageHeading from '@/components/ui/PageHeading.vue'
 import { useMeStore } from '@/stores/me'
 
 const TOTAL = 3
-const { t } = useI18n()
+const { t } = useT()
 const router = useRouter()
 const me = useMeStore()
 

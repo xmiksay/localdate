@@ -1,13 +1,13 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { useI18n } from 'vue-i18n'
+import { interestKey, useT } from '@/i18n/typed'
 import type { Interest } from '@/api/types'
 import { MAX_INTERESTS } from '@/utils/validation'
 import ChipToggle from './ui/ChipToggle.vue'
 
 const props = defineProps<{ options: Interest[] }>()
 const selected = defineModel<number[]>({ required: true })
-const { t } = useI18n()
+const { t } = useT()
 
 const full = computed(() => selected.value.length >= MAX_INTERESTS)
 
@@ -37,7 +37,7 @@ function toggle(id: number, on: boolean) {
         :disabled="full && !selected.includes(i.id)"
         @update:model-value="toggle(i.id, $event)"
       >
-        {{ t(`interest.${i.key}`) }}
+        {{ t(interestKey(i.key)) }}
       </ChipToggle>
     </div>
   </fieldset>

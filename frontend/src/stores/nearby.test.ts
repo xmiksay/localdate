@@ -49,6 +49,16 @@ describe('nearby store waves', () => {
     expect(s.incoming).toEqual([])
   })
 
+  it('slots a waved-back sender into display order, not at the end', async () => {
+    const s = useNearbyStore()
+    const sender = { ...person('b'), shared_interests: [1], wave_state: 'received' as const }
+    s.people = [{ ...person('a'), shared_interests: [1, 2] }, person('c')]
+    s.incoming = [sender]
+    vi.mocked(socialApi.sendWave).mockResolvedValue({ matched: true, match_id: 'm1' })
+    await s.wave('b')
+    expect(s.people.map((p) => p.user_id)).toEqual(['a', 'b', 'c'])
+  })
+
   it('removes a person who is no longer visible', async () => {
     const s = useNearbyStore()
     s.people = [person('a')]

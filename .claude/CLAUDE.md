@@ -30,8 +30,10 @@ waves, and chats after a mutual wave.
   `visible_user`, multipart helpers; `with_frontend::<F>()` serves a fixture bundle from `tests/fixtures/dist`).
 - `frontend/src/`: `api/` (typed client with single-flight refresh, `ws.ts`, per-domain modules, `types.ts` mirrors
   docs/api.md), `stores/` (auth, me, window, nearby, matches, safety), `composables/` (geolocation sharing,
-  realtime), `i18n/cs.ts` (source of truth; `en.ts` typed against it; `i18n/plural.ts` = Czech one/few/many rule),
-  `utils/interests.ts` (`sharedFirst` for highlighted chips), `components/ui/` primitives.
+  realtime), `i18n/cs.ts` (source of truth; `en.ts` typed against it; `i18n/plural.ts` = Czech one/few/many rule;
+  `i18n/typed.ts` `useT()` = key-checked `t`, use it instead of `useI18n`, enforced by ESLint),
+  `utils/interests.ts` (`sharedFirst` chips, `byOverlapThenBand` client-side nearby order),
+  `SharedInterestsBadge.vue`, `components/ui/` primitives.
 
 ## Commands (always via make)
 
