@@ -41,6 +41,9 @@ const end = () => run(() => win.end())
         {{ t('nearby.wavesLeft', { n: win.wavesLeft }) }}
       </p>
     </div>
+    <p v-if="win.current?.area" class="truncate text-sm font-semibold">
+      <span aria-hidden="true">📍 </span>{{ t('nearby.inArea', { name: win.current.area.name }) }}
+    </p>
 
     <div v-if="picking" class="flex flex-wrap gap-2">
       <button

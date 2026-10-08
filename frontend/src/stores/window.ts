@@ -10,6 +10,8 @@ export const useWindowStore = defineStore('window', () => {
   const loaded = ref(false)
   /** Set by the location sharing composable, shown by the nearby view. */
   const locationError = ref<'denied' | 'unavailable' | null>(null)
+  /** Why the window ended without the user ending it; shown until dismissed or the next start. */
+  const endedNotice = ref<'left_area' | null>(null)
   let timer: ReturnType<typeof setInterval> | undefined
 
   const isActive = computed(() => current.value !== null)
@@ -46,8 +48,25 @@ export const useWindowStore = defineStore('window', () => {
     loaded.value = true
   }
 
-  async function start(minutes: WindowMinutes, at: Coords) {
-    set(await windowApi.startWindow(minutes, at.lat, at.lon))
+  /** The server already ended the area window (`409 left_area` on a location update). */
+  function leftArea() {
+    clear()
+    endedNotice.value = 'left_area'
+  }
+
+  function dismissNotice() {
+    endedNotice.value = null
+  }
+
+  /** Session end: nothing of the previous user's window may linger. */
+  function reset() {
+    clear()
+    dismissNotice()
+  }
+
+  async function start(minutes: WindowMinutes, at: Coords, areaId?: string) {
+    set(await windowApi.startWindow(minutes, at.lat, at.lon, areaId))
+    dismissNotice()
   }
 
   async function extend(minutes: WindowMinutes) {
@@ -63,6 +82,7 @@ export const useWindowStore = defineStore('window', () => {
     current,
     loaded,
     locationError,
+    endedNotice,
     isActive,
     wavesLeft,
     remainingMs,
@@ -71,5 +91,8 @@ export const useWindowStore = defineStore('window', () => {
     extend,
     end,
     clear,
+    leftArea,
+    dismissNotice,
+    reset,
   }
 })

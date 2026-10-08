@@ -3,10 +3,7 @@ mod common;
 use std::collections::BTreeSet;
 
 use axum::http::StatusCode;
-use common::{TestApp, Tokens, now_year_birth};
-use entity::{Gender, Reason};
-use localdate_api::discovery::geo::haversine_m;
-use localdate_api::discovery::rules::{Side, mutually_visible};
+use common::{TestApp, Tokens};
 use serde_json::{Value, json};
 
 const LAT: f64 = 50.0870;
@@ -63,6 +60,7 @@ async fn two_users_see_each_other_with_band_and_no_private_fields() {
     assert_eq!(ids(&seen_by_a), BTreeSet::from([b.user_id.to_string()]));
     let p = &seen_by_a[0];
     assert_eq!(p["distance_band"], "lt_500m");
+    assert!(p["area"].is_null());
     assert_eq!(p["wave_state"], "none");
     assert!(p["match_id"].is_null());
     assert_eq!(p["gender"], "female");
@@ -91,6 +89,7 @@ async fn two_users_see_each_other_with_band_and_no_private_fields() {
         "photos",
         "reasons",
         "distance_band",
+        "area",
         "wave_state",
         "match_id",
     ]);
@@ -235,150 +234,4 @@ async fn sorted_by_band_then_newest_window() {
             mid_old.user_id.to_string()
         ]
     );
-}
-
-/// The SQL rule and `rules::mutually_visible` must agree on every pair.
-#[tokio::test]
-async fn sql_agrees_with_the_rust_rule() {
-    struct Spec {
-        gender: &'static str,
-        age: i32,
-        max: i32,
-        genders: &'static str,
-        age_min: i32,
-        age_max: i32,
-        reasons: &'static str,
-        lat: f64,
-    }
-    let specs = [
-        Spec {
-            gender: "female",
-            age: 25,
-            max: 2000,
-            genders: "{}",
-            age_min: 18,
-            age_max: 99,
-            reasons: "{date,meet}",
-            lat: LAT,
-        },
-        Spec {
-            gender: "male",
-            age: 30,
-            max: 500,
-            genders: "{female}",
-            age_min: 20,
-            age_max: 30,
-            reasons: "{date}",
-            lat: LAT + 0.002,
-        },
-        Spec {
-            gender: "other",
-            age: 41,
-            max: 5000,
-            genders: "{male,other}",
-            age_min: 18,
-            age_max: 45,
-            reasons: "{meet}",
-            lat: LAT + 0.004,
-        },
-        Spec {
-            gender: "male",
-            age: 19,
-            max: 10000,
-            genders: "{}",
-            age_min: 25,
-            age_max: 50,
-            reasons: "{date,meet}",
-            lat: LAT + 0.012,
-        },
-        Spec {
-            gender: "female",
-            age: 50,
-            max: 1000,
-            genders: "{male}",
-            age_min: 18,
-            age_max: 99,
-            reasons: "{meet}",
-            lat: LAT + 0.006,
-        },
-        Spec {
-            gender: "female",
-            age: 33,
-            max: 200,
-            genders: "{}",
-            age_min: 30,
-            age_max: 35,
-            reasons: "{date}",
-            lat: LAT + 0.0015,
-        },
-    ];
-    let app = TestApp::new().await;
-    let mut users = vec![];
-    for (i, s) in specs.iter().enumerate() {
-        let t = app.visible_user(&format!("user{i}"), s.lat, LON).await;
-        app.sql(&format!(
-            "UPDATE profile SET gender = '{}', birth_date = '{}-01-01' WHERE user_id = '{}'",
-            s.gender,
-            now_year_birth(s.age),
-            t.user_id
-        ))
-        .await;
-        app.sql(&set_filter(
-            &t,
-            &format!(
-                "max_distance_m = {}, genders = '{}', age_min = {}, age_max = {}, reasons = '{}'",
-                s.max, s.genders, s.age_min, s.age_max, s.reasons
-            ),
-        ))
-        .await;
-        users.push(t);
-    }
-
-    let side = |s: &Spec| Side {
-        gender: parse_gender(s.gender),
-        age: s.age,
-        max_distance_m: s.max,
-        genders: parse_list(s.genders, parse_gender),
-        age_min: s.age_min,
-        age_max: s.age_max,
-        reasons: parse_list(s.reasons, parse_reason),
-    };
-    let mut visible_pairs = 0;
-    for (i, a) in specs.iter().enumerate() {
-        let mut expected = BTreeSet::new();
-        for (j, b) in specs.iter().enumerate() {
-            let d = haversine_m(a.lat, LON, b.lat, LON);
-            if i != j && mutually_visible(&side(a), &side(b), d) {
-                expected.insert(users[j].user_id.to_string());
-            }
-        }
-        visible_pairs += expected.len();
-        let actual = ids(&nearby(&app, &users[i]).await);
-        assert_eq!(actual, expected, "viewer {i}");
-    }
-    assert!(visible_pairs > 0, "matrix should contain visible pairs");
-}
-
-fn parse_gender(s: &str) -> Gender {
-    match s {
-        "male" => Gender::Male,
-        "female" => Gender::Female,
-        _ => Gender::Other,
-    }
-}
-
-fn parse_reason(s: &str) -> Reason {
-    if s == "date" {
-        Reason::Date
-    } else {
-        Reason::Meet
-    }
-}
-
-fn parse_list<T>(pg: &str, f: fn(&str) -> T) -> Vec<T> {
-    pg.trim_matches(['{', '}'])
-        .split(',')
-        .filter(|s| !s.is_empty())
-        .map(f)
-        .collect()
 }

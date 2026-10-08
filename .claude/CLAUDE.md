@@ -19,7 +19,8 @@ waves, and chats after a mutual wave.
 
 - `backend/api/src/`: `auth/` (password, jwt, refresh rotation, `AuthUser` extractor), `me/` (profile, photos +
   `image_proc`, filter, `DELETE /me`), `discovery/` (`geo` bands/haversine, `rules::mutually_visible` = spec,
-  `window`, `nearby` = the **only runtime visibility SQL**, reused by waves, + shared-interest ranking),
+  `window`, `location` (location updates + area leave check), `nearby` = the **only runtime visibility SQL**,
+  reused by waves, + shared-interest ranking), `areas/` (`GET /areas` containment, admin CRUD `/admin/areas`),
   `social/` (waves, matches, messages), `ws/` (hub + session, `Hub::disconnect` on ban), `cleanup.rs` (retention
   job spawned from `main`; tests call `run_once(db, shift)`), `web.rs` (router fallback serving the `rust-embed`ded
   `frontend/dist`: files, SPA `index.html` fallback, cache headers/ETag, traversal guard; `/api` has its
@@ -31,14 +32,17 @@ waves, and chats after a mutual wave.
   needs `is_admin`; `lock_unbanned` (`FOR SHARE`) guards window/wave/refresh writes against a concurrent ban.
   `main.rs` is a clap CLI: no subcommand = serve, `admin grant|revoke <username>` (refuses with pending migrations).
 - `backend/api/tests/common/mod.rs`: `TestApp` harness (fresh DB per test, `register`, `onboard`, `open_window`,
-  `visible_user`, `match_up`, `admin`, multipart helpers; `with_frontend::<F>()` serves a fixture bundle from `tests/fixtures/dist`).
+  `visible_user`, `match_up`, `admin`, multipart helpers; `with_frontend::<F>()` serves a fixture bundle from `tests/fixtures/dist`);
+  `common/areas.rs`: `area`, `area_user`, `start_area_window`. `tests/visibility_agreement.rs` = SQL ↔ rule cross-check.
 - `frontend/src/`: `api/` (typed client with single-flight refresh, `ws.ts`, per-domain modules, `types.ts` mirrors
   docs/api.md; any `403 banned` or WS close `4403` → `onBanned` → logout + suspended notice on `/login`),
-  `stores/` (auth, me, window, nearby, matches, safety, admin), `views/AdminView.vue` (`/admin`, admins only),
-  `composables/` (geolocation sharing, realtime), `i18n/cs.ts` (source of truth; `en.ts` typed against it;
+  `stores/` (auth, me, window, nearby, matches, safety, admin, areas), `views/AdminView.vue` (`/admin`, admins only:
+  reports + areas tabs), `composables/` (geolocation sharing — `left_area` ends the window and sets the notice
+  shown by `WindowEndedNotice` in `AppLayout`; realtime), `i18n/cs.ts` (source of truth; `en.ts` typed against it;
   `i18n/plural.ts` = Czech one/few/many rule; `i18n/typed.ts` `useT()` = key-checked `t`, use it instead of
   `useI18n`, enforced by ESLint), `utils/interests.ts` (`sharedFirst` chips, `byOverlapThenBand` client-side
-  nearby order), `SharedInterestsBadge.vue`, `components/ui/` primitives.
+  nearby order), `SharedInterestsBadge.vue`, `AreaPicker.vue` (area mode of the window start panel), `components/ui/`
+  primitives (`PillRadios` = shared pill radiogroup).
 
 ## Commands (always via make)
 

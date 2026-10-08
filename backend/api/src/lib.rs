@@ -1,4 +1,5 @@
 pub mod admin;
+pub mod areas;
 pub mod auth;
 pub mod cleanup;
 pub mod config;
@@ -37,6 +38,7 @@ pub fn app_with_frontend<F: RustEmbed + 'static>(state: AppState) -> Router {
         .merge(me::router())
         .merge(safety::router())
         .merge(admin::router())
+        .merge(areas::router())
         .merge(discovery::router())
         .merge(social::router())
         .merge(ws::router())

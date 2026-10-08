@@ -4,7 +4,7 @@ use axum::Json;
 use axum::extract::State;
 use axum::http::StatusCode;
 use chrono::{DateTime, Duration, Utc};
-use entity::{WindowKind, filter, photo, profile, visibility_window as vw, wave};
+use entity::{WindowKind, area, filter, photo, profile, visibility_window as vw, wave};
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, ConnectionTrait, EntityTrait, PaginatorTrait, QueryFilter,
     QuerySelect, Set, TransactionTrait,
@@ -12,7 +12,8 @@ use sea_orm::{
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use super::geo::{round_coord, valid_coords};
+use super::geo::{ensure_valid, round_coord};
+use crate::areas::{self, AreaRef};
 use crate::auth::AuthUser;
 use crate::auth::extractor::lock_unbanned;
 use crate::error::{AppError, AppJson};
@@ -26,6 +27,7 @@ const MAX_AHEAD: Duration = Duration::hours(12);
 pub struct WindowDto {
     id: Uuid,
     kind: WindowKind,
+    area: Option<AreaRef>,
     starts_at: DateTime<Utc>,
     ends_at: DateTime<Utc>,
     waves_left: u64,
@@ -37,9 +39,17 @@ impl WindowDto {
             .filter(wave::Column::WindowId.eq(w.id))
             .count(db)
             .await?;
+        let area = match w.area_id {
+            Some(id) => area::Entity::find_by_id(id)
+                .one(db)
+                .await?
+                .map(AreaRef::from),
+            None => None,
+        };
         Ok(Self {
             id: w.id,
             kind: w.kind,
+            area,
             starts_at: w.starts_at.to_utc(),
             ends_at: w.ends_at.to_utc(),
             waves_left: MAX_WAVES_PER_WINDOW.saturating_sub(sent),
@@ -49,6 +59,8 @@ impl WindowDto {
 
 #[derive(Deserialize)]
 pub struct StartBody {
+    kind: Option<WindowKind>,
+    area_id: Option<Uuid>,
     minutes: i64,
     lat: f64,
     lon: f64,
@@ -57,12 +69,6 @@ pub struct StartBody {
 #[derive(Deserialize)]
 pub struct ExtendBody {
     extend_minutes: i64,
-}
-
-#[derive(Deserialize)]
-pub struct LocationBody {
-    lat: f64,
-    lon: f64,
 }
 
 fn check_minutes(field: &str, minutes: i64) -> Result<Duration, AppError> {
@@ -75,14 +81,26 @@ fn check_minutes(field: &str, minutes: i64) -> Result<Duration, AppError> {
     }
 }
 
-fn check_coords(lat: f64, lon: f64) -> Result<(f64, f64), AppError> {
-    if valid_coords(lat, lon) {
-        Ok((round_coord(lat), round_coord(lon)))
-    } else {
-        Err(AppError::validation(
-            "lat must be within -90..90 and lon within -180..180",
-        ))
+/// The window kind and, for an area window, its area; `kind` defaults to timed, which takes no area.
+fn requested_kind(
+    kind: Option<WindowKind>,
+    area_id: Option<Uuid>,
+) -> Result<(WindowKind, Option<Uuid>), AppError> {
+    match (kind.unwrap_or(WindowKind::Timed), area_id) {
+        (WindowKind::Timed, None) => Ok((WindowKind::Timed, None)),
+        (WindowKind::Area, Some(id)) => Ok((WindowKind::Area, Some(id))),
+        (WindowKind::Timed, Some(_)) => Err(AppError::validation(
+            "area_id is only allowed with kind 'area'",
+        )),
+        (WindowKind::Area, None) => {
+            Err(AppError::validation("area_id is required for kind 'area'"))
+        }
     }
+}
+
+pub(crate) fn check_coords(lat: f64, lon: f64) -> Result<(f64, f64), AppError> {
+    ensure_valid(lat, lon)?;
+    Ok((round_coord(lat), round_coord(lon)))
 }
 
 /// Extension never reaches further than 12 h from `now`.
@@ -164,6 +182,7 @@ pub async fn start_window(
 ) -> Result<(StatusCode, Json<WindowDto>), AppError> {
     let length = check_minutes("minutes", body.minutes)?;
     let (lat, lon) = check_coords(body.lat, body.lon)?;
+    let (kind, area_id) = requested_kind(body.kind, body.area_id)?;
 
     let has_profile = profile::Entity::find_by_id(auth.id)
         .count(&state.db)
@@ -182,13 +201,21 @@ pub async fn start_window(
     let now = Utc::now();
     let txn = state.db.begin().await?;
     lock_unbanned(&txn, auth.id).await?;
+    if let Some(id) = area_id {
+        // Unrounded: rounding could move a point at the edge in or out of the circle.
+        let a = areas::lock_active(&txn, id).await?;
+        if !areas::circle(&a).contains(body.lat, body.lon) {
+            return Err(AppError::OutsideArea);
+        }
+    }
     if let Some(old) = open_window(&txn, auth.id).await? {
         end(&txn, old, now).await?;
     }
     let row = vw::ActiveModel {
         id: Set(Uuid::new_v4()),
         user_id: Set(auth.id),
-        kind: Set(WindowKind::Timed),
+        kind: Set(kind),
+        area_id: Set(area_id),
         lat: Set(Some(lat)),
         lon: Set(Some(lon)),
         location_updated_at: Set(now.fixed_offset()),
@@ -243,30 +270,6 @@ pub async fn end_window(
     Ok(StatusCode::NO_CONTENT)
 }
 
-pub async fn update_location(
-    State(state): State<AppState>,
-    auth: AuthUser,
-    AppJson(body): AppJson<LocationBody>,
-) -> Result<StatusCode, AppError> {
-    let (lat, lon) = check_coords(body.lat, body.lon)?;
-    let now = Utc::now().fixed_offset();
-    // Single conditional write: coordinates must never land on a window that already ended.
-    let updated = vw::Entity::update_many()
-        .col_expr(vw::Column::Lat, Some(lat).into())
-        .col_expr(vw::Column::Lon, Some(lon).into())
-        .col_expr(vw::Column::LocationUpdatedAt, now.into())
-        .filter(vw::Column::UserId.eq(auth.id))
-        .filter(vw::Column::EndedAt.is_null())
-        .filter(vw::Column::EndsAt.gt(now))
-        .exec(&state.db)
-        .await?
-        .rows_affected;
-    if updated == 0 {
-        return Err(AppError::NoActiveWindow);
-    }
-    Ok(StatusCode::NO_CONTENT)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -279,6 +282,24 @@ mod tests {
         for m in [0, 45, -30, 480] {
             assert!(matches!(
                 check_minutes("minutes", m),
+                Err(AppError::Validation(_))
+            ));
+        }
+    }
+
+    #[test]
+    fn kind_and_area_id_must_agree() {
+        use WindowKind::{Area, Timed};
+        let id = Uuid::from_u128(7);
+        assert_eq!(requested_kind(None, None).ok(), Some((Timed, None)));
+        assert_eq!(requested_kind(Some(Timed), None).ok(), Some((Timed, None)));
+        assert_eq!(
+            requested_kind(Some(Area), Some(id)).ok(),
+            Some((Area, Some(id)))
+        );
+        for (kind, area) in [(None, Some(id)), (Some(Area), None)] {
+            assert!(matches!(
+                requested_kind(kind, area),
                 Err(AppError::Validation(_))
             ));
         }

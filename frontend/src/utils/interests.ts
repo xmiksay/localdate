@@ -12,6 +12,8 @@ export function sharedFirst(interests: Interest[], sharedIds: number[]): MarkedI
 }
 
 const BAND_ORDER: DistanceBand[] = ['lt_200m', 'lt_500m', 'lt_1km', 'lt_2km', 'lt_5km', 'lt_10km']
+/** Area matches have no band; a list never mixes them with timed matches, so they tie. */
+const bandRank = (b: DistanceBand | null) => (b ? BAND_ORDER.indexOf(b) : 0)
 
 /**
  * The backend's nearby order minus its window-start and id tiebreaks, which the client can't see.
@@ -20,6 +22,6 @@ const BAND_ORDER: DistanceBand[] = ['lt_200m', 'lt_500m', 'lt_1km', 'lt_2km', 'l
 export function byOverlapThenBand(a: NearbyProfile, b: NearbyProfile): number {
   return (
     b.shared_interests.length - a.shared_interests.length ||
-    BAND_ORDER.indexOf(a.distance_band) - BAND_ORDER.indexOf(b.distance_band)
+    bandRank(a.distance_band) - bandRank(b.distance_band)
   )
 }

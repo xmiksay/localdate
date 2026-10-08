@@ -14,6 +14,8 @@ use serde_json::{Value, json};
 use tower::ServiceExt;
 use uuid::Uuid;
 
+pub mod areas;
+
 pub const PASSWORD: &str = "correct horse battery";
 
 pub struct TestApp {

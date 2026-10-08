@@ -22,6 +22,9 @@ Internal/DB errors are logged and returned as `500 internal` with a generic mess
 | 404 | `not_found` | |
 | 409 | `username_taken` | register |
 | 409 | `no_active_window` | `/nearby`, `/waves`, `/me/location`, `PATCH /me/window` without own active window |
+| 409 | `outside_area` | `POST /me/window` with `kind: 'area'` from a point outside the area's circle |
+| 409 | `left_area` | `POST /me/location` beyond the area's leave margin (see below): the area window was ended |
+| 409 | `area_in_use` | `DELETE /admin/areas/{id}` while a window row (running, or ended < 24 h ago) references it |
 | 409 | `not_visible` | wave target is not currently mutually visible |
 | 409 | `cannot_ban_admin` | `POST /admin/users/{id}/ban` on an admin (incl. yourself) |
 | 409 | `already_resolved` | `POST /admin/reports/{id}/dismiss` on a resolved report |
@@ -39,6 +42,8 @@ type Gender = 'male' | 'female' | 'other'
 type Reason = 'date' | 'meet'
 type DistanceBand = 'lt_200m' | 'lt_500m' | 'lt_1km' | 'lt_2km' | 'lt_5km' | 'lt_10km'
 type WaveState = 'none' | 'sent' | 'received' | 'matched'
+type WindowKind = 'timed' | 'area'
+type AreaKind = 'city_centre' | 'train_station' | 'venue' | 'other'
 
 interface User { id: string; username: string; created_at: string }
 interface Photo { id: string; url: string /* "/media/<uuid>.webp" */; position: number }
@@ -51,12 +56,23 @@ interface Filter {
   max_distance_m: number; genders: Gender[] /* [] = any */; age_min: number; age_max: number
   reasons: Reason[]; default_window_minutes: 30 | 60 | 120 | 240
 }
-interface Window { id: string; kind: 'timed'; starts_at: string; ends_at: string; waves_left: number }
+interface AreaRef { id: string; name: string }
+interface Area {
+  id: string; name: string; kind: AreaKind
+  lat: number; lon: number      // centre of a public place, never a user's position
+  radius_m: number; active: boolean; created_at: string
+}
+interface Window {
+  id: string; kind: WindowKind; area: AreaRef | null /* set iff kind = 'area' */
+  starts_at: string; ends_at: string; waves_left: number
+}
 interface NearbyProfile {
   user_id: string; display_name: string; age: number; gender: Gender; bio: string
   interests: Interest[]; photos: Photo[]; reasons: Reason[]
   shared_interests: number[] /* Interest ids the viewer has too, ascending; [] = none */
-  distance_band: DistanceBand; wave_state: WaveState; match_id: string | null
+  distance_band: DistanceBand | null /* null for area matches (deliberate: the area is the place) */
+  area: AreaRef | null /* the shared area when both windows are area windows, else null */
+  wave_state: WaveState; match_id: string | null
 }
 interface Message { id: string; match_id: string; sender_id: string; body: string; created_at: string }
 interface MatchSummary {
@@ -100,13 +116,32 @@ reasons non-empty.
 | Method & path | Body | 2xx response |
 |---|---|---|
 | `GET /me/window` | — | `200 Window \| null` |
-| `POST /me/window` | `{ minutes: 30\|60\|120\|240, lat, lon }` | `201 Window` (ends any previous active window) |
+| `POST /me/window` | `{ kind?: 'timed'\|'area', area_id?: string, minutes: 30\|60\|120\|240, lat, lon }` | `201 Window` (ends any previous active window) |
 | `PATCH /me/window` | `{ extend_minutes: 30\|60\|120\|240 }` | `200 Window` (max total 12 h from now) |
 | `DELETE /me/window` | — | `204` (sets `ended_at`, deletes its pending waves) |
-| `POST /me/location` | `{ lat, lon }` | `204` |
+| `POST /me/location` | `{ lat, lon, accuracy?: number /* metres, ≥ 0 */ }` | `204` |
 
 lat ∈ [-90, 90], lon ∈ [-180, 180]; stored rounded to 3 decimals.
 Client updates location every 2 min or after moving > 100 m while a window is active.
+
+`kind` defaults to `timed`. `kind: 'area'` needs `area_id` (and `timed` must not send one, `400 validation`);
+an unknown or inactive area is `404 not_found`, a point farther than `radius_m` from the area centre is
+`409 outside_area`. `minutes` is the area window's maximum length; extend works as for timed windows.
+An area window ends by itself when a `POST /me/location` lands more than `radius_m` + margin from the
+centre, margin = max(100 m, `accuracy`) with `accuracy` capped at 500 m (hysteresis, so GPS jitter or a
+coarse fix at the edge does not end it): the window is ended exactly like `DELETE /me/window` and the
+response is `409 left_area`; the next `GET /me/window` returns `null`. The client sends the fix's
+`coords.accuracy`; a negative or non-finite `accuracy` is `400 validation`.
+Distances are checked against the coordinates as sent, before rounding.
+An area window whose location was last updated more than 10 min ago is **stale**: it is invisible to
+others, and its owner's `/nearby` is empty, until the next location update (the client sends one at
+least every 2 min).
+
+## Areas
+
+| Method & path | Body | 2xx response |
+|---|---|---|
+| `GET /areas?lat=&lon=` | — | `200 Area[]` — active areas whose circle contains the point (distance to centre ≤ `radius_m`), nearest centre first. The point is neither stored nor echoed. Missing/out-of-range `lat`/`lon` → `400 validation` |
 
 ## Nearby
 
@@ -114,6 +149,10 @@ Client updates location every 2 min or after moving > 100 m while a window is ac
 distance band (nearest first), then most recent window start, then `user_id`.
 Shared interests only rank and highlight people — they never affect who is visible.
 Applies every rule in architecture.md "Mutual filters". Excludes self.
+An area window sees only fresh area windows in the same area (`area` set on every item, `max_distance_m`
+ignored, `distance_band: null` — deliberately, the shared area is the only place information; these
+sort by shared interests, then newest window, then `user_id`); a timed window sees only timed windows
+within distance (`area: null`, `distance_band` set).
 
 Band = smallest of 200 / 500 / 1000 / 2000 / 5000 / 10000 m that the real distance is below.
 
@@ -168,6 +207,17 @@ interface AdminReport {
 | `POST /admin/reports/{id}/dismiss` | — | `204` — resolves this one report as `dismissed`; `409 already_resolved`, `404` unknown |
 | `POST /admin/users/{id}/ban` | — | `204` — soft ban (idempotent): see below; `409 cannot_ban_admin`, `404` unknown |
 | `POST /admin/users/{id}/unban` | — | `204` — clears `banned_at` only (idempotent); `404` unknown |
+| `GET /admin/areas` | — | `200 Area[]` — all areas, active first, then by name |
+| `POST /admin/areas` | `{ name, kind: AreaKind, lat, lon, radius_m, active?: boolean /* default true */ }` | `201 Area` |
+| `PUT /admin/areas/{id}` | `{ name, kind, lat, lon, radius_m, active }` | `200 Area`; `404` unknown |
+| `DELETE /admin/areas/{id}` | — | `204`; `409 area_in_use`, `404` unknown |
+
+Area validation: `name` trimmed 1–80 chars, `radius_m` an integer 50–5000, lat/lon in range (stored as sent, no
+rounding). Deactivating (`active: false`) hides the area from `/areas` and refuses new windows in it;
+windows already running there go on until they time out, are ended, or their user leaves the circle.
+Moving or resizing an area applies to running windows' leave check at once. An area can only be
+deleted once no window row references it (ended windows are purged 24 h after they end) — until
+then deactivate it.
 
 Ban: sets `banned_at` (kept if already banned), revokes every refresh token, ends the active window
 (coordinates wiped, its waves deleted), resolves all open reports against the user as `banned`

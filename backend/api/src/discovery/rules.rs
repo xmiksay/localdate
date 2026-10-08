@@ -1,10 +1,15 @@
 //! The mutual-filter rule of docs/architecture.md as a pure function.
 //!
 //! Production paths evaluate the same rule in SQL (`nearby::SQL`) so it can run over many
-//! candidates at once; `tests/nearby.rs` cross-checks the two. Blocks are not modelled here —
-//! SQL excludes them separately.
+//! candidates at once; `tests/visibility_agreement.rs` cross-checks the two. Blocks are not
+//! modelled here — SQL excludes them separately.
 
 use entity::{Gender, Reason};
+use uuid::Uuid;
+
+/// An area window whose location is older than this is stale: it neither sees nor is seen. The
+/// client reports at least every 2 min, so this only catches a phone that stopped reporting.
+pub const AREA_STALE_SECS: i64 = 600;
 
 /// One user's side of the match: who they are and what they filter for.
 #[derive(Debug, Clone)]
@@ -17,6 +22,10 @@ pub struct Side {
     pub age_min: i32,
     pub age_max: i32,
     pub reasons: Vec<Reason>,
+    /// The area of an area window; `None` for a timed window.
+    pub area: Option<Uuid>,
+    /// Location older than [`AREA_STALE_SECS`]; only matters for area windows.
+    pub stale: bool,
 }
 
 impl Side {
@@ -27,11 +36,15 @@ impl Side {
     }
 }
 
+/// Area windows meet only fresh area windows in the same area (the area replaces distance); timed
+/// windows meet only timed windows within both max distances.
 pub fn mutually_visible(a: &Side, b: &Side, distance_m: f64) -> bool {
-    distance_m <= f64::from(a.max_distance_m.min(b.max_distance_m))
-        && a.accepts(b)
-        && b.accepts(a)
-        && a.reasons.iter().any(|r| b.reasons.contains(r))
+    let close = match (a.area, b.area) {
+        (None, None) => distance_m <= f64::from(a.max_distance_m.min(b.max_distance_m)),
+        (Some(x), Some(y)) => x == y && !a.stale && !b.stale,
+        _ => false,
+    };
+    close && a.accepts(b) && b.accepts(a) && a.reasons.iter().any(|r| b.reasons.contains(r))
 }
 
 #[cfg(test)]
@@ -47,6 +60,8 @@ mod tests {
             age_min: 18,
             age_max: 99,
             reasons: vec![Reason::Date, Reason::Meet],
+            area: None,
+            stale: false,
         }
     }
 
@@ -125,5 +140,44 @@ mod tests {
         assert!(!visible(&date, &meet, 100.0));
         assert!(visible(&date, &side(), 100.0));
         assert!(visible(&meet, &side(), 100.0));
+    }
+
+    #[test]
+    fn same_area_ignores_distance_other_area_and_timed_do_not_meet() {
+        let here = Some(Uuid::from_u128(1));
+        let in_area = with(|s| s.area = here);
+        let small = with(|s| {
+            s.area = here;
+            s.max_distance_m = 200;
+        });
+        assert!(visible(&in_area, &small, 4000.0));
+        let elsewhere = with(|s| s.area = Some(Uuid::from_u128(2)));
+        assert!(!visible(&in_area, &elsewhere, 10.0));
+        assert!(!visible(&in_area, &side(), 10.0));
+        // Filters still apply inside an area.
+        let date = with(|s| {
+            s.area = here;
+            s.reasons = vec![Reason::Date];
+        });
+        let meet = with(|s| {
+            s.area = here;
+            s.reasons = vec![Reason::Meet];
+        });
+        assert!(!visible(&date, &meet, 10.0));
+    }
+
+    #[test]
+    fn a_stale_area_window_neither_sees_nor_is_seen() {
+        let here = Some(Uuid::from_u128(1));
+        let fresh = with(|s| s.area = here);
+        let stale = with(|s| {
+            s.area = here;
+            s.stale = true;
+        });
+        assert!(!visible(&fresh, &stale, 10.0));
+        assert!(!visible(&stale, &stale, 10.0));
+        // Timed windows have no staleness rule.
+        let old_timed = with(|s| s.stale = true);
+        assert!(visible(&side(), &old_timed, 10.0));
     }
 }

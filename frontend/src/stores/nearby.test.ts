@@ -20,6 +20,7 @@ const person = (id: string): NearbyProfile => ({
   photos: [],
   reasons: ['meet'],
   distance_band: 'lt_200m',
+  area: null,
   wave_state: 'none',
   match_id: null,
 })

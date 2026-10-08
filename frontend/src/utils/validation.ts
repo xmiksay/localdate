@@ -44,3 +44,31 @@ export function moveItem<T>(list: T[], from: number, to: number): T[] {
   copy.splice(to, 0, item)
   return copy
 }
+
+export const AREA_NAME_MAX = 80
+export const AREA_RADIUS_MIN = 50
+export const AREA_RADIUS_MAX = 5000
+
+export type AreaField = 'name' | 'lat' | 'lon' | 'radius_m'
+
+const inRange = (n: number, min: number, max: number) => Number.isFinite(n) && n >= min && n <= max
+
+/** Fields of an area form that the server would reject (docs/api.md, Admin). */
+export function invalidAreaFields(a: {
+  name: string
+  lat: number
+  lon: number
+  radius_m: number
+}): AreaField[] {
+  const bad: AreaField[] = []
+  const name = a.name.trim()
+  // Code points, like the server's `chars().count()`: an emoji is one character, not two.
+  const length = [...name].length
+  if (length < 1 || length > AREA_NAME_MAX) bad.push('name')
+  if (!inRange(a.lat, -90, 90)) bad.push('lat')
+  if (!inRange(a.lon, -180, 180)) bad.push('lon')
+  if (!Number.isInteger(a.radius_m) || !inRange(a.radius_m, AREA_RADIUS_MIN, AREA_RADIUS_MAX)) {
+    bad.push('radius_m')
+  }
+  return bad
+}

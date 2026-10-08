@@ -10,6 +10,7 @@ const T0 = new Date('2026-06-01T12:00:00Z')
 const win = (minutes: number, wavesLeft = 20): Window => ({
   id: 'w1',
   kind: 'timed',
+  area: null,
   starts_at: T0.toISOString(),
   ends_at: new Date(T0.getTime() + minutes * 60_000).toISOString(),
   waves_left: wavesLeft,
@@ -57,8 +58,50 @@ describe('window store', () => {
     vi.mocked(windowApi.startWindow).mockResolvedValue(win(60))
     const s = useWindowStore()
     await s.start(60, { lat: 50.1, lon: 14.4 })
-    expect(windowApi.startWindow).toHaveBeenCalledWith(60, 50.1, 14.4)
+    expect(windowApi.startWindow).toHaveBeenCalledWith(60, 50.1, 14.4, undefined)
     expect(s.isActive).toBe(true)
+  })
+
+  it('start passes the area id for an area window', async () => {
+    const w: Window = { ...win(60), kind: 'area', area: { id: 'a1', name: 'Nádraží' } }
+    vi.mocked(windowApi.startWindow).mockResolvedValue(w)
+    const s = useWindowStore()
+    await s.start(60, { lat: 50.1, lon: 14.4 }, 'a1')
+    expect(windowApi.startWindow).toHaveBeenCalledWith(60, 50.1, 14.4, 'a1')
+    expect(s.current?.area?.name).toBe('Nádraží')
+  })
+
+  it('leftArea ends the window and keeps a notice until dismissed', async () => {
+    vi.mocked(windowApi.startWindow).mockResolvedValue(win(60))
+    const s = useWindowStore()
+    await s.start(60, { lat: 0, lon: 0 }, 'a1')
+    s.leftArea()
+    expect(s.isActive).toBe(false)
+    expect(s.endedNotice).toBe('left_area')
+    expect(windowApi.endWindow).not.toHaveBeenCalled()
+    s.clear()
+    expect(s.endedNotice).toBe('left_area')
+    s.dismissNotice()
+    expect(s.endedNotice).toBeNull()
+  })
+
+  it('the next start and a session reset drop the notice', async () => {
+    vi.mocked(windowApi.startWindow).mockResolvedValue(win(60))
+    const s = useWindowStore()
+    s.leftArea()
+    await s.start(60, { lat: 0, lon: 0 })
+    expect(s.endedNotice).toBeNull()
+    s.leftArea()
+    s.reset()
+    expect(s.endedNotice).toBeNull()
+  })
+
+  it('a failed start keeps the notice', async () => {
+    vi.mocked(windowApi.startWindow).mockRejectedValue(new Error('409'))
+    const s = useWindowStore()
+    s.leftArea()
+    await expect(s.start(60, { lat: 0, lon: 0 }, 'a1')).rejects.toThrow()
+    expect(s.endedNotice).toBe('left_area')
   })
 
   it('extend replaces the window with the longer one', async () => {
