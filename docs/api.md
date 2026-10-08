@@ -17,7 +17,7 @@ Internal/DB errors are logged and returned as `500 internal` with a generic mess
 | 403 | `forbidden` | not a participant / blocked |
 | 404 | `not_found` | |
 | 409 | `username_taken` | register |
-| 409 | `no_active_window` | `/nearby`, `/waves`, `/me/location` without own active window |
+| 409 | `no_active_window` | `/nearby`, `/waves`, `/me/location`, `PATCH /me/window` without own active window |
 | 409 | `not_visible` | wave target is not currently mutually visible |
 | 422 | `underage` | birth date < 18 years ago |
 | 422 | `profile_incomplete` | window start without profile + filter + ≥ 1 photo |
