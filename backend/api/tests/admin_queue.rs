@@ -108,7 +108,8 @@ async fn queue_lists_open_first_with_subject_details_and_filters() {
     assert_eq!(all[2]["subject"]["photo_url"], Value::Null);
     // Admins see no location or birth date either.
     let text = serde_json::to_string(&all).expect("json");
-    for leaked in ["birth", "lat", "lon", "1990"] {
+    // Match quoted keys and the full date: a bare "1990" can occur in UUIDs and timestamps.
+    for leaked in ["birth", "\"lat\"", "\"lon\"", "1990-01-01"] {
         assert!(!text.contains(leaked), "{leaked} leaked: {text}");
     }
 
