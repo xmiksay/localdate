@@ -6,8 +6,8 @@ Production runs on the k8s cluster behind ingress-nginx + cert-manager (`letsenc
 
 | Object | What |
 |---|---|
-| `ConfigMap localdate` | non-secret env (`BIND_ADDR`, `PHOTO_DIR`, `RUST_LOG`, `CLEANUP_INTERVAL_SECS`, `TRUST_PROXY_HEADERS=true`) |
-| `Secret localdate` | `POSTGRES_PASSWORD`, `JWT_SECRET` — **not in git**, created by hand (below) |
+| `ConfigMap localdate` | non-secret env (`BIND_ADDR`, `PHOTO_DIR`, `RUST_LOG`, `CLEANUP_INTERVAL_SECS`, `TRUST_PROXY_HEADERS=true`, `APP_BASE_URL`, `EMAIL_FROM`) |
+| `Secret localdate` | `POSTGRES_PASSWORD`, `JWT_SECRET`, optional `SMTP_URL` — **not in git**, created by hand (below) |
 | `StatefulSet localdate-db` + headless `Service` | Postgres 18, 5 Gi PVC `data-localdate-db-0` |
 | `NetworkPolicy localdate-db` | only `app=localdate-api` pods may reach 5432 |
 | `Deployment localdate-api` | 1 replica, `Recreate`, 768 Mi memory limit, 5 Gi PVC `localdate-photos` at `/data/photos` |
@@ -84,6 +84,24 @@ Postgres only reads it when initialising an empty volume: rotating it later mean
 localdate PASSWORD '…'` inside the database **and** updating the Secret, then restarting the API.
 Rotating `JWT_SECRET` invalidates outstanding access tokens; clients recover through their refresh token.
 [`deploy/secrets.example.yml`](../deploy/secrets.example.yml) is the same Secret as a template.
+
+## Email (magic link)
+
+Email login and account linking need SMTP. Without `SMTP_URL` in the Secret the API starts with
+email disabled: `GET /api/auth/providers` says `email: false`, the frontend hides the email UI and the
+email endpoints answer `503 email_disabled`. To turn it on, add the SMTP URL (lettre syntax, credentials
+inside; `smtps://` = implicit TLS on 465, `smtp://…?tls=required` = STARTTLS on 587; percent-encode
+special characters in the password) and restart:
+
+```sh
+kubectl -n localdate patch secret localdate --type merge \
+  -p '{"stringData":{"SMTP_URL":"smtps://USER:PASSWORD@smtp.example.com:465"}}'
+kubectl -n localdate rollout restart deployment/localdate-api
+```
+
+`APP_BASE_URL` (origin the mailed links point at) and `EMAIL_FROM` live in the ConfigMap; the sender
+domain needs SPF/DKIM at the mail provider or the links land in spam. `EMAIL_DEV_LOG` (log links instead
+of sending) is for local development only — the release binary refuses to start with it.
 
 ## Updates and migrations
 

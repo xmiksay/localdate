@@ -25,6 +25,7 @@ clap.workspace = true
 dotenvy.workspace = true
 image.workspace = true
 jsonwebtoken.workspace = true
+lettre.workspace = true
 percent-encoding.workspace = true
 rust-embed.workspace = true
 sea-orm.workspace = true

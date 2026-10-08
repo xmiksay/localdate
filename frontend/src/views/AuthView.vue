@@ -1,17 +1,21 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useT } from '@/i18n/typed'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
+import EmailLinkForm from '@/components/EmailLinkForm.vue'
+import SuspendedNotice from '@/components/SuspendedNotice.vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
 import ErrorNote from '@/components/ui/ErrorNote.vue'
 import FormField from '@/components/ui/FormField.vue'
 import TextInput from '@/components/ui/TextInput.vue'
 import { useAuthStore } from '@/stores/auth'
 import { errorMessage } from '@/utils/errors'
+import { safeRedirect } from '@/utils/redirect'
 import { isValidPassword, isValidUsername } from '@/utils/validation'
 
 const props = defineProps<{ mode: 'login' | 'register' }>()
 const { t } = useT()
+const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
 
@@ -20,6 +24,9 @@ const password = ref('')
 const busy = ref(false)
 const failure = ref<string | null>(null)
 const submitted = ref(false)
+const showEmail = ref(false)
+
+onMounted(() => auth.loadProviders())
 
 const isRegister = computed(() => props.mode === 'register')
 // Login stays lenient: the server is the judge for existing accounts.
@@ -42,7 +49,7 @@ async function submit() {
   try {
     const creds = { username: username.value, password: password.value }
     await (isRegister.value ? auth.register(creds) : auth.login(creds))
-    await router.replace('/')
+    await router.replace(safeRedirect(route.query.redirect))
   } catch (e) {
     // A ban is explained by the suspended notice; don't repeat it below the form.
     failure.value = auth.suspended ? null : errorMessage(e)
@@ -59,14 +66,7 @@ async function submit() {
       <p class="mt-2 text-muted">{{ t('app.tagline') }}</p>
     </div>
 
-    <section
-      v-if="auth.suspended"
-      role="alert"
-      class="rounded-3xl border-2 border-danger bg-danger/10 p-5 text-danger"
-    >
-      <h2 class="font-display text-xl font-semibold">{{ t('auth.suspendedTitle') }}</h2>
-      <p class="mt-2 text-sm font-medium">{{ t('auth.suspendedBody') }}</p>
-    </section>
+    <SuspendedNotice v-if="auth.suspended" />
 
     <form class="flex flex-col gap-5" novalidate @submit.prevent="submit">
       <h1 class="font-display text-2xl font-semibold">
@@ -106,6 +106,16 @@ async function submit() {
         {{ isRegister ? t('auth.registerSubmit') : t('auth.loginSubmit') }}
       </BaseButton>
     </form>
+
+    <section v-if="auth.emailEnabled" class="flex flex-col gap-3">
+      <BaseButton v-if="!showEmail" variant="ghost" block @click="showEmail = true">
+        {{ t('auth.emailOption') }}
+      </BaseButton>
+      <template v-else>
+        <h2 class="font-display text-xl font-semibold">{{ t('auth.emailOption') }}</h2>
+        <EmailLinkForm :submit-label="t('auth.emailSubmit')" :send="auth.emailStart" />
+      </template>
+    </section>
 
     <p class="text-center text-muted">
       {{ isRegister ? t('auth.registerSwitch') : t('auth.loginSwitch') }}

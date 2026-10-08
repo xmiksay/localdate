@@ -4,6 +4,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
+use localdate_api::auth::email::EmailService;
 use localdate_api::config::Config;
 use localdate_api::state::AppState;
 use localdate_api::web::Dist;
@@ -129,7 +130,17 @@ async fn serve() -> Result<()> {
         db.clone(),
         config.cleanup_interval,
     ));
-    let state = AppState::new(db, config).await?;
+    let email = match &config.email {
+        Some(cfg) => Some(EmailService::new(
+            localdate_api::mail::from_config(cfg)?,
+            cfg.base_url.clone(),
+        )),
+        None => {
+            tracing::info!("email disabled (no SMTP_URL / EMAIL_DEV_LOG)");
+            None
+        }
+    };
+    let state = AppState::new(db, config).await?.with_email(email);
     let hub = state.hub.clone();
     let app = localdate_api::app(state);
     axum::serve(

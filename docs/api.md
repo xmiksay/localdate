@@ -14,13 +14,15 @@ Internal/DB errors are logged and returned as `500 internal` with a generic mess
 | Status | code | When |
 |---|---|---|
 | 400 | `validation` | body fails validation (`message` says which field) |
+| 400 | `invalid_token` | email token unknown, expired, already used, of another purpose, or (link confirm) issued to another account |
 | 401 | `unauthorized` | missing/invalid/expired access token |
 | 401 | `invalid_credentials` | login failed |
 | 401 | `invalid_refresh_token` | refresh token unknown, expired or revoked |
 | 403 | `forbidden` | not a participant / blocked / match partner banned; `/admin/*` for non-admins |
 | 403 | `banned` | account suspended: any authenticated request, login (after a correct password), refresh |
 | 404 | `not_found` | |
-| 409 | `username_taken` | register |
+| 409 | `username_taken` | register, `POST /auth/email/signup` |
+| 409 | `last_login_method` | `DELETE /me/identities/{id}` would leave the account with no password and no identity |
 | 409 | `no_active_window` | `/nearby`, `/waves`, `/me/location`, `PATCH /me/window` without own active window |
 | 409 | `outside_area` | `POST /me/window` with `kind: 'area'` from a point outside the area's circle |
 | 409 | `too_close_to_midnight` | `POST /me/window` with `until: 'end_of_day'` less than 30 min before local midnight |
@@ -33,8 +35,9 @@ Internal/DB errors are logged and returned as `500 internal` with a generic mess
 | 422 | `profile_incomplete` | window start without profile + filter + ≥ 1 photo |
 | 422 | `photo_limit` | 7th photo |
 | 422 | `unsupported_image` | not decodable jpeg/png/webp, > 10 MB, an edge > 10 000 px or > 32 Mi pixels (~33 MP) |
-| 429 | `rate_limited` | login/register throttle |
+| 429 | `rate_limited` | per-IP throttle: login, register, `/auth/email/start`, `/auth/email/signup`, `POST /me/identities/email` |
 | 429 | `wave_limit` | > 20 waves in one window |
+| 503 | `email_disabled` | any email endpoint while the server has no mailer (`GET /auth/providers` → `email: false`) |
 
 ## Shared types
 
@@ -82,6 +85,19 @@ interface MatchSummary {
   last_message: Message | null
 }
 interface Tokens { access_token: string; refresh_token: string; user: User }
+type IdentityProvider = 'email'   // later: 'telegram' | 'google' | 'facebook'
+interface Identity {
+  id: string; provider: IdentityProvider
+  subject: string            // email: the normalized address (it is the caller's own, shown in full)
+  verified_at: string; created_at: string
+}
+type EmailTokenPurpose = 'login' | 'signup' | 'link'
+interface EmailPreview {
+  purpose: EmailTokenPurpose
+  username: string | null   // login: the account it logs into · link: the account that asked · signup: null
+  email: string
+}
+type MailLang = 'cs' | 'en'   // language of the sent email; anything else / missing → 'cs'
 ```
 
 ## Auth
@@ -94,6 +110,47 @@ interface Tokens { access_token: string; refresh_token: string; user: User }
 | `POST /auth/logout` | `{ refresh_token }` | `204` |
 
 Username: trimmed, lowercased, `[a-z0-9_]{3,32}`. Password: 10–128 chars.
+An account created by email (or a later OAuth provider) has **no password**: password login for it
+answers the same `401 invalid_credentials` as a wrong password (same argon2 timing).
+
+### Login providers and email magic link
+
+| Method & path | Body | 2xx response |
+|---|---|---|
+| `GET /auth/providers` | — | `200 { email: boolean }` — which login methods this server offers (more keys later) |
+| `POST /auth/email/start` | `{ email, lang?: MailLang }` | `202` (empty) — always, whether or not the address has an account |
+| `POST /auth/email/preview` | `{ token }` | `200 EmailPreview` — never consumes the token |
+| `POST /auth/email/verify` | `{ token }` | `200 Tokens` — login tokens only, consumed |
+| `POST /auth/email/signup` | `{ token, username }` | `201 Tokens` (token consumed, account + verified email identity created) |
+
+**Email address** (identical rule on the client): trimmed + lowercased, ≤ 254 chars, exactly one `@`;
+local part 1–64 of `a-z 0-9 . _ + -`, no leading/trailing/double dot; domain ≥ 2 dot-separated labels of
+`a-z 0-9 -` (1–63 each, no leading/trailing `-`), the last (TLD) containing a letter. No display names, quotes, commas, angle brackets or
+whitespace — else `400 validation`. The validated address is what is stored and mailed to, never the raw input.
+
+`start` sends a **login link** when an email identity with that address exists, otherwise a **sign-up link** —
+the response never tells which. Mails go out after the response (sending failures are only logged), so the
+answer is always `202`. Limits (shared with `POST /me/identities/email`), over them still `202` and nothing sent:
+3 mails per (address, client IP) per 15 min, and 10 per address per hour from all IPs together.
+
+Links carry the token in the **URL fragment**, so it never reaches server or ingress logs:
+`{APP_BASE_URL}/auth/email#token=…` (login / sign-up) and `{APP_BASE_URL}/auth/email/link#token=…` (linking,
+below). Login and link mails name the account (`pro účet <username>`). Tokens: 32 random bytes base64url,
+stored as sha256, valid 15 min, single use.
+
+Nothing is consumed by opening a link: the page calls `preview` and shows an explicit button
+("Přihlásit se jako <username>", "Propojit <email> s účtem <username>") before `verify` / `confirm` /
+`signup`, so link scanners and prefetchers cannot spend the token. Deliberately **no browser binding**
+(nonce cookie from the requesting browser): requesting on a laptop and clicking on the phone must keep working;
+the 15-minute single-use token and the explicit confirmation are the protection.
+
+`preview` / `verify` → `400 invalid_token` for unknown, expired or used tokens, a login token whose identity was
+removed since or whose account is gone, and a sign-up token whose address has meanwhile become an account.
+`verify` also refuses sign-up and link tokens (`400 invalid_token`); a banned account → `403 banned` (not
+consumed — consumption, account check and session creation are one transaction).
+`signup` validates the username like register (`400 validation`, `409 username_taken` — the token
+stays usable for another name). The new account then goes through onboarding like a registered one
+(birth date, 18+ check). A second sign-up for an address that already got an account → `400 invalid_token`.
 
 ## Me / profile
 
@@ -108,6 +165,18 @@ Username: trimmed, lowercased, `[a-z0-9_]{3,32}`. Password: 10–128 chars.
 | `PUT /me/photos/order` | `{ photo_ids: string[] }` (must be exactly the user's photos) | `200 Photo[]` |
 | `GET /me/filter` | — | `200 Filter` (defaults if never saved: 2000 m, [], 18, 99, [date, meet], 60) |
 | `PUT /me/filter` | `Filter` | `200 Filter` |
+| `GET /me/identities` | — | `200 { has_password: boolean, identities: Identity[] }` (oldest first) |
+| `POST /me/identities/email` | `{ email, lang?: MailLang }` | `202` (empty) — always |
+| `POST /me/identities/email/confirm` | `{ token }` | `201 Identity` |
+| `DELETE /me/identities/{id}` | — | `204`; `409 last_login_method` if it is the only identity of a passwordless account; another user's / unknown id → `404` |
+
+Linking: `POST /me/identities/email` mails a link token bound to the caller to that address — or, if the
+address is already linked to any account (the caller's included), a short notice instead, so the answer
+never reveals whose it is. Same validation, limits, fragment links, `preview` and `503 email_disabled` as
+`/auth/email/start`. A logged-out click keeps the token in `sessionStorage` across the login, never in a query.
+`confirm` must come from the account that requested the link: another account's token, or an expired / used
+one → `400 invalid_token` (a wrong account does not consume it). If the address got linked elsewhere in the
+meantime → `400 invalid_token`.
 
 Validation: display_name 1–40, bio ≤ 500, interest_ids ≤ 10 and existing, age_min ≤ age_max,
 reasons non-empty.

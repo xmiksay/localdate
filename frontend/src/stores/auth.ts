@@ -4,7 +4,8 @@ import * as authApi from '@/api/auth'
 import { setAuthHooks } from '@/api/client'
 import { tokenStorage } from '@/api/tokens'
 import type { Credentials, Tokens, User } from '@/api/types'
-import { normalizeUsername } from '@/utils/validation'
+import { mailLang } from '@/i18n'
+import { normalizeEmail, normalizeUsername } from '@/utils/validation'
 
 export const useAuthStore = defineStore('auth', () => {
   const accessToken = ref<string | null>(tokenStorage.access())
@@ -46,6 +47,33 @@ export const useAuthStore = defineStore('auth', () => {
     applyTokens(await authApi.register({ ...c, username: normalizeUsername(c.username) }))
   }
 
+  /** Whether the server can send login emails; false until known, so the option never flashes. */
+  const emailEnabled = ref(false)
+
+  async function loadProviders() {
+    try {
+      emailEnabled.value = (await authApi.getProviders()).email
+    } catch {
+      emailEnabled.value = false
+    }
+  }
+
+  async function emailStart(email: string) {
+    await authApi.emailStart({ email: normalizeEmail(email), lang: mailLang() })
+  }
+
+  const emailPreview = (token: string) => authApi.emailPreview(token)
+
+  async function emailVerify(token: string) {
+    suspended.value = false
+    applyTokens(await authApi.emailVerify(token))
+  }
+
+  async function emailSignup(token: string, username: string) {
+    suspended.value = false
+    applyTokens(await authApi.emailSignup({ token, username: normalizeUsername(username) }))
+  }
+
   async function logout() {
     const refresh = tokenStorage.refresh()
     clear()
@@ -57,6 +85,12 @@ export const useAuthStore = defineStore('auth', () => {
     user,
     isAuthed,
     suspended,
+    emailEnabled,
+    loadProviders,
+    emailStart,
+    emailPreview,
+    emailVerify,
+    emailSignup,
     login,
     register,
     logout,

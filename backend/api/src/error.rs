@@ -53,6 +53,12 @@ pub enum AppError {
     RateLimited,
     #[error("wave limit reached for this window")]
     WaveLimit,
+    #[error("invalid, expired or already used link")]
+    InvalidToken,
+    #[error("the account would be left without a way to log in")]
+    LastLoginMethod,
+    #[error("email is not available on this server")]
+    EmailDisabled,
     #[error("internal server error")]
     Internal,
 }
@@ -64,7 +70,7 @@ impl AppError {
 
     pub fn status(&self) -> StatusCode {
         match self {
-            Self::Validation(_) => StatusCode::BAD_REQUEST,
+            Self::Validation(_) | Self::InvalidToken => StatusCode::BAD_REQUEST,
             Self::Unauthorized | Self::InvalidCredentials | Self::InvalidRefreshToken => {
                 StatusCode::UNAUTHORIZED
             }
@@ -78,13 +84,15 @@ impl AppError {
             | Self::OutsideArea
             | Self::LeftArea
             | Self::TooCloseToMidnight
-            | Self::AreaInUse => StatusCode::CONFLICT,
+            | Self::AreaInUse
+            | Self::LastLoginMethod => StatusCode::CONFLICT,
             Self::Underage
             | Self::ProfileIncomplete
             | Self::PhotoLimit
             | Self::UnsupportedImage => StatusCode::UNPROCESSABLE_ENTITY,
             Self::RateLimited | Self::WaveLimit => StatusCode::TOO_MANY_REQUESTS,
             Self::Internal => StatusCode::INTERNAL_SERVER_ERROR,
+            Self::EmailDisabled => StatusCode::SERVICE_UNAVAILABLE,
         }
     }
 
@@ -112,6 +120,9 @@ impl AppError {
             Self::UnsupportedImage => "unsupported_image",
             Self::RateLimited => "rate_limited",
             Self::WaveLimit => "wave_limit",
+            Self::InvalidToken => "invalid_token",
+            Self::LastLoginMethod => "last_login_method",
+            Self::EmailDisabled => "email_disabled",
             Self::Internal => "internal",
         }
     }
@@ -216,6 +227,9 @@ mod tests {
             (AppError::UnsupportedImage, 422, "unsupported_image"),
             (AppError::RateLimited, 429, "rate_limited"),
             (AppError::WaveLimit, 429, "wave_limit"),
+            (AppError::InvalidToken, 400, "invalid_token"),
+            (AppError::LastLoginMethod, 409, "last_login_method"),
+            (AppError::EmailDisabled, 503, "email_disabled"),
             (AppError::Internal, 500, "internal"),
         ];
         for (err, status, code) in cases {

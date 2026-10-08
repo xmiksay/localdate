@@ -1,7 +1,8 @@
 mod common;
 
 use axum::http::StatusCode;
-use common::{TestApp, png_bytes};
+use common::TestApp;
+use common::photos::png_bytes;
 use serde_json::{Value, json};
 
 fn file_name(photo: &Value) -> String {

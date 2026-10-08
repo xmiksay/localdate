@@ -4,6 +4,7 @@ use anyhow::Result;
 use sea_orm::DatabaseConnection;
 use tokio::sync::Semaphore;
 
+use crate::auth::email::{EmailLimiter, EmailService};
 use crate::config::Config;
 use crate::rate_limit::RateLimiter;
 use crate::ws::Hub;
@@ -16,6 +17,9 @@ pub struct AppState {
     pub hub: Arc<Hub>,
     /// Concurrent photo decodes (`IMAGE_DECODE_PERMITS`); sized with the pod memory limit.
     pub image_permits: Arc<Semaphore>,
+    /// `None` = email disabled; set by `with_email` (main builds it from `Config::email`).
+    pub email: Option<EmailService>,
+    pub email_limiter: EmailLimiter,
 }
 
 /// Peak per decode is ~128 MiB (`image_proc::MAX_INPUT_PIXELS` × 4) plus resize buffers.
@@ -32,6 +36,13 @@ impl AppState {
             limiter,
             hub,
             image_permits: Arc::new(Semaphore::new(IMAGE_DECODE_PERMITS)),
+            email: None,
+            email_limiter: EmailLimiter::default(),
         })
+    }
+
+    pub fn with_email(mut self, email: Option<EmailService>) -> Self {
+        self.email = email;
+        self
     }
 }

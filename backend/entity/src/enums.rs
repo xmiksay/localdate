@@ -72,3 +72,27 @@ pub enum ReportResolution {
     #[sea_orm(string_value = "banned")]
     Banned,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumIter, DeriveActiveEnum, Serialize, Deserialize)]
+#[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "identity_provider")]
+#[serde(rename_all = "snake_case")]
+pub enum IdentityProvider {
+    #[sea_orm(string_value = "email")]
+    Email,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumIter, DeriveActiveEnum, Serialize, Deserialize)]
+#[sea_orm(
+    rs_type = "String",
+    db_type = "Enum",
+    enum_name = "email_token_purpose"
+)]
+#[serde(rename_all = "snake_case")]
+pub enum EmailTokenPurpose {
+    #[sea_orm(string_value = "login")]
+    Login,
+    #[sea_orm(string_value = "link")]
+    Link,
+    #[sea_orm(string_value = "signup")]
+    Signup,
+}

@@ -20,8 +20,12 @@ waves, and chats after a mutual wave.
 
 ## Code map
 
-- `backend/api/src/`: `auth/` (password, jwt, refresh rotation, `AuthUser` extractor), `me/` (profile, photos +
-  `image_proc`, filter, `DELETE /me`), `discovery/` (`geo` bands/haversine, `rules::mutually_visible` = spec,
+- `backend/api/src/`: `auth/` (password, jwt, refresh rotation, `AuthUser` extractor, `session()` = new Tokens;
+  `email/` = magic link: `token` single-use tokens + strict `normalize_email` → `lettre::Address`, `flow` preview/
+  verify/signup, `message` cs/en texts, `limit` (address, IP) + per-address limiter, `EmailService` = spawned bounded
+  sends, in `AppState::email`, `None` = disabled), `mail.rs` (`Mailer` trait: lettre SMTP, dev log,
+  `MemoryMailer` for tests), `me/` (profile, photos + `image_proc`, filter, `identities` = linked login methods +
+  email linking, `DELETE /me`), `discovery/` (`geo` bands/haversine, `rules::mutually_visible` = spec,
   `duration` presets/12 h cap/end of day, `window`, `location` (location updates + area leave check), `nearby` = the **only runtime visibility SQL**,
   reused by waves, + shared-interest ranking), `areas/` (`GET /areas` containment, admin CRUD `/admin/areas`),
   `social/` (waves, matches, messages), `ws/` (`hub` = per-replica `LocalHub`, `bridge` = cross-replica `Hub` over Postgres LISTEN/NOTIFY (own listener
@@ -42,10 +46,13 @@ waves, and chats after a mutual wave.
   `with_config(|c| …)` tweaks the `Config`, e.g. to enable the rate limiter);
   `common/areas.rs`: `area`, `area_user`, `start_area_window`; `common/ws.rs`: WS client (`serve`, `ready_socket`, `next`);
   `common/replica.rs`: `app.replica()` = second API replica on the same DB (own pool + hub) for `tests/ws_replicas.rs`.
-  `tests/visibility_agreement.rs` = SQL ↔ rule cross-check.
+  `common/email.rs`: `TestApp::with_email()` (email on, mail captured in `outbox`), `mails_to`, `last_link`,
+  `email_signup`. `tests/visibility_agreement.rs` = SQL ↔ rule cross-check.
 - `frontend/src/`: `api/` (typed client with single-flight refresh, `ws.ts`, per-domain modules, `types.ts` mirrors
   docs/api.md; any `403 banned` or WS close `4403` → `onBanned` → logout + suspended notice on `/login`),
-  `stores/` (auth, me, window, nearby, matches, safety, admin, areas), `views/AdminView.vue` (`/admin`, admins only:
+  `stores/` (auth incl. providers + email login, me, window, nearby, matches, safety, admin, areas, identities),
+  `views/EmailAuthView.vue` (`/auth/email`: verify → login or username sign-up), `EmailLinkView.vue`
+  (`/auth/email/link`, confirm linking), `LinkedAccountsSection.vue` (Settings), `utils/redirect.ts` (`?redirect=` guard), `views/AdminView.vue` (`/admin`, admins only:
   reports + areas tabs), `composables/` (geolocation sharing — `left_area` ends the window and sets the notice
   shown by `WindowEndedNotice` in `AppLayout`; realtime), `i18n/cs.ts` (source of truth; `en.ts` typed against it;
   `i18n/plural.ts` = Czech one/few/many rule; `i18n/typed.ts` `useT()` = key-checked `t`, use it instead of

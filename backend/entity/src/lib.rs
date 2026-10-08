@@ -2,6 +2,7 @@
 
 pub mod area;
 pub mod block;
+pub mod email_token;
 pub mod filter;
 pub mod interest;
 pub mod matches;
@@ -11,9 +12,13 @@ pub mod profile;
 pub mod refresh_token;
 pub mod report;
 pub mod user;
+pub mod user_identity;
 pub mod user_interest;
 pub mod visibility_window;
 pub mod wave;
 
 mod enums;
-pub use enums::{AreaKind, Gender, Reason, ReportReason, ReportResolution, WindowKind};
+pub use enums::{
+    AreaKind, EmailTokenPurpose, Gender, IdentityProvider, Reason, ReportReason, ReportResolution,
+    WindowKind,
+};

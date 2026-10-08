@@ -109,8 +109,10 @@ Debug builds (clippy, tests) need no bundle: they read `frontend/dist` from disk
 
 | Table | Columns (all timestamps `timestamptz`) |
 |---|---|
-| `user` | id uuid PK, username text UNIQUE (lowercase, `[a-z0-9_]{3,32}`), password_hash text (argon2id), created_at, is_admin bool (default false), banned_at NULL |
+| `user` | id uuid PK, username text UNIQUE (lowercase, `[a-z0-9_]{3,32}`), password_hash text NULL (argon2id; NULL = account created by email, no password), created_at, is_admin bool (default false), banned_at NULL |
 | `refresh_token` | id uuid PK, user_id FK, token_hash text UNIQUE (sha256), family_id uuid, expires_at, revoked_at NULL, created_at |
+| `user_identity` | id uuid PK, user_id FK, provider enum(email; later telegram/google/facebook), subject text (email: validated, lowercased address), verified_at, created_at; UNIQUE (provider, subject) |
+| `email_token` | id uuid PK, token_hash text UNIQUE (sha256), purpose enum(login,link,signup), user_id FK NULL (CHECK: NULL iff signup), email text, expires_at (+15 min), used_at NULL, created_at |
 | `profile` | user_id PK/FK, display_name text (1–40), birth_date date, gender enum(male,female,other), bio text (≤ 500), updated_at |
 | `photo` | id uuid PK, user_id FK, file_name text, position smallint (0 = primary), created_at; max 6 per user |
 | `interest` | id serial PK, key text UNIQUE (i18n key suffix, seeded ~40) |
@@ -146,12 +148,48 @@ nearby query), plus `shift`.
 | `wave` | deleted once `expires_at <= now` or its window has ended (all remaining waves are unanswered — a match deletes its waves) |
 | `visibility_window` row | deleted 24 h after it ended (`LEAST(ends_at, ended_at)`) |
 | `refresh_token` | deleted once expired, or once revoked > 7 days ago **and** its family has no live token — while a family is live, replaying any of its revoked tokens still revokes it |
+| `email_token` | deleted once expired, used or not (drops the address it held) |
 | `match`, `message` | kept until account deletion |
 | `ws_replica` (+ its `ws_presence` rows by cascade) | deleted once `seen_at` is ≥ 90 s old (replica died without deregistering) |
 
 ## Auth
 
-Username + password (argon2id), no password reset (needs a linked email/Telegram — follow-up issue).
+Username + password (argon2id), or an **email magic link**; no password reset yet (#18).
+
+**Identity model.** A *login method* is the password (`user.password_hash`, optional) or a row in
+`user_identity` — `(provider, subject)` unique, so one address belongs to at most one account. Email is the
+only provider now; Telegram/Google/Facebook (#14, #15, #17) add an enum value and their own verify step,
+everything else (listing, unlinking, "last login method" guard, `session()` issuing Tokens) is shared.
+An account always keeps at least one method: `DELETE /me/identities/{id}` locks the user row
+`FOR UPDATE` and refuses (`409 last_login_method`) to remove the last identity of a passwordless account.
+Password login on a passwordless account verifies against the dummy hash, so it fails like a wrong password
+with the same timing.
+
+**Magic link** (`auth/email/`). Addresses are validated strictly (`token::normalize_email`: plain
+`local@domain`, restricted charset, no display names/quotes/commas) into a `lettre::Address`; that value is what is
+stored and mailed to, so one inbox cannot register under many spellings and user input is never re-parsed as a
+mailbox. `start` always answers `202`: an identity for the address gets a `login` token, anything else a `signup`
+token — the mail differs, the response does not. Mails are rendered, then sent in a spawned task (at most 4 in
+flight, `EmailService`; failures logged), so neither timing nor errors leak. Tokens are 32 random bytes (shared
+generator with refresh tokens), stored as sha256, 15 min, single use, and travel in the URL **fragment**
+(`/auth/email#token=…`), which never reaches the server or ingress logs. Nothing is spent by opening a link:
+the page calls `preview` (purpose, target username, address) and the user presses an explicit button, so mail
+scanners and prefetchers cannot burn tokens. No browser binding on purpose — request on a laptop, click on the
+phone must work. Consumption is one conditional `UPDATE … WHERE used_at IS NULL AND expires_at > now() RETURNING`;
+`verify` (login only) consumes, re-checks that the identity still links that address to that user, takes the
+user row `FOR SHARE` (`lock_unbanned`) and creates the session in one transaction, so a ban or error leaves the
+token unspent. `signup` consumes inside the user-insert transaction (a taken username rolls it back); a signup
+token whose address has meanwhile become an account is `invalid_token` already at `preview`. Linking
+(`me/identities.rs`) mails a `link` token bound to the requesting user; confirming filters on that user, so a
+stranger's attempt neither works nor burns it. Linking an address that is already anyone's mails a notice
+instead of a link. Login and link mails name the target account. Limits (`auth/email/limit.rs`, in memory per
+replica; over them still `202`, nothing sent): 3 mails per (address, client IP) per 15 min — a flood from
+elsewhere cannot lock the owner out — and 10 per address per hour overall against mail-bombing; on top of the
+per-IP limiter on `start`, `signup` and `POST /me/identities/email`. Mail goes through the `mail::Mailer` trait
+(lettre SMTP; `EMAIL_DEV_LOG` logs instead; `MemoryMailer` in tests); `AppState::email` is `None` when neither
+is configured, which makes the endpoints `503 email_disabled` and `GET /auth/providers` report `email: false`.
+Tokens are never logged outside dev-log mode.
+
 JWT HS256 access token (15 min, `sub` = user id) + opaque refresh token (30 days, stored hashed,
 rotated on every use; reuse of a revoked token revokes the whole family). The frontend keeps both in
 `localStorage` (accepted XSS trade-off — strict CSP mitigates). Every authenticated request (and WS auth)
@@ -231,6 +269,10 @@ of API replicas; no config beyond `DATABASE_URL`.
 | `BIND_ADDR` | `127.0.0.1:3000` | |
 | `CLEANUP_INTERVAL_SECS` | `300` | optional, default 300; period of the cleanup job |
 | `TRUST_PROXY_HEADERS` | `false` | optional (`true`/`false`/`1`/`0`), default false; rate-limit on `X-Forwarded-For` (see Auth) |
+| `APP_BASE_URL` | `https://localdate.mmik.cz` | required when email is on; mailed links point at `{APP_BASE_URL}/auth/email…` |
+| `SMTP_URL` | `smtps://user:pass@smtp.example.com:465` | optional, secret; lettre URL, enables email |
+| `EMAIL_FROM` | `localdate <noreply@localdate.mmik.cz>` | required with `SMTP_URL` |
+| `EMAIL_DEV_LOG` | `true` | optional, debug builds only (release refuses to start): log mails incl. links instead of sending; exclusive with `SMTP_URL` |
 | `RUST_LOG` | `info,sqlx=warn,localdate_api=debug` | sqlx logs every query at info |
 
 Frontend dev server (Vite, :5173) proxies `/api` and `/media` (incl. WS) to `BIND_ADDR`.
