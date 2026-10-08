@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { backoffDelay, CLOSE_BANNED, createWsClient, wsUrl } from './ws'
+import { backoffDelay, CLOSE_BANNED, CLOSE_RESYNC, createWsClient, wsUrl } from './ws'
 import type { WsEvent } from './types'
 
 class FakeWebSocket {
@@ -142,6 +142,23 @@ describe('ws client', () => {
     expect(onBanned).toHaveBeenCalledOnce()
     await vi.advanceTimersByTimeAsync(60_000)
     expect(FakeWebSocket.instances).toHaveLength(1)
+  })
+
+  it('adds 0-5 s of jitter before reconnecting after a 1012 resync close', async () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0.5)
+    const { client, onBanned } = setup()
+    client.start()
+    await vi.advanceTimersByTimeAsync(0)
+    last().open()
+    last().receive({ type: 'ready' })
+    last().drop(CLOSE_RESYNC)
+    // backoff 1000 ms + 0.5 * 5000 ms jitter
+    await vi.advanceTimersByTimeAsync(3499)
+    expect(FakeWebSocket.instances).toHaveLength(1)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(FakeWebSocket.instances).toHaveLength(2)
+    expect(onBanned).not.toHaveBeenCalled()
+    vi.restoreAllMocks()
   })
 
   it('does not signal a ban on other close codes', async () => {

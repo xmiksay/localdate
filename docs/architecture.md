@@ -17,7 +17,8 @@ Dockerfile          node → rust → debian-slim; image ghcr.io/xmiksay/localda
 Makefile            single entry point for build / lint / test / run / image / deploy
 ```
 
-Deployment target is Kubernetes: one API replica plus a Postgres StatefulSet in namespace
+Deployment target is Kubernetes: one API replica (photos live on a `ReadWriteOnce` volume; WebSocket
+push already works across replicas, see Realtime) plus a Postgres StatefulSet in namespace
 `localdate`, behind ingress-nginx at `localdate.mmik.cz` — see [deployment.md](deployment.md).
 Local dev uses the host Postgres; there is no docker-compose.
 
@@ -121,6 +122,8 @@ Debug builds (clippy, tests) need no bundle: they read `frontend/dist` from disk
 | `match` (Rust module `matches`) | id uuid PK, user_a FK, user_b FK (user_a < user_b, UNIQUE pair), created_at |
 | `message` | id uuid PK, match_id FK, sender_id FK, body text (1–2000), created_at |
 | `block` | (blocker_id, blocked_id) PK, created_at |
+| `ws_replica` | replica_id uuid PK, seen_at (heartbeat, DB `now()`) |
+| `ws_presence` | (replica_id FK → ws_replica ON DELETE CASCADE, socket_id bigint) PK, user_id FK, connected_at; one row per open WebSocket; index on user_id |
 | `report` | id uuid PK, reporter_id FK NULL (**ON DELETE SET NULL** — evidence outlives the reporter's account), reported_id FK, reason enum(spam,harassment,fake,underage,other), note text NULL, created_at, resolved_at NULL, resolved_by FK NULL (ON DELETE SET NULL), resolution enum(dismissed,banned) NULL (CHECK: set together with resolved_at); partial index on reported_id of open reports |
 
 `reason` enum: `date`, `meet`. All user FKs `ON DELETE CASCADE` except the two `report` ones marked above;
@@ -144,6 +147,7 @@ nearby query), plus `shift`.
 | `visibility_window` row | deleted 24 h after it ended (`LEAST(ends_at, ended_at)`) |
 | `refresh_token` | deleted once expired, or once revoked > 7 days ago **and** its family has no live token — while a family is live, replaying any of its revoked tokens still revokes it |
 | `match`, `message` | kept until account deletion |
+| `ws_replica` (+ its `ws_presence` rows by cascade) | deleted once `seen_at` is ≥ 90 s old (replica died without deregistering) |
 
 ## Auth
 
@@ -172,9 +176,50 @@ without auth headers. S3 storage is a follow-up issue.
 
 ## Realtime
 
-`/api/ws` WebSocket, server → client push only (messages are sent over REST).
-In-process broadcast hub keyed by user id — single API replica. Multi-replica fan-out
-(Postgres LISTEN/NOTIFY) is a follow-up issue.
+`/api/ws` WebSocket, server → client push only (messages are sent over REST). Works with any number
+of API replicas; no config beyond `DATABASE_URL`.
+
+- **Local delivery** — `ws::hub::LocalHub`: per-replica map user id → open sockets (several tabs each).
+- **Bridge** — `ws::Hub` (`ws/bridge.rs`) wraps it. Every replica picks a random `replica_id` at start.
+  `Hub::send(user, event)` / `Hub::disconnect(user, reason)` deliver to local sockets at once and queue
+  the same operation for one publisher task (`ws/publisher.rs`), which runs
+  `SELECT pg_notify('localdate_ws', <json>)` on the normal pool (one task, so other replicas see this
+  replica's operations in order). A `PgListener` on **its own connection** (opened from `DATABASE_URL`,
+  outside the app pool, so it never takes a request slot) receives every notification and hands it to the
+  local hub, **skipping its own `replica_id`**. Local-first was chosen over "deliver only via NOTIFY":
+  same-replica pushes skip a database round trip and keep working while the listener is down; the cost
+  is just the origin check.
+- **Publish queue** — bounded (10 000 ops). When full, new events are dropped with a warning; an event
+  still queued after 30 s is dropped when its turn comes (logged as a count) — its recipient has most likely
+  reconnected and refetched by then. A failed NOTIFY of an event is logged and lost for other replicas.
+  **Close ops are never dropped**: they wait for room, and a failed NOTIFY is retried with backoff for up to
+  5 minutes (then logged as an error). As a second line of defence every session re-reads its account every
+  60 s (`Config::ws_account_recheck`) and closes with `4403` (banned) or `4401` (deleted), so a ban whose
+  Close op got lost still ends the socket within a minute.
+- **Wire format** (`ws/envelope.rs`): `{origin, op}` with `op` = `event` (user + `ServerEvent`), `close`
+  (user + reason), `ping`, or a reference. Postgres refuses payloads ≥ 8000 bytes and a message body may be
+  2000 four-byte characters, so a payload over 7500 bytes is replaced by `message_ref {user, id}` /
+  `match_ref {user, id}` and the receiving replica loads the row (match summaries rebuilt for that user) —
+  only if that user has a socket there, in a task of its own so the listener keeps going; a failed load
+  is logged.
+- **Listener failures** — the listener reconnects with backoff (1, 2, 4, 8, then 10 s; `retry.rs`).
+  Every 30 s each replica publishes a `ping` on the shared channel (own ticker, independent of the
+  presence SQL). Every listener receives every ping, including its own replica's, so 75 s without any
+  notification means the connection is dead (catches a silently dropped TCP link). While disconnected,
+  local delivery still works but events from other replicas are lost, so after reconnecting the replica
+  closes all its local sockets with `1012` (`CloseReason::Resync`). Clients wait their backoff plus a random
+  0–5 s (so one replica's sockets do not all return at once), reconnect, and on `ready` refetch the match
+  list and the open chat thread (`matches.resync()`, merged by message id).
+- **Presence** — `Hub::is_online(user)` is true when a `ws_presence` row of the user belongs to a
+  `ws_replica` seen less than 90 s ago (`ws::REPLICA_STALE`). A row is inserted when a socket subscribes
+  (before `ready`) and deleted when its session ends. Every 30 s (`presence::HEARTBEAT`, each beat capped
+  at 10 s) the replica upserts its `ws_replica.seen_at` and reconciles its rows with the open sockets: rows
+  of vanished sockets (failed delete, aborted session) are dropped, missing rows (failed insert, replica
+  purged after a long outage) restored. A crashed replica's rows stop counting after 90 s and the cleanup
+  job deletes them. The replica id is random per process, so there is nothing of its own to clear at startup.
+- **Graceful shutdown** (`Hub::shutdown`, run when SIGTERM/ctrl-c arrives, before axum drains): closes
+  local sockets with `1001` (clients reconnect, to another replica if there is one), stops the heartbeat
+  and waits for it so it cannot re-register the replica, then deletes the replica row (presence cascades).
 
 ## Configuration (env)
 

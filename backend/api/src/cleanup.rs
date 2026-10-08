@@ -11,6 +11,11 @@ use sea_orm::{
 };
 use tokio::time::MissedTickBehavior;
 
+use crate::ws::REPLICA_STALE;
+
+/// WebSocket replica rows go once they count as dead (`ws::REPLICA_STALE`).
+pub const REPLICA_RETENTION: Duration = Duration::seconds(REPLICA_STALE.as_secs() as i64);
+
 /// How long an ended window row is kept (without coordinates) before deletion.
 pub const WINDOW_RETENTION: Duration = Duration::hours(24);
 /// Revoked refresh tokens are kept this long so presenting one still revokes its family.
@@ -27,6 +32,8 @@ pub struct Cutoffs {
     pub windows_ended_before: DateTime<Utc>,
     /// Refresh tokens revoked at or before this are deleted.
     pub tokens_revoked_before: DateTime<Utc>,
+    /// WebSocket replicas last seen at or before this are deleted with their presence rows.
+    pub replicas_seen_before: DateTime<Utc>,
 }
 
 impl Cutoffs {
@@ -35,6 +42,7 @@ impl Cutoffs {
             now,
             windows_ended_before: now - WINDOW_RETENTION,
             tokens_revoked_before: now - REVOKED_TOKEN_RETENTION,
+            replicas_seen_before: now - REPLICA_RETENTION,
         }
     }
 }
@@ -46,6 +54,7 @@ pub struct CleanupCounts {
     pub windows_deleted: u64,
     pub coords_cleared: u64,
     pub tokens_deleted: u64,
+    pub replicas_deleted: u64,
 }
 
 // Same effect as the lazy close in `discovery::window`, so an open window always has coords.
@@ -64,6 +73,10 @@ const DELETE_WINDOWS: &str = "DELETE FROM visibility_window WHERE LEAST(ends_at,
 const DELETE_TOKENS: &str = "DELETE FROM refresh_token t WHERE t.expires_at <= $1 \
      OR (t.revoked_at <= $2 AND NOT EXISTS (SELECT 1 FROM refresh_token l \
          WHERE l.family_id = t.family_id AND l.revoked_at IS NULL AND l.expires_at > $1))";
+
+// A replica that stopped heartbeating (crash, kill -9) leaves presence rows behind; they already
+// stopped counting as online, this only reclaims them (cascade).
+const DELETE_REPLICAS: &str = "DELETE FROM ws_replica WHERE seen_at <= $1";
 
 /// One cleanup pass at the database's `now()` moved by `shift` (zero in production; tests use
 /// it to jump ahead). `None` when another replica holds the lock (tick skipped).
@@ -86,6 +99,7 @@ pub async fn run_once(db: &DatabaseConnection, shift: Duration) -> Result<Option
             [cut.now.into(), cut.tokens_revoked_before.into()],
         )
         .await?,
+        replicas_deleted: exec(&txn, DELETE_REPLICAS, [cut.replicas_seen_before.into()]).await?,
     };
     txn.commit().await.context("commit cleanup txn")?;
     Ok(Some(counts))
@@ -114,6 +128,7 @@ pub async fn run_forever(db: DatabaseConnection, every: StdDuration) {
                 windows = c.windows_deleted,
                 coords = c.coords_cleared,
                 refresh_tokens = c.tokens_deleted,
+                ws_replicas = c.replicas_deleted,
                 "cleanup removed expired data"
             ),
             Ok(Some(_)) => tracing::debug!("cleanup: nothing to do"),
@@ -179,6 +194,10 @@ mod tests {
         assert_eq!(
             cut.tokens_revoked_before.to_rfc3339(),
             "2026-10-01T12:00:00+00:00"
+        );
+        assert_eq!(
+            cut.replicas_seen_before.to_rfc3339(),
+            "2026-10-08T11:58:30+00:00"
         );
     }
 }

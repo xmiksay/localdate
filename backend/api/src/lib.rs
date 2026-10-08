@@ -8,6 +8,7 @@ pub mod error;
 pub mod interests;
 pub mod me;
 pub mod rate_limit;
+pub mod retry;
 pub mod safety;
 pub mod social;
 pub mod state;

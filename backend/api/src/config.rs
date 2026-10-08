@@ -21,7 +21,12 @@ pub struct Config {
     /// Rate-limit on `X-Forwarded-For` instead of the peer (`TRUST_PROXY_HEADERS`); only safe
     /// behind a proxy that overwrites the header.
     pub trust_proxy_headers: bool,
+    /// How often an open WebSocket re-reads its account; a ban or deletion missed by the
+    /// cross-replica bridge still closes it. Fixed in `from_env`; tests shorten it.
+    pub ws_account_recheck: Duration,
 }
+
+pub const WS_ACCOUNT_RECHECK: Duration = Duration::from_secs(60);
 
 impl Config {
     pub fn from_env() -> Result<Self> {
@@ -41,6 +46,7 @@ impl Config {
             cleanup_interval: cleanup_interval(std::env::var("CLEANUP_INTERVAL_SECS").ok())?,
             trust_proxy_headers: flag(std::env::var("TRUST_PROXY_HEADERS").ok())
                 .context("TRUST_PROXY_HEADERS must be true or false")?,
+            ws_account_recheck: WS_ACCOUNT_RECHECK,
         })
     }
 }

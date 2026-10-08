@@ -2,55 +2,14 @@ mod common;
 
 use std::time::Duration;
 
-use common::{TestApp, Tokens};
+use common::TestApp;
+use common::ws::{auth, connect, next, ready_socket};
 use futures_util::{SinkExt, StreamExt};
-use serde_json::{Value, json};
-use tokio::net::TcpStream;
+use serde_json::json;
 use tokio_tungstenite::tungstenite::Message;
-use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async};
-
-type Ws = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
 async fn serve(app: &TestApp) -> String {
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-        .await
-        .expect("bind");
-    let addr = listener.local_addr().expect("addr");
-    let router = app.router.clone();
-    tokio::spawn(async move { axum::serve(listener, router).await });
-    format!("ws://{addr}/api/ws")
-}
-
-async fn connect(url: &str) -> Ws {
-    connect_async(url).await.expect("connect").0
-}
-
-async fn auth(ws: &mut Ws, token: &str) {
-    let frame = json!({ "type": "auth", "token": token }).to_string();
-    ws.send(Message::text(frame)).await.expect("send auth");
-}
-
-/// Next text frame as JSON, or the close frame's code.
-async fn next(ws: &mut Ws) -> Result<Value, u16> {
-    loop {
-        let frame = tokio::time::timeout(Duration::from_secs(5), ws.next())
-            .await
-            .expect("timed out waiting for a frame")
-            .expect("stream ended")
-            .expect("ws error");
-        match frame {
-            Message::Text(t) => return Ok(serde_json::from_str(t.as_str()).expect("json")),
-            Message::Close(frame) => return Err(frame.map_or(1005, |f| u16::from(f.code))),
-            _ => {}
-        }
-    }
-}
-
-async fn ready_socket(url: &str, t: &Tokens) -> Ws {
-    let mut ws = connect(url).await;
-    auth(&mut ws, &t.access_token).await;
-    assert_eq!(next(&mut ws).await, Ok(json!({ "type": "ready" })));
-    ws
+    common::ws::serve(&app.router).await
 }
 
 #[tokio::test]
@@ -171,4 +130,28 @@ async fn ban_closes_open_sockets_and_refuses_new_ones_with_4403() {
         .expect("open")
         .expect("ok");
     assert!(matches!(frame, Message::Pong(_)));
+}
+
+#[tokio::test]
+async fn periodic_account_check_closes_sockets_a_missed_ban_or_deletion_left_open() {
+    let app = TestApp::with_config(|c| c.ws_account_recheck = Duration::from_millis(200)).await;
+    let url = serve(&app).await;
+    let bob = app.register("bob").await;
+    let eva = app.register("eva").await;
+    let mut ws_bob = ready_socket(&url, &bob).await;
+    let mut ws_eva = ready_socket(&url, &eva).await;
+
+    // Straight in the DB: no hub disconnect, as if the bridge had lost the Close op.
+    app.sql(&format!(
+        "UPDATE \"user\" SET banned_at = now() WHERE id = '{}'",
+        bob.user_id
+    ))
+    .await;
+    assert_eq!(next(&mut ws_bob).await, Err(4403));
+    app.sql(&format!(
+        "DELETE FROM \"user\" WHERE id = '{}'",
+        eva.user_id
+    ))
+    .await;
+    assert_eq!(next(&mut ws_eva).await, Err(4401));
 }

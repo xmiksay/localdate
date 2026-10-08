@@ -1,7 +1,11 @@
 //! `/api/ws`: server push only. The first client frame authenticates the socket.
 
+mod bridge;
+mod envelope;
 mod event;
 mod hub;
+mod presence;
+mod publisher;
 
 use std::time::Duration;
 
@@ -17,8 +21,10 @@ use crate::auth::extractor::{Account, account_status, verify_access};
 use crate::error::AppError;
 use crate::state::AppState;
 
+pub use bridge::Hub;
 pub use event::ServerEvent;
-pub use hub::{CloseReason, Hub};
+pub use hub::CloseReason;
+pub use presence::REPLICA_STALE;
 
 use hub::Outbound;
 
@@ -74,6 +80,15 @@ async fn send_event(socket: &mut WebSocket, event: &ServerEvent) -> Result<(), (
     socket.send(Message::text(json)).await.map_err(|_| ())
 }
 
+/// Why an authenticated socket must close, given its account's current state.
+fn refusal(account: &Account) -> Option<CloseReason> {
+    match account {
+        Account::Active { .. } => None,
+        Account::Banned => Some(CloseReason::Banned),
+        Account::Missing => Some(CloseReason::Unauthorized),
+    }
+}
+
 async fn session(mut socket: WebSocket, state: AppState) {
     let user = match tokio::time::timeout(AUTH_TIMEOUT, authenticate(&mut socket, &state)).await {
         Ok(Ok(user)) => user,
@@ -82,25 +97,36 @@ async fn session(mut socket: WebSocket, state: AppState) {
         _ => return close(socket, CloseReason::Unauthorized).await,
     };
 
-    let (id, mut events) = state.hub.subscribe(user);
+    let (id, mut events) = state.hub.subscribe(user).await;
     // A ban committed between the auth check and `subscribe` disconnected nothing; re-check.
     let refused = match account_status(&state.db, user).await {
-        Ok(Account::Active { .. }) => None,
-        Ok(Account::Banned) => Some(CloseReason::Banned),
-        Ok(Account::Missing) => Some(CloseReason::Unauthorized),
+        Ok(account) => refusal(&account),
         Err(_) => Some(CloseReason::Internal),
     };
     if let Some(reason) = refused {
-        state.hub.unsubscribe(user, id);
+        state.hub.unsubscribe(user, id).await;
         return close(socket, reason).await;
     }
     // Subscribed before `ready` so nothing pushed in between is lost; `ready` goes to this socket only.
     if send_event(&mut socket, &ServerEvent::Ready).await.is_err() {
-        state.hub.unsubscribe(user, id);
+        state.hub.unsubscribe(user, id).await;
         return;
     }
+    // Defence in depth: a ban whose Close op never reached this replica still ends the socket.
+    let mut recheck = tokio::time::interval_at(
+        tokio::time::Instant::now() + state.config.ws_account_recheck,
+        state.config.ws_account_recheck,
+    );
     loop {
         tokio::select! {
+            _ = recheck.tick() => match account_status(&state.db, user).await {
+                Ok(account) => if let Some(reason) = refusal(&account) {
+                    state.hub.unsubscribe(user, id).await;
+                    return close(socket, reason).await;
+                },
+                // A DB hiccup is no reason to drop the socket; the next tick checks again.
+                Err(_) => tracing::debug!("ws account re-check failed"),
+            },
             out = events.recv() => match out {
                 Some(Outbound::Event(event)) => {
                     if send_event(&mut socket, &event).await.is_err() {
@@ -108,7 +134,7 @@ async fn session(mut socket: WebSocket, state: AppState) {
                     }
                 }
                 Some(Outbound::Close(reason)) => {
-                    state.hub.unsubscribe(user, id);
+                    state.hub.unsubscribe(user, id).await;
                     return close(socket, reason).await;
                 }
                 None => break,
@@ -120,12 +146,19 @@ async fn session(mut socket: WebSocket, state: AppState) {
             },
         }
     }
-    state.hub.unsubscribe(user, id);
+    state.hub.unsubscribe(user, id).await;
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn refusal_follows_the_account_state() {
+        assert_eq!(refusal(&Account::Active { is_admin: false }), None);
+        assert_eq!(refusal(&Account::Banned), Some(CloseReason::Banned));
+        assert_eq!(refusal(&Account::Missing), Some(CloseReason::Unauthorized));
+    }
 
     #[test]
     fn parses_only_auth_frames_with_a_token() {

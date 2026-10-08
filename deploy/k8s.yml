@@ -147,8 +147,8 @@ metadata:
   name: localdate-api
   namespace: localdate
 spec:
-  # One replica only: WebSocket push goes through an in-process hub, so a second replica would
-  # miss events for users connected to the other one. Multi-replica needs the fan-out from #22.
+  # One replica only: photos live on the ReadWriteOnce PVC below, which one pod can mount. More
+  # replicas need shared photo storage (S3, #21); WebSocket push already fans out via LISTEN/NOTIFY.
   replicas: 1
   # The photos volume is ReadWriteOnce: a rolling update would start the new pod while the old one
   # still holds the volume (stuck on another node). Recreate stops the old pod first.

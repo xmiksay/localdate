@@ -85,11 +85,6 @@ async fn admin(action: AdminAction) -> Result<()> {
 /// pool acquire timeout (30 s) when the host does not answer.
 const CONNECT_PATIENCE: Duration = Duration::from_secs(60);
 
-/// Delay before retry `attempt` (0-based): 1, 2, 4, 8 s, then 10 s.
-fn connect_backoff(attempt: u32) -> Duration {
-    Duration::from_secs(1u64 << attempt.min(4)).min(Duration::from_secs(10))
-}
-
 /// On k8s the API and Postgres start together; waiting here beats crash-looping until the DB is up.
 async fn connect_with_retry(url: &str) -> Result<DatabaseConnection> {
     let started = Instant::now();
@@ -98,7 +93,7 @@ async fn connect_with_retry(url: &str) -> Result<DatabaseConnection> {
         match Database::connect(url).await {
             Ok(db) => return Ok(db),
             Err(e) if started.elapsed() < CONNECT_PATIENCE => {
-                let delay = connect_backoff(attempt);
+                let delay = localdate_api::retry::backoff(attempt);
                 tracing::warn!(error = %e, retry_in = ?delay, "database not reachable yet");
                 tokio::time::sleep(delay).await;
                 attempt += 1;
@@ -134,12 +129,18 @@ async fn serve() -> Result<()> {
         db.clone(),
         config.cleanup_interval,
     ));
-    let app = localdate_api::app(AppState::new(db, config));
+    let state = AppState::new(db, config).await?;
+    let hub = state.hub.clone();
+    let app = localdate_api::app(state);
     axum::serve(
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),
     )
-    .with_graceful_shutdown(shutdown_signal())
+    .with_graceful_shutdown(async move {
+        shutdown_signal().await;
+        // Before draining, so open sockets close (1001) instead of holding the shutdown up.
+        hub.shutdown().await;
+    })
     .await
     .context("serving")
 }
@@ -166,15 +167,4 @@ async fn shutdown_signal() {
     let terminate = std::future::pending::<()>();
     tokio::select! { _ = ctrl_c => {}, _ = terminate => {} }
     tracing::info!("shutting down");
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn connect_backoff_doubles_then_caps() {
-        let secs: Vec<u64> = (0..7).map(|a| connect_backoff(a).as_secs()).collect();
-        assert_eq!(secs, [1, 2, 4, 8, 10, 10, 10]);
-    }
 }

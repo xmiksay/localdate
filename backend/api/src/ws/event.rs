@@ -1,10 +1,11 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::social::{MatchSummaryDto, MessageDto};
 
-/// Server -> client push events, exactly as in docs/api.md "WebSocket".
-#[derive(Serialize, Debug, Clone)]
+/// Server -> client push events, exactly as in docs/api.md "WebSocket". `Deserialize` is for the
+/// cross-replica bridge, which ships them as JSON through Postgres NOTIFY.
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ServerEvent {
     Ready,

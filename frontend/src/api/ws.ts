@@ -4,6 +4,10 @@ const MAX_BACKOFF_MS = 30_000
 const EVENT_TYPES = ['ready', 'message', 'match', 'wave']
 /** Server close code for a suspended account, see docs/api.md. */
 export const CLOSE_BANNED = 4403
+/** Server close code: it may have missed events for this socket; reconnect and refetch. */
+export const CLOSE_RESYNC = 1012
+/** A replica closes all its sockets at once with 1012; spread their reconnects over this window. */
+export const RESYNC_JITTER_MS = 5000
 
 export const backoffDelay = (attempt: number) => Math.min(MAX_BACKOFF_MS, 1000 * 2 ** attempt)
 
@@ -36,9 +40,9 @@ export function createWsClient({ getToken, onEvent, onBanned }: WsClientOptions)
   let running = false
   let gotReady = true
 
-  function scheduleReconnect() {
+  function scheduleReconnect(extraDelay = 0) {
     if (!running) return
-    timer = setTimeout(connect, backoffDelay(attempt++))
+    timer = setTimeout(connect, backoffDelay(attempt++) + extraDelay)
   }
 
   async function connect() {
@@ -68,7 +72,7 @@ export function createWsClient({ getToken, onEvent, onBanned }: WsClientOptions)
         onBanned()
         return
       }
-      scheduleReconnect()
+      scheduleReconnect(e.code === CLOSE_RESYNC ? Math.random() * RESYNC_JITTER_MS : 0)
     }
   }
 

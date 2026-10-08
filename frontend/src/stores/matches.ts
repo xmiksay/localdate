@@ -64,6 +64,13 @@ export const useMatchesStore = defineStore('matches', () => {
     hasMore.value = { ...hasMore.value, [matchId]: page.length >= PAGE_SIZE }
   }
 
+  /** After a WS (re)connect events may have been missed: refetch the list and the open thread
+   * (merged by id, so nothing already shown is duplicated). */
+  async function resync() {
+    const id = activeMatchId.value
+    await Promise.all([loadMatches(), id ? loadMessages(id) : undefined])
+  }
+
   async function loadOlder(matchId: string) {
     const oldest = messages.value[matchId]?.find((m) => !isPendingMessage(m))
     if (!oldest) return loadMessages(matchId)
@@ -166,6 +173,7 @@ export const useMatchesStore = defineStore('matches', () => {
     loadMatches,
     loadMessages,
     loadOlder,
+    resync,
     send,
     setActive,
     markRead,

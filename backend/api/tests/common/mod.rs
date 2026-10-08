@@ -15,6 +15,8 @@ use tower::ServiceExt;
 use uuid::Uuid;
 
 pub mod areas;
+pub mod replica;
+pub mod ws;
 
 pub const PASSWORD: &str = "correct horse battery";
 
@@ -80,16 +82,17 @@ impl TestApp {
 
         let photo_dir = tempfile::tempdir()?;
         let mut config = Config {
-            database_url: String::new(),
+            database_url: database_url(&admin_url, &db_name),
             jwt_secret: "test-secret-test-secret-test-secret-1".into(),
             photo_dir: photo_dir.path().to_path_buf(),
             bind_addr: "127.0.0.1:0".parse()?,
             rate_limit: false,
             cleanup_interval: std::time::Duration::from_secs(300),
             trust_proxy_headers: false,
+            ws_account_recheck: localdate_api::config::WS_ACCOUNT_RECHECK,
         };
         tweak(&mut config);
-        let state = AppState::new(db.clone(), config);
+        let state = AppState::new(db.clone(), config).await?;
         let router = build(state.clone());
         Ok(Self {
             router,
@@ -109,22 +112,7 @@ impl TestApp {
         token: Option<&str>,
         body: Option<Value>,
     ) -> (StatusCode, Value) {
-        let mut builder = Request::builder().method(method).uri(path);
-        if let Some(t) = token {
-            builder = builder.header(header::AUTHORIZATION, format!("Bearer {t}"));
-        }
-        let req = match body {
-            Some(b) => builder
-                .header(header::CONTENT_TYPE, "application/json")
-                .body(Body::from(b.to_string())),
-            None => builder.body(Body::empty()),
-        }
-        .expect("build request");
-        let resp = self.router.clone().oneshot(req).await.expect("infallible");
-        let status = resp.status();
-        let bytes = resp.into_body().collect().await.expect("body").to_bytes();
-        let value = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
-        (status, value)
+        call(&self.router, method, path, token, body).await
     }
 
     pub async fn post(&self, path: &str, body: Value) -> (StatusCode, Value) {
@@ -303,6 +291,32 @@ impl TestApp {
         assert_eq!(status, StatusCode::CREATED, "register failed: {body}");
         tokens_from(&body)
     }
+}
+
+/// [`TestApp::request`] against any router (e.g. a second replica's).
+pub async fn call(
+    router: &Router,
+    method: Method,
+    path: &str,
+    token: Option<&str>,
+    body: Option<Value>,
+) -> (StatusCode, Value) {
+    let mut builder = Request::builder().method(method).uri(path);
+    if let Some(t) = token {
+        builder = builder.header(header::AUTHORIZATION, format!("Bearer {t}"));
+    }
+    let req = match body {
+        Some(b) => builder
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(b.to_string())),
+        None => builder.body(Body::empty()),
+    }
+    .expect("build request");
+    let resp = router.clone().oneshot(req).await.expect("infallible");
+    let status = resp.status();
+    let bytes = resp.into_body().collect().await.expect("body").to_bytes();
+    let value = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
+    (status, value)
 }
 
 /// Birth year that makes someone exactly `age` today (Jan 1 birthdays have always passed).

@@ -9,7 +9,7 @@ use axum::routing::{get, post};
 
 use crate::state::AppState;
 
-pub use matches::{MatchSummaryDto, OtherDto};
+pub use matches::{MatchSummaryDto, OtherDto, summaries};
 pub use messages::MessageDto;
 
 pub fn router() -> Router<AppState> {
