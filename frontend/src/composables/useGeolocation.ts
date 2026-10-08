@@ -1,4 +1,5 @@
 import { onScopeDispose, watch } from 'vue'
+import { ApiError } from '@/api/client'
 import { updateLocation } from '@/api/window'
 import { useWindowStore } from '@/stores/window'
 import { shouldSendLocation, type Coords } from '@/utils/geo'
@@ -34,10 +35,16 @@ export function useLocationSharing() {
     // Claim the slot first so overlapping fixes don't double-send; retry on the next fix if it fails.
     const previous = lastSent
     lastSent = { at: next, time: now }
+    const windowId = win.current?.id
     try {
-      await updateLocation(next.lat, next.lon)
+      await updateLocation(next.lat, next.lon, p.coords.accuracy)
       win.locationError = null
-    } catch {
+    } catch (e) {
+      // A reply about a window the user has since replaced must not end the new one.
+      if (win.current?.id !== windowId) return
+      // The window is over server-side: no point retrying, the watch stops with it.
+      if (e instanceof ApiError && e.code === 'left_area') return win.leftArea()
+      if (e instanceof ApiError && e.code === 'no_active_window') return win.clear()
       lastSent = previous
     }
   }

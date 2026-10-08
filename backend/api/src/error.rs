@@ -33,6 +33,12 @@ pub enum AppError {
     CannotBanAdmin,
     #[error("report is already resolved")]
     AlreadyResolved,
+    #[error("you are not inside this area")]
+    OutsideArea,
+    #[error("you left the area, the window has ended")]
+    LeftArea,
+    #[error("area is referenced by windows, deactivate it instead")]
+    AreaInUse,
     #[error("you must be at least 18 years old")]
     Underage,
     #[error("profile, filter and at least one photo are required")]
@@ -66,7 +72,10 @@ impl AppError {
             | Self::NoActiveWindow
             | Self::NotVisible
             | Self::CannotBanAdmin
-            | Self::AlreadyResolved => StatusCode::CONFLICT,
+            | Self::AlreadyResolved
+            | Self::OutsideArea
+            | Self::LeftArea
+            | Self::AreaInUse => StatusCode::CONFLICT,
             Self::Underage
             | Self::ProfileIncomplete
             | Self::PhotoLimit
@@ -90,6 +99,9 @@ impl AppError {
             Self::NotVisible => "not_visible",
             Self::CannotBanAdmin => "cannot_ban_admin",
             Self::AlreadyResolved => "already_resolved",
+            Self::OutsideArea => "outside_area",
+            Self::LeftArea => "left_area",
+            Self::AreaInUse => "area_in_use",
             Self::Underage => "underage",
             Self::ProfileIncomplete => "profile_incomplete",
             Self::PhotoLimit => "photo_limit",
@@ -190,6 +202,9 @@ mod tests {
             (AppError::NotVisible, 409, "not_visible"),
             (AppError::CannotBanAdmin, 409, "cannot_ban_admin"),
             (AppError::AlreadyResolved, 409, "already_resolved"),
+            (AppError::OutsideArea, 409, "outside_area"),
+            (AppError::LeftArea, 409, "left_area"),
+            (AppError::AreaInUse, 409, "area_in_use"),
             (AppError::Underage, 422, "underage"),
             (AppError::ProfileIncomplete, 422, "profile_incomplete"),
             (AppError::PhotoLimit, 422, "photo_limit"),

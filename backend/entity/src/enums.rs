@@ -29,6 +29,22 @@ pub enum Reason {
 pub enum WindowKind {
     #[sea_orm(string_value = "timed")]
     Timed,
+    #[sea_orm(string_value = "area")]
+    Area,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumIter, DeriveActiveEnum, Serialize, Deserialize)]
+#[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "area_kind")]
+#[serde(rename_all = "snake_case")]
+pub enum AreaKind {
+    #[sea_orm(string_value = "city_centre")]
+    CityCentre,
+    #[sea_orm(string_value = "train_station")]
+    TrainStation,
+    #[sea_orm(string_value = "venue")]
+    Venue,
+    #[sea_orm(string_value = "other")]
+    Other,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, EnumIter, DeriveActiveEnum, Serialize, Deserialize)]

@@ -28,18 +28,35 @@ Debug builds (clippy, tests) need no bundle: they read `frontend/dist` from disk
 - **Visibility window** — the user turns on "I'm available" for a preset duration
   (30 / 60 / 120 / 240 min, default from settings). Can be extended or ended early.
   Only a user with an active window can see others (reciprocity), and only users with
-  an active window **and ≥ 1 photo and a profile** are visible. `kind` is an enum
-  (`timed` only for now) so future modes (until end of day, predefined area) fit in.
+  an active window **and ≥ 1 photo and a profile** are visible. `kind` is `timed` (distance
+  around the user) or `area` (bound to a predefined area, below); further modes (until end of day) fit the enum.
+- **Areas** — admin-managed circles (centre + `radius_m` 50–5000) around public places: city centre,
+  train station, venue. Plain Postgres + Rust haversine (`discovery::geo::Circle`), no PostGIS; the table is
+  small, so `GET /areas` filters active areas in Rust. An area window starts only inside the circle
+  (`409 outside_area`) and ends itself (`window::end`, coordinates wiped, waves deleted) when a location
+  update lands more than radius + margin off the centre, margin = max(100 m, reported fix accuracy capped at
+  500 m) (`geo::exit_margin`, GPS-jitter hysteresis) —
+  that update answers `409 left_area` and the client shows a "you left the area" notice. Containment uses
+  the coordinates as sent, before rounding. Admins never delete an area that window rows still reference
+  (the FK has no delete action → `409 area_in_use`); they deactivate it instead, which hides it from
+  `/areas` and refuses new windows, while running windows go on until they end (≤ 12 h) or their user leaves.
+  Moving/resizing an area applies to running windows at their next location update.
 - **Location** — stored only on the active window row, rounded to 3 decimals (~100 m),
   and wiped (`lat`/`lon` set to NULL) as soon as the window ends — immediately on an explicit
   end/replace/lazy close, by the cleanup job (which closes the window) for windows that ran out.
-  A CHECK enforces that an open window (`ended_at IS NULL`) always has coordinates; location
-  updates are a conditional write on a still-active window and extend locks the row.
+  A CHECK enforces that an open window (`ended_at IS NULL`) always has coordinates. A location update on a
+  timed window is one conditional write on a still-active window; on an area window it locks the row
+  (`FOR UPDATE`), runs the leave check and then writes or ends the window. Extend locks the row too.
   The server never returns anyone's coordinates; only a **distance band**.
   Distance = haversine over lat/lon in SQL (bounding-box prefilter + exact check).
-  Predefined areas (city centre, train station) are a future replacement.
+  Area windows are matched by area instead (below).
 - **Mutual filters** — A sees B iff all hold, in both directions:
-  - distance ≤ min(A.max_distance_m, B.max_distance_m)
+  - both windows are timed and distance ≤ min(A.max_distance_m, B.max_distance_m), **or** both are area
+    windows in the same area (distance and max distance then ignored; timed and area windows never meet).
+    Area matches carry `area { id, name }` and `distance_band: null` (deliberate: no distance hint inside an
+    area); they sort by shared interests, newest window, `user_id`. An area window whose
+    `location_updated_at` is older than `AREA_STALE_SECS` (10 min, `discovery::rules`) is stale: invisible to
+    others and sees nobody, so a phone that stopped reporting cannot linger in an area
   - A.genders empty ("doesn't matter") or contains B.gender, and vice versa
   - B.age ∈ [A.age_min, A.age_max] and vice versa
   - A.reasons ∩ B.reasons ≠ ∅ (one shared reason is enough)
@@ -89,7 +106,8 @@ Debug builds (clippy, tests) need no bundle: they read `frontend/dist` from disk
 | `interest` | id serial PK, key text UNIQUE (i18n key suffix, seeded ~40) |
 | `user_interest` | (user_id, interest_id) PK; max 10 per user |
 | `filter` | user_id PK/FK, max_distance_m int (200–10000), genders gender[] (empty = any), age_min smallint, age_max smallint (18–99), reasons reason[] non-empty, default_window_minutes smallint (30/60/120/240) |
-| `visibility_window` | id uuid PK, user_id FK, kind enum(timed), lat double NULL, lon double NULL (NULL once ended; CHECK open ⇒ set), location_updated_at, starts_at, ends_at, ended_at NULL. Active = `ended_at IS NULL AND ends_at > now()`. Unique partial index on `user_id WHERE ended_at IS NULL` — the app must set `ended_at` when replacing/ending a window |
+| `area` | id uuid PK, name text (1–80), kind enum(city_centre,train_station,venue,other), lat double, lon double (centre, not rounded), radius_m int (50–5000), active bool (default true), created_at |
+| `visibility_window` | id uuid PK, user_id FK, kind enum(timed,area), area_id FK NULL (no delete action; CHECK set iff kind = area), lat double NULL, lon double NULL (NULL once ended; CHECK open ⇒ set), location_updated_at, starts_at, ends_at, ended_at NULL. Active = `ended_at IS NULL AND ends_at > now()`. Unique partial index on `user_id WHERE ended_at IS NULL` — the app must set `ended_at` when replacing/ending a window |
 | `wave` | id uuid PK, from_user_id FK, to_user_id FK, window_id FK, created_at, expires_at (= sender window ends_at) |
 | `match` (Rust module `matches`) | id uuid PK, user_a FK, user_b FK (user_a < user_b, UNIQUE pair), created_at |
 | `message` | id uuid PK, match_id FK, sender_id FK, body text (1–2000), created_at |

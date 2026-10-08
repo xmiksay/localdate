@@ -16,20 +16,26 @@ use serde::Serialize;
 use uuid::Uuid;
 
 use super::geo::{DistanceBand, distance_band};
+use super::rules::AREA_STALE_SECS;
 use super::window;
+use crate::areas::AreaRef;
 use crate::auth::AuthUser;
 use crate::error::AppError;
 use crate::interests::InterestDto;
 use crate::me::PhotoDto;
 use crate::state::AppState;
 
-/// $1 = viewer, $2 = candidate ids (empty = everyone). Mirrors `rules::mutually_visible` plus
-/// blocks, active windows, bans and the photo requirement. A ban ends the window, so the ban join
-/// is a second line of defence. The bounding box (viewer's max distance,
-/// with an antimeridian-safe longitude test) only narrows candidates; the haversine check decides.
+/// $1 = viewer, $2 = candidate ids (empty = everyone), $3 = `rules::AREA_STALE_SECS`. Mirrors
+/// `rules::mutually_visible` plus blocks, active windows, bans and the photo requirement. A ban ends
+/// the window, so the ban join is a second line of defence. Area windows pair only on equal
+/// `area_id` with both locations fresh (an inactive area keeps its running windows); timed windows
+/// (both `area_id` NULL) use distance: the bounding box
+/// (viewer's max distance, with an antimeridian-safe longitude test) only narrows candidates,
+/// the haversine check decides.
 const SQL: &str = r#"
 SELECT ow.user_id, ow.starts_at, dist.d AS distance_m, op.display_name,
-       op.gender::text AS gender, op.bio, ages.their_age AS age, ofl.reasons::text[] AS reasons
+       op.gender::text AS gender, op.bio, ages.their_age AS age, ofl.reasons::text[] AS reasons,
+       ar.id AS area_id, ar.name AS area_name
 FROM visibility_window mw
 JOIN filter mf ON mf.user_id = mw.user_id
 JOIN profile mp ON mp.user_id = mw.user_id
@@ -38,6 +44,7 @@ JOIN visibility_window ow
 JOIN filter ofl ON ofl.user_id = ow.user_id
 JOIN profile op ON op.user_id = ow.user_id
 JOIN "user" ou ON ou.id = ow.user_id AND ou.banned_at IS NULL
+LEFT JOIN area ar ON ar.id = mw.area_id
 CROSS JOIN LATERAL (SELECT
     mf.max_distance_m / 110000.0 AS dlat,
     mf.max_distance_m / 110000.0 / GREATEST(cos(radians(mw.lat)), 1e-6) AS dlon) bb
@@ -51,9 +58,14 @@ CROSS JOIN LATERAL (SELECT
     date_part('year', age((now() AT TIME ZONE 'UTC')::date, op.birth_date))::int AS their_age) ages
 WHERE mw.user_id = $1 AND mw.ended_at IS NULL AND mw.ends_at > now()
   AND (cardinality($2::uuid[]) = 0 OR ow.user_id = ANY($2::uuid[]))
-  AND ow.lat BETWEEN mw.lat - bb.dlat AND mw.lat + bb.dlat
-  AND (abs(ow.lon - mw.lon) <= bb.dlon OR abs(ow.lon - mw.lon) >= 360 - bb.dlon)
-  AND dist.d <= LEAST(mf.max_distance_m, ofl.max_distance_m)
+  AND ow.area_id IS NOT DISTINCT FROM mw.area_id
+  AND ((mw.area_id IS NOT NULL
+    AND mw.location_updated_at > now() - make_interval(secs => $3::float8)
+    AND ow.location_updated_at > now() - make_interval(secs => $3::float8))
+  OR (mw.area_id IS NULL
+    AND ow.lat BETWEEN mw.lat - bb.dlat AND mw.lat + bb.dlat
+    AND (abs(ow.lon - mw.lon) <= bb.dlon OR abs(ow.lon - mw.lon) >= 360 - bb.dlon)
+    AND dist.d <= LEAST(mf.max_distance_m, ofl.max_distance_m)))
   AND (cardinality(mf.genders) = 0 OR op.gender = ANY(mf.genders))
   AND (cardinality(ofl.genders) = 0 OR mp.gender = ANY(ofl.genders))
   AND ages.their_age BETWEEN mf.age_min AND mf.age_max
@@ -76,6 +88,8 @@ pub struct NearbyRow {
     pub bio: String,
     pub age: i32,
     pub reasons: Vec<String>,
+    pub area_id: Option<Uuid>,
+    pub area_name: Option<String>,
 }
 
 #[derive(Serialize, Debug, Clone, Copy, PartialEq, Eq)]
@@ -98,7 +112,9 @@ pub struct NearbyProfile {
     shared_interests: Vec<i32>,
     photos: Vec<PhotoDto>,
     reasons: Vec<Reason>,
-    distance_band: DistanceBand,
+    /// `None` for area matches: inside an area the area is the only place information.
+    distance_band: Option<DistanceBand>,
+    area: Option<AreaRef>,
     wave_state: WaveState,
     match_id: Option<Uuid>,
 }
@@ -110,8 +126,11 @@ pub async fn rows(
     me: Uuid,
     ids: &[Uuid],
 ) -> Result<Vec<NearbyRow>, AppError> {
-    let stmt =
-        Statement::from_sql_and_values(DbBackend::Postgres, SQL, [me.into(), ids.to_vec().into()]);
+    let stmt = Statement::from_sql_and_values(
+        DbBackend::Postgres,
+        SQL,
+        [me.into(), ids.to_vec().into(), AREA_STALE_SECS.into()],
+    );
     Ok(NearbyRow::find_by_statement(stmt).all(db).await?)
 }
 
@@ -215,7 +234,8 @@ pub async fn profiles(
         out.push((
             r.starts_at,
             NearbyProfile {
-                distance_band: distance_band(r.distance_m),
+                distance_band: r.area_id.is_none().then(|| distance_band(r.distance_m)),
+                area: r.area_id.zip(r.area_name).map(AreaRef::from),
                 gender: Gender::try_from_value(&r.gender)?,
                 reasons: r
                     .reasons
@@ -246,6 +266,7 @@ fn shared_ids(mine: &HashSet<i32>, theirs: impl Iterator<Item = i32>) -> Vec<i32
 }
 
 /// Most shared interests first, then nearest band, newest window, and `user_id` for stability.
+/// A list is all timed or all area matches (band `None`), so area lists skip the band step.
 fn sort_for_display(items: &mut [(DateTimeWithTimeZone, NearbyProfile)]) {
     items.sort_by_key(|(starts_at, p)| {
         (
@@ -283,7 +304,7 @@ mod tests {
 
     fn item(
         id: u128,
-        band: DistanceBand,
+        band: Option<DistanceBand>,
         shared: &[i32],
         age_min: i64,
     ) -> (DateTimeWithTimeZone, NearbyProfile) {
@@ -299,6 +320,7 @@ mod tests {
             photos: vec![],
             reasons: vec![],
             distance_band: band,
+            area: band.is_none().then(|| (Uuid::nil(), String::new()).into()),
             wave_state: WaveState::None,
             match_id: None,
         };
@@ -317,19 +339,33 @@ mod tests {
     fn display_order_shared_then_band_then_window_then_id() {
         use DistanceBand::*;
         let mut items = vec![
-            item(1, Lt200m, &[], 0),
-            item(2, Lt5km, &[1, 2], 0),
-            item(3, Lt500m, &[1], 0),
-            item(4, Lt200m, &[1], 30),
-            item(5, Lt200m, &[1], 5),
-            item(7, Lt1km, &[], 10),
-            item(6, Lt1km, &[], 10),
+            item(1, Some(Lt200m), &[], 0),
+            item(2, Some(Lt5km), &[1, 2], 0),
+            item(3, Some(Lt500m), &[1], 0),
+            item(4, Some(Lt200m), &[1], 30),
+            item(5, Some(Lt200m), &[1], 5),
+            item(7, Some(Lt1km), &[], 10),
+            item(6, Some(Lt1km), &[], 10),
         ];
         // Same instant for the last two so only the id can break the tie.
         items[6].0 = items[5].0;
         sort_for_display(&mut items);
         let order: Vec<u128> = items.iter().map(|(_, p)| p.user_id.as_u128()).collect();
         assert_eq!(order, [2, 5, 4, 3, 1, 6, 7]);
+    }
+
+    #[test]
+    fn area_matches_order_by_shared_then_window_then_id() {
+        let mut items = vec![
+            item(1, None, &[], 0),
+            item(2, None, &[4], 30),
+            item(3, None, &[], 10),
+            item(4, None, &[], 10),
+        ];
+        items[3].0 = items[2].0;
+        sort_for_display(&mut items);
+        let order: Vec<u128> = items.iter().map(|(_, p)| p.user_id.as_u128()).collect();
+        assert_eq!(order, [2, 1, 3, 4]);
     }
 
     #[test]

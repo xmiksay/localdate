@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   ageFromBirthDate,
   checkPhotoFile,
+  invalidAreaFields,
   isAdult,
   isValidPassword,
   isValidUsername,
@@ -54,5 +55,31 @@ describe('moveItem', () => {
     expect(moveItem([1, 2, 3], 2, 0)).toEqual([3, 1, 2])
     expect(moveItem([1, 2, 3], 0, -1)).toEqual([1, 2, 3])
     expect(moveItem([1, 2, 3], 2, 3)).toEqual([1, 2, 3])
+  })
+})
+
+describe('area validation', () => {
+  const ok = { name: ' Hlavní nádraží ', lat: 50.08, lon: 14.43, radius_m: 300 }
+  it('accepts a valid area', () => {
+    expect(invalidAreaFields(ok)).toEqual([])
+    expect(invalidAreaFields({ name: 'x', lat: -90, lon: 180, radius_m: 50 })).toEqual([])
+    expect(invalidAreaFields({ ...ok, name: 'x'.repeat(80), radius_m: 5000 })).toEqual([])
+  })
+  it('trims the name and enforces 1–80 chars', () => {
+    expect(invalidAreaFields({ ...ok, name: '   ' })).toEqual(['name'])
+    expect(invalidAreaFields({ ...ok, name: 'x'.repeat(81) })).toEqual(['name'])
+  })
+  it('counts code points like the server, so an emoji is one character', () => {
+    expect(invalidAreaFields({ ...ok, name: '🎡'.repeat(80) })).toEqual([])
+    expect(invalidAreaFields({ ...ok, name: '🎡'.repeat(81) })).toEqual(['name'])
+  })
+  it('checks coordinate ranges and rejects NaN', () => {
+    expect(invalidAreaFields({ ...ok, lat: 90.1, lon: -180.1 })).toEqual(['lat', 'lon'])
+    expect(invalidAreaFields({ ...ok, lat: NaN, lon: NaN })).toEqual(['lat', 'lon'])
+  })
+  it('requires a whole radius of 50–5000 m', () => {
+    for (const r of [49, 5001, 120.5, NaN]) {
+      expect(invalidAreaFields({ ...ok, radius_m: r })).toEqual(['radius_m'])
+    }
   })
 })

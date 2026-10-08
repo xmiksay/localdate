@@ -5,11 +5,14 @@ export type DistanceBand = 'lt_200m' | 'lt_500m' | 'lt_1km' | 'lt_2km' | 'lt_5km
 export type WaveState = 'none' | 'sent' | 'received' | 'matched'
 export type WindowMinutes = 30 | 60 | 120 | 240
 export type ReportReason = 'spam' | 'harassment' | 'fake' | 'underage' | 'other'
+export type WindowKind = 'timed' | 'area'
+export type AreaKind = 'city_centre' | 'train_station' | 'venue' | 'other'
 
 export const GENDERS: Gender[] = ['male', 'female', 'other']
 export const REASONS: Reason[] = ['date', 'meet']
 export const WINDOW_MINUTES: WindowMinutes[] = [30, 60, 120, 240]
 export const REPORT_REASONS: ReportReason[] = ['spam', 'harassment', 'fake', 'underage', 'other']
+export const AREA_KINDS: AreaKind[] = ['city_centre', 'train_station', 'venue', 'other']
 
 export type ErrorCode =
   | 'validation'
@@ -21,6 +24,9 @@ export type ErrorCode =
   | 'not_found'
   | 'username_taken'
   | 'no_active_window'
+  | 'outside_area'
+  | 'left_area'
+  | 'area_in_use'
   | 'not_visible'
   | 'cannot_ban_admin'
   | 'already_resolved'
@@ -45,6 +51,9 @@ export const ERROR_CODES: (ErrorCode | ClientErrorCode)[] = [
   'not_found',
   'username_taken',
   'no_active_window',
+  'outside_area',
+  'left_area',
+  'area_in_use',
   'not_visible',
   'cannot_ban_admin',
   'already_resolved',
@@ -97,9 +106,35 @@ export interface Filter {
   reasons: Reason[]
   default_window_minutes: WindowMinutes
 }
+export interface AreaRef {
+  id: string
+  name: string
+}
+export interface Area {
+  id: string
+  name: string
+  kind: AreaKind
+  /** Centre of a public place, never a user's position. */
+  lat: number
+  lon: number
+  radius_m: number
+  active: boolean
+  created_at: string
+}
+/** Body of `POST /admin/areas` and `PUT /admin/areas/{id}`. */
+export interface AreaInput {
+  name: string
+  kind: AreaKind
+  lat: number
+  lon: number
+  radius_m: number
+  active: boolean
+}
 export interface Window {
   id: string
-  kind: 'timed'
+  kind: WindowKind
+  /** Set iff kind = 'area'. */
+  area: AreaRef | null
   starts_at: string
   ends_at: string
   waves_left: number
@@ -115,7 +150,10 @@ export interface NearbyProfile {
   shared_interests: number[]
   photos: Photo[]
   reasons: Reason[]
-  distance_band: DistanceBand
+  /** null for area matches: the shared area is the only place information. */
+  distance_band: DistanceBand | null
+  /** The shared area when both windows are area windows, else null. */
+  area: AreaRef | null
   wave_state: WaveState
   match_id: string | null
 }

@@ -4,6 +4,7 @@ use sea_orm::entity::prelude::*;
 /// Active = `ended_at IS NULL AND ends_at > now()`. The DB only guarantees one *open*
 /// (`ended_at IS NULL`) row per user, so writers must set `ended_at` when replacing or
 /// expiring a window. `lat`/`lon` are `None` once the window has ended (privacy).
+/// `area_id` is set iff `kind` is `Area`.
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel)]
 #[sea_orm(table_name = "visibility_window")]
 pub struct Model {
@@ -17,6 +18,7 @@ pub struct Model {
     pub starts_at: DateTimeWithTimeZone,
     pub ends_at: DateTimeWithTimeZone,
     pub ended_at: Option<DateTimeWithTimeZone>,
+    pub area_id: Option<Uuid>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
@@ -28,6 +30,13 @@ pub enum Relation {
         on_delete = "Cascade"
     )]
     User,
+    #[sea_orm(
+        belongs_to = "super::area::Entity",
+        from = "Column::AreaId",
+        to = "super::area::Column::Id",
+        on_delete = "NoAction"
+    )]
+    Area,
     #[sea_orm(has_many = "super::wave::Entity")]
     Wave,
 }
@@ -35,6 +44,11 @@ pub enum Relation {
 impl Related<super::user::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::User.def()
+    }
+}
+impl Related<super::area::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::Area.def()
     }
 }
 impl Related<super::wave::Entity> for Entity {

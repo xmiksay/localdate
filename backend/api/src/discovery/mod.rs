@@ -1,6 +1,7 @@
 //! Visibility window, location and the mutual-filter "nearby" list.
 
 pub mod geo;
+pub mod location;
 pub mod nearby;
 pub mod rules;
 pub mod window;
@@ -19,6 +20,6 @@ pub fn router() -> Router<AppState> {
                 .patch(window::extend_window)
                 .delete(window::end_window),
         )
-        .route("/me/location", post(window::update_location))
+        .route("/me/location", post(location::update_location))
         .route("/nearby", get(nearby::get_nearby))
 }

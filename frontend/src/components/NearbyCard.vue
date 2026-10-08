@@ -38,7 +38,10 @@ const chips = computed(() =>
         </span>
       </div>
       <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
-        <p class="text-sm font-semibold text-coral">
+        <p v-if="profile.area" class="truncate text-sm font-semibold text-coral">
+          <span aria-hidden="true">📍 </span>{{ profile.area.name }}
+        </p>
+        <p v-else-if="profile.distance_band" class="text-sm font-semibold text-coral">
           {{ t(`distance.${profile.distance_band}`) }}
         </p>
         <SharedInterestsBadge :count="profile.shared_interests.length" />

@@ -4,6 +4,7 @@ import App from './App.vue'
 import { i18n, setLocale } from './i18n'
 import router from './router'
 import { useAdminStore } from './stores/admin'
+import { useAreasStore } from './stores/areas'
 import { useAuthStore } from './stores/auth'
 import { useMatchesStore } from './stores/matches'
 import { useMeStore } from './stores/me'
@@ -26,10 +27,11 @@ watch(
   (authed) => {
     if (authed) return
     useMeStore().reset()
-    useWindowStore().clear()
+    useWindowStore().reset()
     useNearbyStore().reset()
     useMatchesStore().reset()
     useAdminStore().reset()
+    useAreasStore().reset()
     if (router.currentRoute.value.meta.requiresAuth) router.replace({ name: 'login' })
   },
 )

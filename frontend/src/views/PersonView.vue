@@ -66,7 +66,12 @@ const leave = () => router.replace({ name: 'nearby' })
       <h1 class="font-display text-3xl font-semibold leading-tight">
         {{ profile.display_name }}, {{ profile.age }}
       </h1>
-      <p class="mt-1 font-semibold text-coral">{{ t(`distance.${profile.distance_band}`) }}</p>
+      <p v-if="profile.area" class="mt-1 font-semibold text-coral">
+        <span aria-hidden="true">📍 </span>{{ profile.area.name }}
+      </p>
+      <p v-else-if="profile.distance_band" class="mt-1 font-semibold text-coral">
+        {{ t(`distance.${profile.distance_band}`) }}
+      </p>
     </header>
 
     <section v-if="profile.bio">

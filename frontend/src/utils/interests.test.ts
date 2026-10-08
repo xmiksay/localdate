@@ -18,7 +18,7 @@ describe('sharedFirst', () => {
   })
 })
 
-const p = (id: string, shared: number[], band: DistanceBand) =>
+const p = (id: string, shared: number[], band: DistanceBand | null) =>
   ({ user_id: id, shared_interests: shared, distance_band: band }) as NearbyProfile
 
 describe('byOverlapThenBand', () => {
@@ -39,5 +39,10 @@ describe('byOverlapThenBand', () => {
       'none-near',
       'none-far',
     ])
+  })
+
+  it('area matches have no band and order by shared count, keeping ties in place', () => {
+    const list = [p('a', [], null), p('b', [1], null), p('c', [], null)]
+    expect(list.sort(byOverlapThenBand).map((x) => x.user_id)).toEqual(['b', 'a', 'c'])
   })
 })
