@@ -1,5 +1,5 @@
 //! Cross-replica hub: local delivery through [`LocalHub`], fan-out to the other replicas through
-//! Postgres LISTEN/NOTIFY, presence through `ws_presence` (docs/architecture.md "Realtime").
+//! Postgres LISTEN/NOTIFY, presence through `ws_presence` (docs/architecture/realtime-push.md "Realtime").
 
 use std::sync::{Arc, Mutex};
 use std::time::Duration;

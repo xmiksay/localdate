@@ -22,7 +22,7 @@ pub fn resolution(admin: Uuid, outcome: ReportResolution) -> report::ActiveModel
     }
 }
 
-/// Soft ban (docs/api.md "Admin"): idempotent, refused for admins. Everything that keeps the
+/// Soft ban (docs/api/admin.md): idempotent, refused for admins. Everything that keeps the
 /// user signed in or visible is cut in one transaction; open sockets are closed after commit.
 pub async fn ban(state: &AppState, admin: Uuid, target: Uuid) -> Result<(), AppError> {
     let now = Utc::now();

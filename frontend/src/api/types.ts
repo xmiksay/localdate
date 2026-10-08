@@ -1,4 +1,4 @@
-// Mirrors docs/api.md — change the contract there first.
+// Mirrors docs/api.md + docs/api/ — change the contract there first.
 export type Gender = 'male' | 'female' | 'other'
 export type Reason = 'date' | 'meet'
 export type DistanceBand = 'lt_200m' | 'lt_500m' | 'lt_1km' | 'lt_2km' | 'lt_5km' | 'lt_10km'

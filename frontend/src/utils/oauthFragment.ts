@@ -8,7 +8,7 @@ import {
 } from '@/api/types'
 import { inAppPath } from './redirect'
 
-/** What the OAuth callback put into the `/auth/oauth/done#…` fragment (docs/api.md). */
+/** What the OAuth callback put into the `/auth/oauth/done#…` fragment (docs/api/auth.md). */
 export type OAuthOutcome =
   | { kind: 'code'; code: string; redirect: string | null; photo: PhotoImportOutcome | null }
   | {

@@ -1,4 +1,4 @@
-//! Web Push: config, the caller's subscriptions and preferences (docs/api.md "Push notifications").
+//! Web Push: config, the caller's subscriptions and preferences (docs/api/push.md).
 //! Sending lives in [`Notifier`].
 
 mod endpoint;

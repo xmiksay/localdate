@@ -60,7 +60,7 @@ export type AreaField = 'name' | 'lat' | 'lon' | 'radius_m'
 
 const inRange = (n: number, min: number, max: number) => Number.isFinite(n) && n >= min && n <= max
 
-/** Fields of an area form that the server would reject (docs/api.md, Admin). */
+/** Fields of an area form that the server would reject (docs/api/admin.md). */
 export function invalidAreaFields(a: {
   name: string
   lat: number
@@ -88,7 +88,7 @@ const EMAIL_LOCAL_RE = /^[a-z0-9._+-]{1,64}$/
 const EMAIL_LABEL_RE = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/
 
 /**
- * The server's rule (docs/api.md, "Email address"), kept identical: the address is mailed to as is,
+ * The server's rule (docs/api/auth.md, "Email address"), kept identical: the address is mailed to as is,
  * so display names, quotes, commas or extra recipients must never get through.
  */
 export function isValidEmail(raw: string): boolean {

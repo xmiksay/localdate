@@ -9,7 +9,7 @@ use uuid::Uuid;
 
 use super::event::ServerEvent;
 
-/// Why the server closes a socket; each maps to a docs/api.md close code.
+/// Why the server closes a socket; each maps to a docs/api/realtime.md close code.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CloseReason {

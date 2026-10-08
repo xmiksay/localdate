@@ -1,4 +1,4 @@
-//! The mutual-filter rule of docs/architecture.md as a pure function.
+//! The mutual-filter rule of docs/architecture.md ("Mutual filters") as a pure function.
 //!
 //! Production paths evaluate the same rule in SQL (`nearby::SQL`) so it can run over many
 //! candidates at once; `tests/visibility_agreement.rs` cross-checks the two. Blocks are not

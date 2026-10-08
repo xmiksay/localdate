@@ -2,7 +2,7 @@ import type { WsEvent } from './types'
 
 const MAX_BACKOFF_MS = 30_000
 const EVENT_TYPES = ['ready', 'message', 'match', 'wave']
-/** Server close code for a suspended account, see docs/api.md. */
+/** Server close code for a suspended account, see docs/api/realtime.md. */
 export const CLOSE_BANNED = 4403
 /** Server close code: it may have missed events for this socket; reconnect and refetch. */
 export const CLOSE_RESYNC = 1012

@@ -4,8 +4,8 @@ Meet people nearby right now — a PWA where a user opens a time-boxed **visibil
 and sees every mutually-matching profile around them (distance band only, never coordinates),
 waves, and chats after a mutual wave.
 
-- Architecture, data model, config: [docs/architecture.md](../docs/architecture.md)
-- HTTP / WebSocket contract (source of truth for FE ↔ BE): [docs/api.md](../docs/api.md)
+- Architecture, data model, config: [docs/architecture.md](../docs/architecture.md) and [docs/architecture/](../docs/architecture/)
+- HTTP / WebSocket contract (source of truth for FE ↔ BE): [docs/api.md](../docs/api.md) and [docs/api/](../docs/api/)
 - Deployment (Dockerfile, ghcr image jobs in ci.yml, `deploy/k8s.yml`, secrets, backups): [docs/deployment.md](../docs/deployment.md)
 - Tasks: GitHub issues in `xmiksay/localdate`
 
@@ -71,7 +71,7 @@ waves, and chats after a mutual wave.
   `tests/oauth_facebook.rs` / `oauth_facebook_photo.rs` (import, photo cap, SSRF refusals) cover #17.
   `tests/visibility_agreement.rs` = SQL ↔ rule cross-check.
 - `frontend/src/`: `api/` (typed client with single-flight refresh, `ws.ts`, per-domain modules, `types.ts` mirrors
-  docs/api.md; any `403 banned` or WS close `4403` → `onBanned` → logout + suspended notice on `/login`),
+  docs/api.md + docs/api/; any `403 banned` or WS close `4403` → `onBanned` → logout + suspended notice on `/login`),
   `stores/` (auth incl. providers + email login, me, window, nearby, matches, safety, admin, areas, identities, push),
   `views/EmailAuthView.vue` (`/auth/email`: verify → login or username sign-up), `EmailLinkView.vue`
   (`/auth/email/link`, confirm linking), `ForgotPasswordView.vue` (`/auth/password/forgot`) + `PasswordResetView.vue`
@@ -117,6 +117,6 @@ Copy `.env.example` → `.env`. Local DB: role/db `localdate` (password `localda
 
 ## Conventions
 
-- Contract changes go into `docs/api.md` first, then both sides.
+- Contract changes go into `docs/api.md` / `docs/api/` first, then both sides.
 - Migrations are append-only.
 - Never return coordinates or birth dates of other users.
