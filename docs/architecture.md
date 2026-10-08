@@ -30,7 +30,11 @@ Debug builds (clippy, tests) need no bundle: they read `frontend/dist` from disk
   Only a user with an active window can see others (reciprocity), and only users with
   an active window **and ≥ 1 photo and a profile** are visible. `kind` is an enum
   (`timed` only for now) so future modes (until end of day, predefined area) fit in.
-- **Location** — stored only on the active window row, rounded to 3 decimals (~100 m).
+- **Location** — stored only on the active window row, rounded to 3 decimals (~100 m),
+  and wiped (`lat`/`lon` set to NULL) as soon as the window ends — immediately on an explicit
+  end/replace/lazy close, by the cleanup job (which closes the window) for windows that ran out.
+  A CHECK enforces that an open window (`ended_at IS NULL`) always has coordinates; location
+  updates are a conditional write on a still-active window and extend locks the row.
   The server never returns anyone's coordinates; only a **distance band**.
   Distance = haversine over lat/lon in SQL (bounding-box prefilter + exact check).
   Predefined areas (city centre, train station) are a future replacement.
@@ -47,7 +51,8 @@ Debug builds (clippy, tests) need no bundle: they read `frontend/dist` from disk
   The visibility rule lives in one SQL query (`discovery/nearby.rs`) used by `/nearby`, `POST /waves`
   and `/waves/incoming`; `discovery/rules.rs::mutually_visible` is the readable spec, and an
   integration test asserts both agree.
-- **Expired windows** are closed lazily (`ended_at` set, pending waves deleted) when next read.
+- **Expired windows** are closed lazily (`ended_at` set, pending waves deleted) when next read;
+  the cleanup job (below) closes them the same way, then deletes them a day later.
 - **Safety** — block (hides both ways, hides match, forbids messages), report
   (stored for manual moderation, also blocks), account deletion (hard delete of all
   rows and photo files).
@@ -64,14 +69,33 @@ Debug builds (clippy, tests) need no bundle: they read `frontend/dist` from disk
 | `interest` | id serial PK, key text UNIQUE (i18n key suffix, seeded ~40) |
 | `user_interest` | (user_id, interest_id) PK; max 10 per user |
 | `filter` | user_id PK/FK, max_distance_m int (200–10000), genders gender[] (empty = any), age_min smallint, age_max smallint (18–99), reasons reason[] non-empty, default_window_minutes smallint (30/60/120/240) |
-| `visibility_window` | id uuid PK, user_id FK, kind enum(timed), lat double, lon double, location_updated_at, starts_at, ends_at, ended_at NULL. Active = `ended_at IS NULL AND ends_at > now()`. Unique partial index on `user_id WHERE ended_at IS NULL` — the app must set `ended_at` when replacing/ending a window |
+| `visibility_window` | id uuid PK, user_id FK, kind enum(timed), lat double NULL, lon double NULL (NULL once ended; CHECK open ⇒ set), location_updated_at, starts_at, ends_at, ended_at NULL. Active = `ended_at IS NULL AND ends_at > now()`. Unique partial index on `user_id WHERE ended_at IS NULL` — the app must set `ended_at` when replacing/ending a window |
 | `wave` | id uuid PK, from_user_id FK, to_user_id FK, window_id FK, created_at, expires_at (= sender window ends_at) |
 | `match` (Rust module `matches`) | id uuid PK, user_a FK, user_b FK (user_a < user_b, UNIQUE pair), created_at |
 | `message` | id uuid PK, match_id FK, sender_id FK, body text (1–2000), created_at |
 | `block` | (blocker_id, blocked_id) PK, created_at |
 | `report` | id uuid PK, reporter_id FK, reported_id FK, reason enum(spam,harassment,fake,underage,other), note text NULL, created_at |
 
-`reason` enum: `date`, `meet`. All user FKs `ON DELETE CASCADE`.
+`reason` enum: `date`, `meet`. All user FKs `ON DELETE CASCADE`. `wave.window_id` cascades too;
+`match`/`message` have no FK to windows, so deleting windows never touches chats.
+
+## Cleanup job and retention
+
+`cleanup.rs`: `main` spawns `run_forever`, which runs `run_once(db, shift)` every
+`CLEANUP_INTERVAL_SECS`, each tick in its own task so an error or panic is logged and the next tick
+retries. The test router does not start it; tests call `run_once` with a time `shift`. A tick is one
+transaction guarded by `pg_try_advisory_xact_lock(cleanup::LOCK_KEY)`, so with several replicas
+only one does the work and the others skip that tick. "now" is the database's `now()` (as in the
+nearby query), plus `shift`.
+
+| Data | Rule |
+|---|---|
+| open `visibility_window` with `ends_at <= now` | closed: `ended_at = ends_at`, coordinates NULLed |
+| ended `visibility_window` still holding coordinates | coordinates NULLed |
+| `wave` | deleted once `expires_at <= now` or its window has ended (all remaining waves are unanswered — a match deletes its waves) |
+| `visibility_window` row | deleted 24 h after it ended (`LEAST(ends_at, ended_at)`) |
+| `refresh_token` | deleted once expired, or once revoked > 7 days ago **and** its family has no live token — while a family is live, replaying any of its revoked tokens still revokes it |
+| `match`, `message` | kept until account deletion |
 
 ## Auth
 
@@ -105,6 +129,7 @@ In-process broadcast hub keyed by user id — single API replica. Multi-replica 
 | `JWT_SECRET` | 32+ random bytes | required |
 | `PHOTO_DIR` | `./data/photos` | created on start |
 | `BIND_ADDR` | `127.0.0.1:3000` | |
+| `CLEANUP_INTERVAL_SECS` | `300` | optional, default 300; period of the cleanup job |
 | `RUST_LOG` | `info,sqlx=warn,localdate_api=debug` | sqlx logs every query at info |
 
 Frontend dev server (Vite, :5173) proxies `/api` and `/media` (incl. WS) to `BIND_ADDR`.

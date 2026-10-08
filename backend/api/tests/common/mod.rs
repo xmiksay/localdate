@@ -73,6 +73,7 @@ impl TestApp {
             photo_dir: photo_dir.path().to_path_buf(),
             bind_addr: "127.0.0.1:0".parse()?,
             rate_limit: false,
+            cleanup_interval: std::time::Duration::from_secs(300),
         };
         let state = AppState::new(db.clone(), config);
         let router = build(state.clone());
