@@ -24,8 +24,9 @@ Dockerfile          node → rust → debian-slim; image ghcr.io/xmiksay/localda
 Makefile            single entry point for build / lint / test / run / image / deploy
 ```
 
-Deployment target is Kubernetes: one API replica (photos live on a `ReadWriteOnce` volume; WebSocket
-push already works across replicas, see [Realtime](architecture/realtime-push.md#realtime)) plus a Postgres StatefulSet in namespace
+Deployment target is Kubernetes: one API replica today (with `PHOTO_STORAGE=disk` photos live on a
+`ReadWriteOnce` volume; with `s3` nothing pins the API to one pod, and WebSocket push already works across
+replicas, see [Realtime](architecture/realtime-push.md#realtime)) plus a Postgres StatefulSet in namespace
 `localdate`, behind ingress-nginx at `localdate.mmik.cz` — see [deployment.md](deployment.md).
 Local dev uses the host Postgres; there is no docker-compose.
 
@@ -93,7 +94,7 @@ Debug builds (clippy, tests) need no bundle: they read `frontend/dist` from disk
   the [cleanup job](architecture/data-model.md#cleanup-job-and-retention) closes them the same way, then deletes them a day later.
 - **Safety** — block (hides both ways, hides match, forbids messages), report
   (also blocks; lands in the moderation queue, below), account deletion (hard delete of all
-  rows and photo files).
+  rows and photo files; storage failures are logged, never block the deletion).
 - **Moderation** — admins (`user.is_admin`, set only with `localdate-api admin grant|revoke <username>`)
   work the report queue at `/admin` (`admin/` module, [docs/api/admin.md](api/admin.md)): dismiss a report, or
   **soft-ban** the subject. A ban (one transaction, `admin::ban`) first locks the user row `FOR UPDATE`, then

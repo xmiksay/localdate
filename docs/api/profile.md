@@ -7,7 +7,7 @@ Part of the [API contract](../api.md); conventions, errors and shared types live
 | Method & path | Body | 2xx response |
 |---|---|---|
 | `GET /me` | — | `{ user: User, profile: Profile \| null, filter: Filter \| null, is_admin: boolean }` |
-| `DELETE /me` | — | `204` — hard delete everything incl. photo files |
+| `DELETE /me` | — | `204` — hard delete everything incl. photo files (a file the storage fails to delete is logged, the account is deleted anyway) |
 | `PUT /me/profile` | `{ display_name, birth_date, gender, bio, interest_ids: number[] }` | `200 Profile` |
 | `GET /interests` | — | `200 Interest[]` |
 | `POST /me/photos` | multipart field `file` | `201 Photo` (appended at last position); limits: 10 MiB, ≤ 10 000 px per edge, ≤ 32 Mi px — the client first re-encodes oversized or non-JPEG/PNG/WebP images to a ≤ 2048 px JPEG |

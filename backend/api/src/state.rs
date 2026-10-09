@@ -9,6 +9,7 @@ use crate::auth::oauth::OAuthService;
 use crate::auth::telegram::TelegramService;
 use crate::config::Config;
 use crate::detached::Detached;
+use crate::media::PhotoStore;
 use crate::push::Notifier;
 use crate::rate_limit::RateLimiter;
 use crate::ws::Hub;
@@ -23,6 +24,8 @@ pub struct AppState {
     pub notify: Arc<Notifier>,
     /// Concurrent photo decodes (`IMAGE_DECODE_PERMITS`); sized with the pod memory limit.
     pub image_permits: Arc<Semaphore>,
+    /// Photo files (`PHOTO_STORAGE`): every write, read and delete goes through it.
+    pub photos: PhotoStore,
     /// `None` = email disabled; set by `with_email` (main builds it from `Config::email`).
     pub email: Option<EmailService>,
     pub email_limiter: EmailLimiter,
@@ -49,6 +52,7 @@ impl AppState {
             config.vapid.as_ref(),
         )?);
         let oauth = Arc::new(OAuthService::new(&config)?);
+        let photos = PhotoStore::new(&config.photo_storage)?;
         Ok(Self {
             db,
             config: Arc::new(config),
@@ -56,6 +60,7 @@ impl AppState {
             hub,
             notify,
             image_permits: Arc::new(Semaphore::new(IMAGE_DECODE_PERMITS)),
+            photos,
             email: None,
             email_limiter: EmailLimiter::default(),
             reset_limiter: ResetLimiter::default(),

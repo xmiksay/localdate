@@ -222,7 +222,7 @@ async fn finish(
             Ok(user_id) => {
                 let photo = match import {
                     Some((oidc, token)) => Some(match import::fetch(state, oidc, token).await {
-                        Ok(webp) => import::attach(state, user_id, &webp).await,
+                        Ok(webp) => import::attach(state, user_id, webp).await,
                         Err(outcome) => outcome,
                     }),
                     None => None,

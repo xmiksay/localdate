@@ -8,7 +8,11 @@ Part of the [architecture](../architecture.md) docs.
 |---|---|---|
 | `DATABASE_URL` | `postgres://localdate:localdate@localhost/localdate` | |
 | `JWT_SECRET` | 32+ random bytes | required |
-| `PHOTO_DIR` | `./data/photos` | created on start |
+| `PHOTO_STORAGE` | `disk` | optional, `disk` (default) or `s3`: where photo files live (see [Photos](data-model.md#photos)) |
+| `PHOTO_DIR` | `./data/photos` | required with `disk` (created on start), ignored with `s3` |
+| `S3_ENDPOINT` | `http://garage.services.svc:3900` | required with `s3`; `http(s)://`, addressed path-style (`{endpoint}/{bucket}/{name}`) |
+| `S3_REGION` / `S3_BUCKET` | `garage` / `localdate` | required with `s3` |
+| `S3_ACCESS_KEY_ID` / `S3_SECRET_ACCESS_KEY` | from Garage `make bucket` | required with `s3` (Secret); never logged. The names match the Garage Secret, which the Deployment can `envFrom`; its extra `S3_PUBLIC_ENDPOINT` is ignored |
 | `BIND_ADDR` | `127.0.0.1:3000` | |
 | `CLEANUP_INTERVAL_SECS` | `300` | optional, default 300; period of the cleanup job |
 | `TRUST_PROXY_HEADERS` | `false` | optional (`true`/`false`/`1`/`0`), default false; rate-limit on `X-Forwarded-For` (see [Auth](auth.md)) |
@@ -26,10 +30,17 @@ Part of the [architecture](../architecture.md) docs.
 
 Frontend dev server (Vite, :5173) proxies `/api` and `/media` (incl. WS) to `BIND_ADDR`.
 
+On start, after migrations and **before binding** `BIND_ADDR`, the API checks the photo storage: it writes and
+deletes a probe object `_probe-<uuid>` (proves the bucket exists and the key may write and delete; the prefix
+can never be a photo name, so `/media` never serves one). A refusal — 403 credentials or read-only key, 404
+bucket, any other 4xx — stops the start at once; an outage (connection failure, 5xx) is retried with backoff for
+60 s like the DB connection, then the start fails too. Bad S3 settings thus fail the rollout (the pod never turns
+ready), not the first upload.
+
 ## Serving the PWA
 
 `web.rs` is the router fallback, so `/api/*` (which has its own JSON `not_found` fallback) and
-`/media/*` always win. For other GET/HEAD requests the path is percent-decoded and refused with
+`/media/*` always win (`/media` is the `media` module: photo names only, see [Photos](data-model.md#photos)). For other GET/HEAD requests the path is percent-decoded and refused with
 404 if it contains `.`/`..`/empty segments, `\` or NUL (debug builds read from disk). Then:
 
 - embedded file → served with its MIME type and an ETag (`If-None-Match` → 304);

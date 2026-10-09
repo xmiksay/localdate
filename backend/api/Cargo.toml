@@ -19,16 +19,21 @@ anyhow.workspace = true
 argon2.workspace = true
 axum.workspace = true
 base64.workspace = true
+bytes.workspace = true
 chrono.workspace = true
 chrono-tz.workspace = true
 clap.workspace = true
 dotenvy.workspace = true
+futures-util.workspace = true
 hmac.workspace = true
 image.workspace = true
 jsonwebtoken.workspace = true
 lettre.workspace = true
+object_store.workspace = true
 percent-encoding.workspace = true
 reqwest.workspace = true
+reqwest-0_13.workspace = true
+rustls.workspace = true
 rust-embed.workspace = true
 sea-orm.workspace = true
 serde.workspace = true
@@ -44,8 +49,9 @@ uuid.workspace = true
 web-push-native.workspace = true
 
 [dev-dependencies]
+# start_paused for the retry backoff test.
+tokio = { workspace = true, features = ["test-util"] }
 http-body-util.workspace = true
 tempfile.workspace = true
 tower.workspace = true
-futures-util.workspace = true
 tokio-tungstenite.workspace = true

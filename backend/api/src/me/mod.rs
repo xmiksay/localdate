@@ -4,7 +4,7 @@ mod filter;
 mod identities;
 mod image_proc;
 mod password;
-pub(crate) mod photos;
+pub mod photos;
 mod profile;
 
 use axum::extract::State;
@@ -67,6 +67,7 @@ async fn delete_me(State(state): State<AppState>, auth: AuthUser) -> Result<Stat
         .map(|p| p.file_name)
         .collect();
     user::Entity::delete_by_id(auth.id).exec(&state.db).await?;
-    photos::remove_files(&state.config.photo_dir, &files).await;
+    // The account is gone either way; objects that failed to delete are logged by name.
+    state.photos.remove_all(&files).await;
     Ok(StatusCode::NO_CONTENT)
 }

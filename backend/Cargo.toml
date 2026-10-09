@@ -13,6 +13,7 @@ migration = { path = "migration" }
 
 anyhow = "1"
 argon2 = "0.5"
+bytes = "1"
 axum = { version = "0.8", features = ["multipart", "ws"] }
 base64 = "0.22"
 chrono = { version = "0.4", features = ["serde"] }
@@ -24,10 +25,16 @@ http-body-util = "0.1"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
 jsonwebtoken = "9"
 lettre = { version = "0.11", default-features = false, features = ["builder", "hostname", "pool", "smtp-transport", "tokio1-rustls-tls"] }
+# S3 (path-style, custom endpoint) + local disk behind one trait. `aws` would pull aws-lc-rs and
+# reqwest's default provider; `aws-base` + `ring` signs with ring, the crypto rustls already uses.
+object_store = { version = "0.14", default-features = false, features = ["aws-base", "reqwest", "ring", "fs"] }
 percent-encoding = "2"
 # Default features would pull hyper-tls/OpenSSL or aws-lc; rustls+ring is what sqlx already uses.
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+# object_store's reqwest major: TLS without a bundled provider; `media::store` installs ring's.
+reqwest-0_13 = { package = "reqwest", version = "0.13", default-features = false, features = ["rustls-no-provider"] }
 rust-embed = { version = "8.11", features = ["mime-guess"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
 sea-orm = { version = "1.1", features = ["sqlx-postgres", "runtime-tokio-rustls", "macros", "with-uuid", "with-chrono", "postgres-array"] }
 sea-orm-migration = { version = "1.1", features = ["sqlx-postgres", "runtime-tokio-rustls"] }
 serde = { version = "1", features = ["derive"] }

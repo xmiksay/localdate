@@ -181,23 +181,13 @@ async fn delete_me_removes_rows_and_photo_files() {
         json!({ "user_id": eva.user_id }),
     )
     .await;
-    assert_eq!(
-        std::fs::read_dir(&app.state.config.photo_dir)
-            .expect("dir")
-            .count(),
-        3
-    );
+    assert_eq!(app.photo_files(), 3);
 
     let (status, _) = app.delete("/api/me", &eva.access_token).await;
     assert_eq!(status, StatusCode::NO_CONTENT);
 
     // Only bob's photo remains; eva's rows are gone via cascade.
-    assert_eq!(
-        std::fs::read_dir(&app.state.config.photo_dir)
-            .expect("dir")
-            .count(),
-        1
-    );
+    assert_eq!(app.photo_files(), 1);
     use entity::{block, photo, profile, user};
     use sea_orm::{EntityTrait, PaginatorTrait};
     assert_eq!(user::Entity::find().count(&app.db).await.expect("count"), 1);

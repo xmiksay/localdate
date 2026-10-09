@@ -22,6 +22,7 @@ pub mod oidc_fake;
 pub mod photos;
 pub mod push;
 pub mod replica;
+pub mod s3;
 pub mod telegram;
 pub mod ws;
 
@@ -37,7 +38,8 @@ pub struct TestApp {
     pub bot: std::sync::Arc<localdate_api::auth::telegram::bot::MemoryBot>,
     admin_url: String,
     db_name: String,
-    _photo_dir: tempfile::TempDir,
+    /// Where photos go unless the test switched `photo_storage` (see `with_s3`).
+    photo_dir: tempfile::TempDir,
 }
 
 pub struct Tokens {
@@ -96,7 +98,9 @@ impl TestApp {
         let mut config = Config {
             database_url: database_url(&admin_url, &db_name),
             jwt_secret: "test-secret-test-secret-test-secret-1".into(),
-            photo_dir: photo_dir.path().to_path_buf(),
+            photo_storage: localdate_api::config::PhotoStorage::Disk {
+                dir: photo_dir.path().to_path_buf(),
+            },
             bind_addr: "127.0.0.1:0".parse()?,
             rate_limit: false,
             cleanup_interval: std::time::Duration::from_secs(300),
@@ -132,7 +136,7 @@ impl TestApp {
             bot,
             admin_url,
             db_name,
-            _photo_dir: photo_dir,
+            photo_dir,
         })
     }
 

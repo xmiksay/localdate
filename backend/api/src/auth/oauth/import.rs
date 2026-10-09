@@ -82,7 +82,7 @@ pub async fn fetch(state: &AppState, oidc: &Oidc, access_token: &str) -> Result<
 }
 
 /// Adds `webp` as the user's last photo.
-pub async fn attach(state: &AppState, user_id: Uuid, webp: &[u8]) -> Outcome {
+pub async fn attach(state: &AppState, user_id: Uuid, webp: Vec<u8>) -> Outcome {
     match photos::add(state, user_id, webp).await {
         Ok(_) => Outcome::Imported,
         Err(AppError::PhotoLimit) => Outcome::Full,

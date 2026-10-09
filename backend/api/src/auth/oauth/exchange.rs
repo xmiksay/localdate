@@ -151,7 +151,7 @@ pub(super) async fn signup(
     txn.commit().await.context("commit oauth signup txn")?;
     // After the commit: the photo needs the user row, and a failure here must not undo the account.
     let photo = match row.photo {
-        Some(webp) => Some(import::attach(&state, user.id, &webp).await.as_str()),
+        Some(webp) => Some(import::attach(&state, user.id, webp).await.as_str()),
         None => None,
     };
     Ok((StatusCode::CREATED, Json(SignedUp { tokens, photo })))
