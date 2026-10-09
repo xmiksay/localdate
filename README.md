@@ -32,5 +32,6 @@ make run-web                  # PWA on http://localhost:5173
 | `make build` | frontend bundle, then the release `localdate-api` binary that embeds it (single deployable: API + PWA) |
 | `make image` | container image `localdate:dev` |
 | `make deploy` | `kubectl apply -f deploy/k8s.yml` to the current context (see [docs/deployment.md](docs/deployment.md)) |
+| `make deploy-letsgo` / `make deploy-letsgo-diff` | apply / diff the letsgo.sc-l.eu example kustomization `deploy/letsgo` (see [its runbook](deploy/letsgo/README.md)) |
 
 The test database role needs `CREATEDB`: integration tests create and drop `localdate_test_<uuid>` databases.

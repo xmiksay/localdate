@@ -6,7 +6,7 @@ waves, and chats after a mutual wave.
 
 - Architecture, data model, config: [docs/architecture.md](../docs/architecture.md) and [docs/architecture/](../docs/architecture/)
 - HTTP / WebSocket contract (source of truth for FE ↔ BE): [docs/api.md](../docs/api.md) and [docs/api/](../docs/api/)
-- Deployment (Dockerfile, ghcr image jobs in ci.yml, `deploy/k8s.yml`, secrets, backups): [docs/deployment.md](../docs/deployment.md)
+- Deployment (Dockerfile, ghcr image jobs in ci.yml, `deploy/k8s.yml`, `deploy/letsgo/` example, secrets, backups): [docs/deployment.md](../docs/deployment.md)
 - Tasks: GitHub issues in `xmiksay/localdate`
 
 ## Stack
@@ -105,6 +105,7 @@ make vapid-keys        # fresh VAPID pair for Web Push (VAPID_* env; unset = pus
 make admin-grant ADMIN=<username>   # / admin-revoke — moderator role via `localdate-api admin …`
 make image             # docker build -t localdate:dev .
 make deploy            # kubectl apply -f deploy/k8s.yml (current context!)
+make deploy-letsgo     # kubectl apply -k deploy/letsgo (letsgo.sc-l.eu example; -diff to preview)
 ```
 
 Copy `.env.example` → `.env`. Local DB: role/db `localdate` (password `localdate`, CREATEDB for test DBs).
