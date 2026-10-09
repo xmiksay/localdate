@@ -34,14 +34,9 @@ spec:
           ports:
             - name: http
               containerPort: 3000
-          # On duplicate keys the later source wins; letsgo-s3 repeats the S3 values of the
-          # ConfigMap and adds the key pair (plus S3_PUBLIC_ENDPOINT, unused by the API).
           envFrom:
             - configMapRef:
                 name: letsgo
-                optional: false
-            - secretRef:
-                name: letsgo-s3
                 optional: false
           env:
             # postgres-direct, not the PgBouncer `postgres` Service: PgBouncer runs in transaction
@@ -56,6 +51,17 @@ spec:
                 secretKeyRef:
                   name: letsgo
                   key: JWT_SECRET
+            # Key pair of the bucket in the ConfigMap's S3_BUCKET; needs read + write on it.
+            - name: S3_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: letsgo
+                  key: S3_ACCESS_KEY_ID
+            - name: S3_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: letsgo
+                  key: S3_SECRET_ACCESS_KEY
             # Every key below is optional: a missing one keeps its feature off. Pairs are
             # all-or-nothing, the API refuses to start with only half of one.
             - name: SMTP_URL

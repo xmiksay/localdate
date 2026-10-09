@@ -6,12 +6,12 @@ data:
   BIND_ADDR: "0.0.0.0:3000"
   RUST_LOG: info,sqlx=warn
   CLEANUP_INTERVAL_SECS: "300"
-  # Photos go to the Garage bucket `letsgo` (#21). The key pair comes from the Secret `letsgo-s3`,
-  # which repeats the three values below; they are listed here so the config reads in one place.
-  # Garage only supports path-style addressing.
+  # Photos go to a Garage bucket (#21). The key pair (S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY) comes
+  # from the Secret `letsgo`. Garage only supports path-style addressing.
   PHOTO_STORAGE: s3
   S3_ENDPOINT: http://garage.services.svc:3900
   S3_REGION: garage
+  # Set to your bucket name (the bucket the key in Secret `letsgo` can read + write).
   S3_BUCKET: letsgo
   # Traefik runs with hostNetwork on k8s-master, which holds the public IP, so it sees the real
   # client address. With no forwardedHeaders.trustedIPs / insecure set (the cluster sets neither)

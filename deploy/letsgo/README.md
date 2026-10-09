@@ -1,26 +1,37 @@
 # letsgo.sc-l.eu: example deployment
 
 An example deployment of localdate at <https://letsgo.sc-l.eu> on the `k8s-new` cluster. It is a
-kustomization in namespace `letsgo`. Unlike [`deploy/k8s.yml`](../k8s.yml), it runs no Postgres and
-has no volumes: the database is the shared Postgres behind `services`, and photos go to a Garage
+kustomization in the shared namespace `sites` (next to `blog` and `orechov`). Unlike
+[`deploy/k8s.yml`](../k8s.yml), it runs no Postgres and has no volumes: the database is the shared Postgres behind `services`, and photos go to a Garage
 bucket. General operations (updates, rollback, backups, provider details) are in
 [docs/deployment.md](../../docs/deployment.md). This file covers only what differs here.
 
 | Object | What |
 |---|---|
-| `Namespace letsgo` | everything below |
 | `ConfigMap letsgo` | `BIND_ADDR`, `RUST_LOG`, `CLEANUP_INTERVAL_SECS`, `PHOTO_STORAGE=s3`, `S3_ENDPOINT`, `S3_REGION`, `S3_BUCKET`, `TRUST_PROXY_HEADERS=true`, `APP_BASE_URL`, `EMAIL_FROM`, `VAPID_SUBJECT` |
-| `Secret letsgo` (by hand) | `DATABASE_URL`, `JWT_SECRET`, optional integrations ([secret.example.yaml](secret.example.yaml)) |
-| `Secret letsgo-s3` (by hand) | copy of `services/letsgo-s3` from the Garage repo: `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, … |
+| `Secret letsgo` (by hand) | `DATABASE_URL`, `JWT_SECRET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, optional integrations ([secret.example.yaml](secret.example.yaml)) |
 | `Deployment localdate-api` | 1 replica, `Recreate`, read-only root FS, no volumes |
 | `Service localdate-api` + `Ingress letsgo` | Traefik, cert-manager `letsencrypt-prod`, TLS Secret `letsgo-sc-l-eu-tls` |
 
 S3 photo storage (#21) is in the image: with `PHOTO_STORAGE=s3` the API ignores `PHOTO_DIR` and
 writes nothing to the read-only root FS. Before binding its port it writes and deletes a probe
 object in the bucket; it refuses to start when a `S3_*` variable is missing, at once when the bucket
-is wrong or the key cannot write, and after 60 s of backoff when Garage does not answer. A bad
-`letsgo-s3` Secret therefore fails the rollout instead of the first upload. Pin a `sha-<short>` tag only to
+is wrong or the key cannot write, and after 60 s of backoff when Garage does not answer. A bad S3
+key or bucket name therefore fails the rollout instead of the first upload. Pin a `sha-<short>` tag only to
 a build that contains #21: older images ignore `PHOTO_STORAGE`, start fine and fail every upload.
+
+`sites` is shared and **not** managed here: it is not in the kustomization, and every object name
+and the `app: localdate-api` selector are unique in it, so nothing here can touch `blog` or `orechov`.
+
+> **Warning:** do not run `kubectl delete -k deploy/letsgo` expecting it to clean up a namespace.
+> There is no namespace of ours to delete. Teardown is deleting exactly these objects:
+>
+> ```sh
+> kubectl -n sites delete --ignore-not-found ingress/letsgo service/localdate-api deployment/localdate-api \
+>   configmap/letsgo secret/letsgo secret/letsgo-sc-l-eu-tls certificate/letsgo-sc-l-eu-tls
+> ```
+>
+> Never `kubectl delete namespace sites`.
 
 No NetworkPolicy: the cluster's CNI is flannel, which does not enforce them, and no other namespace
 defines any.
@@ -59,13 +70,14 @@ default: 10) plus one listener against `max_connections=100`.
 
 ## 2. Photo bucket
 
-```sh
-cd ~/projects/personal/garage && make bucket APP=letsgo     # bucket + key + Secret services/letsgo-s3
-kubectl create namespace letsgo --dry-run=client -o yaml | kubectl apply -f -
-kubectl -n services get secret letsgo-s3 -o json \
-  | jq '{apiVersion, kind, type, data, metadata: {name: .metadata.name, namespace: "letsgo"}}' \
-  | kubectl apply -f -
-```
+Use an existing bucket and access key from the Garage web UI (<https://s3-admin.mmik.cz>). The key
+needs **read and write** on the bucket. Set `S3_BUCKET` in [configmap.yaml](configmap.yaml) to the
+bucket name; the key pair goes into Secret `letsgo` in step 3. `S3_ENDPOINT`
+(`http://garage.services.svc:3900`, in-cluster) and `S3_REGION=garage` stay as they are.
+
+Alternative: `cd ~/projects/personal/garage && make bucket APP=letsgo` creates the bucket and key and
+stores them in Secret `services/letsgo-s3`; copy its `S3_ACCESS_KEY_ID` and `S3_SECRET_ACCESS_KEY`
+into Secret `letsgo` as below.
 
 No CORS is needed: browsers never talk to Garage, the API streams photos under `/media`. Consider
 adding the bucket to `garage_buckets` with `backup: true` in `personal/ansible` (nightly NAS copy).
@@ -75,18 +87,28 @@ Back it up together with the database: a photo row without its object renders a 
 
 ```sh
 PG_PASSWORD='<from make pg-password ROLE=letsgo>'
-kubectl -n letsgo create secret generic letsgo \
+kubectl -n sites create secret generic letsgo \
   --from-literal=DATABASE_URL="postgres://letsgo:${PG_PASSWORD}@postgres-direct.services.svc:5432/letsgo?sslmode=require" \
   --from-literal=JWT_SECRET="$(openssl rand -hex 32)"
 unset PG_PASSWORD
 ```
 
+Add the Garage key pair from step 2 (required: the API refuses to start without it). Read the values
+without echoing them, so they stay out of the shell history:
+
+```sh
+read -rs S3_ID; read -rs S3_KEY
+kubectl -n sites patch secret letsgo --type merge \
+  -p "{\"stringData\":{\"S3_ACCESS_KEY_ID\":\"${S3_ID}\",\"S3_SECRET_ACCESS_KEY\":\"${S3_KEY}\"}}"
+unset S3_ID S3_KEY
+```
+
 Add an optional integration later by patching the Secret and restarting. Env is read at start only:
 
 ```sh
-kubectl -n letsgo patch secret letsgo --type merge \
+kubectl -n sites patch secret letsgo --type merge \
   -p '{"stringData":{"GOOGLE_CLIENT_ID":"<id>.apps.googleusercontent.com","GOOGLE_CLIENT_SECRET":"<secret>"}}'
-kubectl -n letsgo rollout restart deployment/localdate-api
+kubectl -n sites rollout restart deployment/localdate-api
 ```
 
 Keys: `SMTP_URL`; `GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET`; `TELEGRAM_CLIENT_ID` +
@@ -116,8 +138,8 @@ Follow docs/deployment.md, with `letsgo.sc-l.eu` in place of `localdate.mmik.cz`
 kubectl config current-context        # must be k8s-new
 make deploy-letsgo-diff               # kubectl diff -k deploy/letsgo
 make deploy-letsgo                    # kubectl apply -k deploy/letsgo
-kubectl -n letsgo rollout status deployment/localdate-api
-kubectl -n letsgo get certificate letsgo-sc-l-eu-tls   # READY=True after the HTTP-01 challenge
+kubectl -n sites rollout status deployment/localdate-api
+kubectl -n sites get certificate letsgo-sc-l-eu-tls   # READY=True after the HTTP-01 challenge
 curl -fsS https://letsgo.sc-l.eu/api/health
 ```
 
@@ -125,10 +147,10 @@ First admin, after the user has registered and the rollout has finished (the CLI
 while migrations are pending):
 
 ```sh
-kubectl -n letsgo exec deploy/localdate-api -- localdate-api admin grant <username>
+kubectl -n sites exec deploy/localdate-api -- localdate-api admin grant <username>
 ```
 
-New `master` build: `kubectl -n letsgo rollout restart deployment/localdate-api`. ConfigMap
+New `master` build: `kubectl -n sites rollout restart deployment/localdate-api`. ConfigMap
 changes: `make deploy-letsgo`, then the same restart.
 
 ## Client IP

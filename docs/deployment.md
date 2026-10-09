@@ -44,9 +44,12 @@ IPv6 clients are bucketed per /64 prefix, so rotating addresses inside one prefi
 [`deploy/letsgo/`](../deploy/letsgo/) is a kustomization for a second instance at
 <https://letsgo.sc-l.eu> on the `k8s-new` cluster: Traefik instead of ingress-nginx, the shared
 Postgres (`postgres-direct`, not PgBouncer, because of `LISTEN`), and photos in a Garage bucket (#21)
-instead of a PVC. Its [runbook](../deploy/letsgo/README.md) covers the database role, bucket,
-Secrets, provider redirect URIs and the Traefik client-IP check. Apply with `make deploy-letsgo`
-(preview with `make deploy-letsgo-diff`).
+instead of a PVC. The bucket and key are made in the Garage web UI, and the key pair lives in the
+main Secret `letsgo` (no separate `-s3` Secret). It runs in the shared namespace `sites`, which the
+kustomization does **not** manage: `kubectl delete -k` cleans up no namespace, and teardown means
+deleting the objects listed in the runbook. Its [runbook](../deploy/letsgo/README.md) covers the
+database role, bucket, Secrets, provider redirect URIs and the Traefik client-IP check. Apply with
+`make deploy-letsgo` (preview with `make deploy-letsgo-diff`).
 
 ## Image
 
