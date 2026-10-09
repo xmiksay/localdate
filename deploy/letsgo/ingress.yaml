@@ -1,0 +1,27 @@
+# Unlike ingress-nginx in deploy/k8s.yml, Traefik needs no annotations here:
+# - It proxies the WebSocket upgrade on /api/ws natively. The websecure entrypoint's readTimeout
+#   is 3600 s cluster-wide, and the API pings every 25 s anyway.
+# - It has no default request body limit, so 10 MiB photo uploads pass.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: letsgo
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - letsgo.sc-l.eu
+      secretName: letsgo-sc-l-eu-tls
+  rules:
+    - host: letsgo.sc-l.eu
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: localdate-api
+                port:
+                  name: http

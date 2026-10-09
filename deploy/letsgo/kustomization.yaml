@@ -1,0 +1,13 @@
+# Example deployment of localdate at https://letsgo.sc-l.eu on the k8s-new cluster (Traefik,
+# cert-manager, Postgres + Garage outside the cluster). Runbook: README.md in this directory.
+# The Secrets `letsgo` and `letsgo-s3` are created by hand and are NOT part of this kustomization;
+# secret.example.yaml is a template only. Apply with `make deploy-letsgo`.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: letsgo
+resources:
+  - namespace.yaml
+  - configmap.yaml
+  - deployment.yaml
+  - service.yaml
+  - ingress.yaml

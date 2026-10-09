@@ -10,7 +10,7 @@ endif
 BE := cd backend &&
 FE := cd frontend &&
 
-.PHONY: help install build lint check-pins fmt test test-unit test-integration migrate run-api run-web admin-grant admin-revoke vapid-keys icons image deploy clean
+.PHONY: help install build lint check-pins fmt test test-unit test-integration migrate run-api run-web admin-grant admin-revoke vapid-keys icons image deploy deploy-letsgo deploy-letsgo-diff clean
 
 help: ## List targets
 	@grep -hE '^[a-z-]+:.*##' Makefile | awk -F':.*## ' '{printf "  %-18s %s\n", $$1, $$2}'
@@ -75,6 +75,12 @@ image: ## Build the container image localdate:dev
 
 deploy: ## Apply deploy/k8s.yml to the current kubectl context (Secret must exist, see docs/deployment.md)
 	kubectl apply -f deploy/k8s.yml
+
+deploy-letsgo: ## Apply the letsgo.sc-l.eu example (deploy/letsgo) to the current kubectl context
+	kubectl apply -k deploy/letsgo
+
+deploy-letsgo-diff: ## Show what deploy-letsgo would change on the cluster
+	kubectl diff -k deploy/letsgo || [ $$? -eq 1 ]
 
 clean: ## Remove build artefacts
 	$(BE) cargo clean

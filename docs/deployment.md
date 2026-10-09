@@ -37,6 +37,15 @@ replacing it, so the first entry becomes whatever the client sent.
 
 IPv6 clients are bucketed per /64 prefix, so rotating addresses inside one prefix doesn't help.
 
+## Example: letsgo.sc-l.eu (Traefik, external Postgres, S3 photos)
+
+[`deploy/letsgo/`](../deploy/letsgo/) is a kustomization for a second instance at
+<https://letsgo.sc-l.eu> on the `k8s-new` cluster: Traefik instead of ingress-nginx, the shared
+Postgres (`postgres-direct`, not PgBouncer, because of `LISTEN`), and photos in a Garage bucket (#21)
+instead of a PVC. Its [runbook](../deploy/letsgo/README.md) covers the database role, bucket,
+Secrets, provider redirect URIs and the Traefik client-IP check. Apply with `make deploy-letsgo`
+(preview with `make deploy-letsgo-diff`).
+
 ## Image
 
 [`Dockerfile`](../Dockerfile): Node 22 builds `frontend/dist`. Rust then builds the release

@@ -1,0 +1,150 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: localdate-api
+spec:
+  # Photos live in S3 (no volume), and WebSocket push fans out across replicas through Postgres
+  # LISTEN/NOTIFY, so 2+ replicas are fine once the image has S3 photo storage (#21). Each replica
+  # holds its own DB pool plus one LISTEN connection on postgres-direct, so mind max_connections.
+  replicas: 1
+  # The old binary must never run against a schema the new one just migrated.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: localdate-api
+  template:
+    metadata:
+      labels:
+        app: localdate-api
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsUser: 10001
+        runAsGroup: 10001
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: api
+          image: ghcr.io/xmiksay/localdate:master
+          # `master` is a moving tag (pushed only after CI passed); roll back by setting a
+          # `sha-<short>` tag, see docs/deployment.md.
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 3000
+          # On duplicate keys the later source wins; letsgo-s3 repeats the S3 values of the
+          # ConfigMap and adds the key pair (plus S3_PUBLIC_ENDPOINT, unused by the API).
+          envFrom:
+            - configMapRef:
+                name: letsgo
+                optional: false
+            - secretRef:
+                name: letsgo-s3
+                optional: false
+          env:
+            # postgres-direct, not the PgBouncer `postgres` Service: PgBouncer runs in transaction
+            # pooling mode, where the WebSocket bridge's LISTEN connection never gets notified.
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: letsgo
+                  key: DATABASE_URL
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: letsgo
+                  key: JWT_SECRET
+            # Every key below is optional: a missing one keeps its feature off. Pairs are
+            # all-or-nothing, the API refuses to start with only half of one.
+            - name: SMTP_URL
+              valueFrom:
+                secretKeyRef:
+                  name: letsgo
+                  key: SMTP_URL
+                  optional: true
+            - name: GOOGLE_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: letsgo
+                  key: GOOGLE_CLIENT_ID
+                  optional: true
+            - name: GOOGLE_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: letsgo
+                  key: GOOGLE_CLIENT_SECRET
+                  optional: true
+            - name: TELEGRAM_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: letsgo
+                  key: TELEGRAM_CLIENT_ID
+                  optional: true
+            - name: TELEGRAM_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: letsgo
+                  key: TELEGRAM_CLIENT_SECRET
+                  optional: true
+            - name: TELEGRAM_BOT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: letsgo
+                  key: TELEGRAM_BOT_TOKEN
+                  optional: true
+            - name: FACEBOOK_APP_ID
+              valueFrom:
+                secretKeyRef:
+                  name: letsgo
+                  key: FACEBOOK_APP_ID
+                  optional: true
+            - name: FACEBOOK_APP_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: letsgo
+                  key: FACEBOOK_APP_SECRET
+                  optional: true
+            - name: VAPID_PUBLIC_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: letsgo
+                  key: VAPID_PUBLIC_KEY
+                  optional: true
+            - name: VAPID_PRIVATE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: letsgo
+                  key: VAPID_PRIVATE_KEY
+                  optional: true
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          # Migrations run on start; give a slow first boot time before liveness kicks in.
+          startupProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            periodSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              # Peak = 2 concurrent photo decodes (≤ 128 MiB each, plus resize buffers) on top of
+              # the baseline; see image_proc::MAX_INPUT_PIXELS and state::IMAGE_DECODE_PERMITS.
+              memory: 768Mi
