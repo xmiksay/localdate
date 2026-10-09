@@ -5,3 +5,6 @@
 .env
 *.log
 /backend/data/
+# Filled-in Secret manifests kept locally; never commit real values.
+deploy/**/secret.yaml
+deploy/**/secrets.yaml
