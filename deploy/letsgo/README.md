@@ -15,9 +15,12 @@ bucket. General operations (updates, rollback, backups, provider details) are in
 | `Deployment localdate-api` | 1 replica, `Recreate`, read-only root FS, no volumes |
 | `Service localdate-api` + `Ingress letsgo` | Traefik, cert-manager `letsencrypt-prod`, TLS Secret `letsgo-sc-l-eu-tls` |
 
-> **Requires an image with S3 photo storage (#21).** Older images ignore `PHOTO_STORAGE` and write
-> photos to `/data/photos`, which is on the read-only root FS. The pod still starts, but every photo
-> upload fails. Deploy only once `ghcr.io/xmiksay/localdate:master` contains #21.
+S3 photo storage (#21) is in the image: with `PHOTO_STORAGE=s3` the API ignores `PHOTO_DIR` and
+writes nothing to the read-only root FS. Before binding its port it writes and deletes a probe
+object in the bucket; it refuses to start when a `S3_*` variable is missing, at once when the bucket
+is wrong or the key cannot write, and after 60 s of backoff when Garage does not answer. A bad
+`letsgo-s3` Secret therefore fails the rollout instead of the first upload. Pin a `sha-<short>` tag only to
+a build that contains #21: older images ignore `PHOTO_STORAGE`, start fine and fail every upload.
 
 No NetworkPolicy: the cluster's CNI is flannel, which does not enforce them, and no other namespace
 defines any.

@@ -6,7 +6,7 @@ Production runs on the k8s cluster behind ingress-nginx + cert-manager (`letsenc
 
 | Object | What |
 |---|---|
-| `ConfigMap localdate` | non-secret env (`BIND_ADDR`, `PHOTO_DIR`, `RUST_LOG`, `CLEANUP_INTERVAL_SECS`, `TRUST_PROXY_HEADERS=true`, `APP_BASE_URL`, `EMAIL_FROM`, `VAPID_SUBJECT`) |
+| `ConfigMap localdate` | non-secret env (`BIND_ADDR`, `PHOTO_DIR` (disk photo storage, the default), `RUST_LOG`, `CLEANUP_INTERVAL_SECS`, `TRUST_PROXY_HEADERS=true`, `APP_BASE_URL`, `EMAIL_FROM`, `VAPID_SUBJECT`) |
 | `Secret localdate` | `POSTGRES_PASSWORD`, `JWT_SECRET`, optional `TELEGRAM_CLIENT_ID` + `TELEGRAM_CLIENT_SECRET`, optional `TELEGRAM_BOT_TOKEN`, optional `SMTP_URL`, optional `GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET`, optional `FACEBOOK_APP_ID` + `FACEBOOK_APP_SECRET`, optional `VAPID_PUBLIC_KEY` + `VAPID_PRIVATE_KEY` — **not in git**, created by hand (below) |
 | `StatefulSet localdate-db` + headless `Service` | Postgres 18, 5 Gi PVC `data-localdate-db-0` |
 | `NetworkPolicy localdate-db` | only `app=localdate-api` pods may reach 5432 |
@@ -16,9 +16,11 @@ Production runs on the k8s cluster behind ingress-nginx + cert-manager (`letsenc
 
 The NetworkPolicies only take effect if the cluster's CNI enforces them.
 
-Why one replica: photos live on the `ReadWriteOnce` PVC, which only one pod can mount; more replicas
-need shared photo storage (S3, #21). WebSocket push is not the blocker any more — replicas fan events
-out to each other through Postgres LISTEN/NOTIFY ([architecture/realtime-push.md](architecture/realtime-push.md#realtime)). Why `Recreate`: the photos PVC is
+Why one replica: this manifest stores photos on disk (`PHOTO_STORAGE=disk`), on the `ReadWriteOnce` PVC, which
+only one pod can mount. With [S3 photo storage](#photo-storage-on-s3-optional) that blocker is gone: photos are
+shared through the bucket, and WebSocket push already fans events out between replicas through Postgres
+LISTEN/NOTIFY ([architecture/realtime-push.md](architecture/realtime-push.md#realtime)); such a deployment can
+drop the PVC, run several replicas and use `RollingUpdate`. Why `Recreate` here: the photos PVC is
 `ReadWriteOnce`, so the old pod must release it before the new one starts (a few seconds of downtime
 per rollout). The PVCs use the cluster's default StorageClass; add `storageClassName` if there is none.
 
@@ -209,6 +211,28 @@ HTTPS to `graph.facebook.com` (token, `/me`, `/me/picture`) and, for the picture
 Facebook user ids are **app-scoped**: keep using the same app. Resetting the app secret is fine (update the Secret,
 restart), but a new App ID gives every user a new id, so their existing Facebook links would no longer match.
 
+## Photo storage on S3 (optional)
+
+`PHOTO_STORAGE=s3` keeps photos in an S3-compatible bucket (Garage at `garage.services.svc`) instead of `PHOTO_DIR`.
+URLs stay `/media/<uuid>.webp`: the API streams each photo from the bucket, so the bucket needs no public access.
+
+1. In the Garage repo: `make bucket APP=localdate` creates the bucket and Secret `localdate-s3` (namespace
+   `services`) with `S3_ENDPOINT`, `S3_REGION`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` (+
+   `S3_PUBLIC_ENDPOINT`, unused). Copy it into namespace `localdate` (a Secret cannot be referenced across
+   namespaces).
+2. In the API container: `envFrom: [{secretRef: {name: localdate-s3}}]` and `PHOTO_STORAGE: s3` in the ConfigMap
+   (`PHOTO_DIR` is then ignored).
+3. Move existing photos over before switching: the object key is the file name, e.g.
+   `kubectl -n localdate exec deploy/localdate-api -- tar -C /data/photos -cf - . | tar -xf - -C photos/`, then upload
+   `photos/*.webp` to the bucket root with any S3 client (`aws s3 cp --recursive --endpoint-url …`).
+
+The API refuses to start when a `S3_*` variable is missing or the endpoint is not `http(s)://`, and when its
+startup probe (write + delete of `_probe-<uuid>`, before the port is bound) fails: at once for a wrong bucket or
+a key without write access, after 60 s of backoff when Garage does not answer. Credentials never appear in logs.
+The pod needs egress to the Garage S3 port (3900); the NetworkPolicies only restrict ingress. A photo or account
+deletion that cannot delete its object still succeeds; the leftover names are logged as
+`photo files left behind in storage`.
+
 ## Web Push (optional)
 
 Without VAPID keys the API runs with push off (`GET /api/push/config` → `enabled: false`). To turn it
@@ -262,8 +286,9 @@ kubectl -n localdate exec deploy/localdate-api -- localdate-api admin revoke <us
 
 ## Backups
 
-Two things hold state: the database and the photos volume. Back up both together (a photo row
-without its file renders a broken image; a file without a row is just garbage).
+Two things hold state: the database and the photos (the volume, or the bucket with `PHOTO_STORAGE=s3` — back
+that up on the Garage side). Back up both together (a photo row without its file renders a broken image; a file
+without a row is just garbage).
 
 ```sh
 # Database (custom format; restore with pg_restore -d localdate)

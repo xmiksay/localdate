@@ -57,8 +57,20 @@ impl TestApp {
         body
     }
 
+    /// The disk backend's directory (meaningless for an app made by `with_s3`).
+    pub fn photo_dir(&self) -> &std::path::Path {
+        self.photo_dir.path()
+    }
+
     pub fn photo_path(&self, file_name: &str) -> std::path::PathBuf {
-        self.state.config.photo_dir.join(file_name)
+        self.photo_dir().join(file_name)
+    }
+
+    /// Number of entries in the disk backend's directory.
+    pub fn photo_files(&self) -> usize {
+        std::fs::read_dir(self.photo_dir())
+            .expect("photo dir")
+            .count()
     }
 }
 

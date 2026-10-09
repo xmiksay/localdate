@@ -9,6 +9,7 @@ pub mod error;
 pub mod interests;
 pub mod mail;
 pub mod me;
+pub mod media;
 pub mod push;
 pub mod rate_limit;
 pub mod retry;
@@ -23,7 +24,6 @@ use axum::Router;
 use axum::extract::Extension;
 use axum::routing::get;
 use rust_embed::RustEmbed;
-use tower_http::services::ServeDir;
 use tower_http::trace::TraceLayer;
 
 use state::AppState;
@@ -53,7 +53,7 @@ pub fn app_with_frontend<F: RustEmbed + 'static>(state: AppState) -> Router {
 
     Router::new()
         .nest("/api", api)
-        .nest_service("/media", ServeDir::new(&state.config.photo_dir))
+        .nest("/media", media::router())
         .fallback(web::serve::<F>)
         .layer(Extension(state.limiter.clone()))
         .layer(TraceLayer::new_for_http())

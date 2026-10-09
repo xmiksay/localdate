@@ -29,7 +29,7 @@ async fn upload_converts_to_downscaled_webp_on_disk() {
     );
     let img = image::load_from_memory(&bytes).expect("decodes");
     assert_eq!((img.width(), img.height()), (1280, 640));
-    assert!(!app.photo_path(&format!("{name}.tmp")).exists());
+    assert_eq!(app.photo_files(), 1, "no staging file left behind");
 
     // Served through /media too.
     let resp = app.get(&format!("/media/{name}"), None).await;
@@ -61,12 +61,7 @@ async fn garbage_and_missing_field_are_rejected() {
         .await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
     assert_eq!(body["error"]["code"], "validation");
-    assert_eq!(
-        std::fs::read_dir(&app.state.config.photo_dir)
-            .expect("dir")
-            .count(),
-        0
-    );
+    assert_eq!(app.photo_files(), 0);
 }
 
 #[tokio::test]
@@ -96,12 +91,7 @@ async fn oversize_dimensions_are_unsupported_image() {
         .await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert_eq!(body["error"]["code"], "unsupported_image");
-    assert_eq!(
-        std::fs::read_dir(&app.state.config.photo_dir)
-            .expect("dir")
-            .count(),
-        0
-    );
+    assert_eq!(app.photo_files(), 0);
 }
 
 #[tokio::test]
@@ -116,12 +106,7 @@ async fn seventh_photo_is_photo_limit() {
         .await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert_eq!(body["error"]["code"], "photo_limit");
-    assert_eq!(
-        std::fs::read_dir(&app.state.config.photo_dir)
-            .expect("dir")
-            .count(),
-        6
-    );
+    assert_eq!(app.photo_files(), 6);
 }
 
 #[tokio::test]

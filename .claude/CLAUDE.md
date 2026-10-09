@@ -14,9 +14,9 @@ waves, and chats after a mutual wave.
 - `backend/` — Rust workspace: `api` (Axum, binary `localdate-api`), `entity` (SeaORM), `migration`.
   `anyhow` in main/setup, typed `AppError` (→ `{error:{code,message}}`) in handlers, `tracing`.
 - `frontend/` — Vue 3 `<script setup>` + TS + Vite + Tailwind + Pinia + vue-i18n (cs default, en) + vite-plugin-pwa.
-- Postgres on the host (no docker-compose); photos on local disk (`PHOTO_DIR`). Deploy: Kubernetes, namespace
-  `localdate`, single API replica (photos on an RWO PVC; WS already fans out across replicas) + Postgres
-  StatefulSet, ingress `localdate.mmik.cz`.
+- Postgres on the host (no docker-compose); photos on local disk (`PHOTO_DIR`) or an S3 bucket
+  (`PHOTO_STORAGE=s3`, Garage). Deploy: Kubernetes, namespace `localdate`, single API replica (photos on an RWO
+  PVC with `disk`; with `s3` and WS fan-out nothing pins it to one pod) + Postgres StatefulSet, ingress `localdate.mmik.cz`.
 
 ## Code map
 
@@ -33,7 +33,9 @@ waves, and chats after a mutual wave.
   ID token checks + userinfo calls, `grant` one-time codes / sign-up tokens in `oauth_grant` (+ pending imported photo),
   `notice` link notice mail, `import` profile picture import (CDN host allowlist, size cap, `photos::to_webp`/`add`),
   `flow` start/link/callback, `exchange` exchange/signup), `mail.rs` (`Mailer` trait: lettre SMTP, dev log,
-  `MemoryMailer` for tests), `me/` (profile, photos + `image_proc`, filter, `identities` = linked login methods +
+  `MemoryMailer` for tests), `media/` (`store` = `PhotoStore` over `object_store`: disk or S3, the only photo file I/O; `check` = startup write/delete
+  probe, `is_transient`; `mod` = `GET/HEAD /media/{name}` with strict name check, streamed, private immutable
+  caching, RFC 9110 `If-None-Match` decided by a store HEAD), `me/` (profile, photos + `image_proc`, filter, `identities` = linked login methods +
   email linking, `password` = change / first password, `DELETE /me`), `discovery/` (`geo` bands/haversine, `rules::mutually_visible` = spec,
   `duration` presets/12 h cap/end of day, `window`, `location` (location updates + area leave check), `nearby` = the **only runtime visibility SQL**,
   reused by waves, + shared-interest ranking), `areas/` (`GET /areas` containment, admin CRUD `/admin/areas`),
@@ -49,7 +51,7 @@ waves, and chats after a mutual wave.
   release build without it), `safety.rs` (blocks/reports, `is_blocked_between`, `blocked_with` — both also cover banned accounts),
   `admin/` (report queue, soft ban/unban, `set_admin` for the CLI), `error.rs`
   (`AppError`, `AppJson`, `parse_id`), `rate_limit.rs` (per-IP bucket; `TRUST_PROXY_HEADERS` keys on the
-  first `X-Forwarded-For` entry), `retry.rs` (shared reconnect backoff). New domain = module with `router()` merged in `lib.rs`.
+  first `X-Forwarded-For` entry), `retry.rs` (backoff + `patiently` = startup retry for DB and photo storage). New domain = module with `router()` merged in `lib.rs`.
   `AuthUser` loads the account on every request (deleted or token `iat` before `credentials_changed_at` → 401,
   banned → 403 `banned`; the WS re-check applies the same); `AdminUser` also
   needs `is_admin`; `lock_unbanned` (`FOR SHARE`) guards window/wave/refresh writes against a concurrent ban;
@@ -57,7 +59,9 @@ waves, and chats after a mutual wave.
   `main.rs` is a clap CLI: no subcommand = serve, `admin grant|revoke <username>` (refuses with pending migrations).
 - `backend/api/tests/common/mod.rs`: `TestApp` harness (fresh DB per test, `register`, `onboard`, `open_window`,
   `visible_user`, `match_up`, `admin`, multipart helpers; `with_frontend::<F>()` serves a fixture bundle from `tests/fixtures/dist`;
-  `with_config(|c| …)` tweaks the `Config`, e.g. to enable the rate limiter);
+  `with_config(|c| …)` tweaks the `Config`, e.g. to enable the rate limiter; `photo_dir()`/`photo_files()` = disk backend);
+  `common/s3.rs`: in-process fake S3 (`FakeS3`: path-style object PUT/GET/HEAD + bulk delete, SigV4 header check,
+  `read_only` key mode, `gets` counter, `config_for_bucket`), `TestApp::with_s3()`, `dead_s3()`; `tests/photos_s3.rs` covers #21;
   `common/areas.rs`: `area`, `area_user`, `start_area_window`; `common/ws.rs`: WS client (`serve`, `ready_socket`, `next`);
   `common/replica.rs`: `app.replica()` = second API replica on the same DB (own pool + hub) for `tests/ws_replicas.rs`.
   `common/email.rs`: `TestApp::with_email()` (email on, mail captured in `outbox`), `mails_to`, `last_link`,

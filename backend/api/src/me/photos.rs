@@ -1,5 +1,3 @@
-use std::path::{Path as FsPath, PathBuf};
-
 use axum::extract::{DefaultBodyLimit, Multipart, Path, State};
 use axum::http::StatusCode;
 use axum::routing::{delete, post, put};
@@ -70,17 +68,6 @@ pub async fn list(db: &impl ConnectionTrait, user_id: Uuid) -> Result<Vec<PhotoD
     Ok(rows.into_iter().map(Into::into).collect())
 }
 
-/// Best effort: a leftover file is garbage, not a reason to fail the request.
-pub async fn remove_files(dir: &FsPath, names: &[String]) {
-    for name in names {
-        if let Err(e) = tokio::fs::remove_file(dir.join(name)).await
-            && e.kind() != std::io::ErrorKind::NotFound
-        {
-            tracing::warn!(error = %e, file = %name, "failed to delete photo file");
-        }
-    }
-}
-
 /// `field.bytes()` fails with 413 when the route's body limit trips.
 fn multipart_error(err: axum::extract::multipart::MultipartError) -> AppError {
     if err.status() == StatusCode::PAYLOAD_TOO_LARGE {
@@ -132,7 +119,7 @@ async fn upload(
     }
     let bytes = read_file_field(multipart).await?;
     let webp = to_webp(&state, bytes).await?;
-    let model = add(&state, auth.id, &webp).await?;
+    let model = add(&state, auth.id, webp).await?;
     Ok((StatusCode::CREATED, Json(model.into())))
 }
 
@@ -157,32 +144,19 @@ pub async fn to_webp(state: &AppState, bytes: Vec<u8>) -> Result<Vec<u8>, AppErr
 }
 
 /// Stores already normalised WebP bytes as the user's last photo; `PhotoLimit` when full.
-pub async fn add(state: &AppState, user_id: Uuid, webp: &[u8]) -> Result<photo::Model, AppError> {
+/// The object is stored before the row exists, so a row never points at a missing file; when the
+/// insert fails, the object is deleted again.
+pub async fn add(state: &AppState, user_id: Uuid, webp: Vec<u8>) -> Result<photo::Model, AppError> {
     let id = Uuid::new_v4();
-    let file_name = format!("{id}.webp");
-    write_atomically(&state.config.photo_dir, &file_name, webp).await?;
+    let file_name = crate::media::file_name(id);
+    state.photos.put(&file_name, webp).await?;
     match insert_row(state, user_id, id, &file_name).await {
         Ok(model) => Ok(model),
         Err(e) => {
-            remove_files(&state.config.photo_dir, &[file_name]).await;
+            state.photos.remove_all(&[file_name]).await;
             Err(e)
         }
     }
-}
-
-async fn write_atomically(dir: &FsPath, file_name: &str, data: &[u8]) -> Result<(), AppError> {
-    let target: PathBuf = dir.join(file_name);
-    let tmp = dir.join(format!("{file_name}.tmp"));
-    let result = async {
-        tokio::fs::write(&tmp, data).await?;
-        tokio::fs::rename(&tmp, &target).await
-    }
-    .await;
-    if let Err(e) = result {
-        let _ = tokio::fs::remove_file(&tmp).await;
-        return Err(anyhow::Error::new(e).context("writing photo file").into());
-    }
-    Ok(())
 }
 
 async fn insert_row(
@@ -232,7 +206,7 @@ async fn remove(
     let ids: Vec<Uuid> = remaining.iter().map(|p| p.id).collect();
     write_positions(&txn, &remaining, &ids).await?;
     txn.commit().await?;
-    remove_files(&state.config.photo_dir, &[target.file_name]).await;
+    state.photos.remove_all(&[target.file_name]).await;
     Ok(StatusCode::NO_CONTENT)
 }
 

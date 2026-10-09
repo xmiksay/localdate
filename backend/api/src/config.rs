@@ -1,5 +1,4 @@
 use std::net::SocketAddr;
-use std::path::PathBuf;
 use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
@@ -13,7 +12,8 @@ const DEFAULT_CLEANUP_INTERVAL_SECS: u64 = 300;
 pub struct Config {
     pub database_url: String,
     pub jwt_secret: String,
-    pub photo_dir: PathBuf,
+    /// Where photo files live (`PHOTO_STORAGE`: disk at `PHOTO_DIR`, or an S3 bucket).
+    pub photo_storage: PhotoStorage,
     pub bind_addr: SocketAddr,
     /// Per-IP limiter on register/login. Always on in `from_env`; the test harness turns it off
     /// (every test client would share one bucket) except in the rate-limit tests.
@@ -94,8 +94,10 @@ impl std::fmt::Debug for EmailTransport {
     }
 }
 
+mod photo_storage;
 mod telegram;
 
+pub use photo_storage::{PhotoStorage, S3Config};
 pub use telegram::TelegramBotConfig;
 
 const DEV_LOG_FROM: &str = "localdate <noreply@localhost>";
@@ -125,7 +127,7 @@ impl Config {
         let config = Self {
             database_url: var("DATABASE_URL")?,
             jwt_secret,
-            photo_dir: var("PHOTO_DIR")?.into(),
+            photo_storage: photo_storage::from_lookup(|name| std::env::var(name).ok())?,
             bind_addr: var("BIND_ADDR")?
                 .parse()
                 .context("BIND_ADDR must be host:port")?,

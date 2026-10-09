@@ -152,8 +152,9 @@ metadata:
   name: localdate-api
   namespace: localdate
 spec:
-  # One replica only: photos live on the ReadWriteOnce PVC below, which one pod can mount. More
-  # replicas need shared photo storage (S3, #21); WebSocket push already fans out via LISTEN/NOTIFY.
+  # One replica only: this manifest keeps photos on the ReadWriteOnce PVC below (PHOTO_STORAGE=disk),
+  # which one pod can mount. With PHOTO_STORAGE=s3 (docs/deployment.md) that limit is gone; WebSocket
+  # push already fans out via LISTEN/NOTIFY.
   replicas: 1
   # The photos volume is ReadWriteOnce: a rolling update would start the new pod while the old one
   # still holds the volume (stuck on another node). Recreate stops the old pod first.

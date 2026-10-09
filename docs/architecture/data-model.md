@@ -61,9 +61,36 @@ JPEG (q 0.9, transparency flattened onto white). Files it cannot decode keep the
 rejects non-JPEG/PNG/WebP ones before upload.
 Uploaded via multipart to the API, decoded with `image`, resized to max 1280 px long edge,
 re-encoded as lossless WebP via the pure-Rust `image` encoder (strips EXIF incl. GPS, honours orientation; no libwebp
-C dependency), written to `PHOTO_DIR/<uuid>.webp`. Inputs over 10 000 px on an edge or 32 Mi pixels are
+C dependency), stored as `<uuid>.webp` through `media::PhotoStore` (see Storage below). Inputs over 10 000 px on an edge or 32 Mi pixels are
 refused from the header, before decoding (decode allocation capped at 128 MiB), and at most two decodes run
 at once (`AppState::image_permits`), which bounds memory for the pod limit.
 Served publicly at `/media/<uuid>.webp` — filenames are unguessable v4 UUIDs, so `<img>` works
-without auth headers. S3 storage is a follow-up issue. A Facebook profile picture can also be imported at login
+without auth headers. A Facebook profile picture can also be imported at login
 ([Auth](auth.md) → "Profile picture import"); it runs through the same `to_webp` / `add` path as an upload.
+
+**Storage.** `media::PhotoStore` (`object_store` crate) is the only code that writes, reads or deletes photo
+files; `PHOTO_STORAGE` picks the backend ([Config](config.md)):
+
+- `disk` — `PHOTO_DIR/<uuid>.webp`; each write goes to a staging file that is fsynced and renamed into place.
+- `s3` — object `<uuid>.webp` at the bucket root of an S3-compatible store (Garage), path-style, SigV4 signed
+  with `ring` (no aws-lc). Connect timeout 5 s, 30 s per read (no total timeout, so a slow but progressing
+  `/media` stream is not cut), 2 retries within 15 s.
+
+Write order: object first, then the row (under the user lock, with the authoritative 6-photo check); if the
+insert fails the object is deleted again, so a row never points at a missing file. A failed put → `500 internal`,
+no row. Deleting a photo, and `DELETE /me` (names are read before the cascade), delete the objects after the
+commit, best effort, as one bulk delete (`delete_stream`; one DeleteObjects request on S3) bounded by a 20 s
+overall timeout: a failure never fails the request, missing objects count as deleted, and the names left behind
+are logged in one `photo files left behind in storage` warning so they can be removed by hand. Reordering touches rows only.
+There is no orphan sweep job.
+
+`GET`/`HEAD /media/{name}` (`media/mod.rs`) accepts only the generated name shape — canonical lowercase
+hyphenated UUID + `.webp` — so no request can reach a path outside the photo set or any other object in the
+bucket; anything else, and a missing object, is `404`. The body is streamed from the store with
+`Content-Type: image/webp`, `Content-Length`, `X-Content-Type-Options: nosniff`, the backend's `ETag` and
+`Cache-Control: private, max-age=31536000, immutable`: a name is never reused (a new upload gets a new UUID), so a
+cached copy cannot go stale; `private` keeps photos out of shared caches (CDN, proxies), so after a deletion only
+browsers that already fetched the photo can still show it. `If-None-Match` follows RFC 9110 (`*`, lists, several
+header lines, weak comparison) and answers `304` with `ETag` + `Cache-Control`. HEAD and a conditional GET are
+decided from the object's metadata (`HEAD` on the store), so neither a HEAD nor a 304 downloads the object. Unauthenticated, as
+before.

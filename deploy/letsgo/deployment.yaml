@@ -4,7 +4,7 @@ metadata:
   name: localdate-api
 spec:
   # Photos live in S3 (no volume), and WebSocket push fans out across replicas through Postgres
-  # LISTEN/NOTIFY, so 2+ replicas are fine once the image has S3 photo storage (#21). Each replica
+  # LISTEN/NOTIFY, so 2+ replicas are fine (S3 photo storage, #21, is in the image). Each replica
   # holds its own DB pool plus one LISTEN connection on postgres-direct, so mind max_connections.
   replicas: 1
   # The old binary must never run against a schema the new one just migrated.

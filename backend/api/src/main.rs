@@ -1,7 +1,7 @@
 use std::io::IsTerminal;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
@@ -9,6 +9,8 @@ use localdate_api::auth::email::EmailService;
 use localdate_api::auth::telegram::TelegramService;
 use localdate_api::auth::telegram::bot::HttpBot;
 use localdate_api::config::Config;
+use localdate_api::media::PhotoStore;
+use localdate_api::retry::patiently;
 use localdate_api::state::AppState;
 use localdate_api::web::Dist;
 use migration::{Migrator, MigratorTrait};
@@ -106,26 +108,20 @@ async fn admin(action: AdminAction) -> Result<()> {
 /// How long shutdown waits for detached work (reset / notice delivery) after the last request.
 const DRAIN_DETACHED: Duration = Duration::from_secs(10);
 
-/// How long `serve` keeps starting new DB connection attempts; one attempt itself can take up to the
-/// pool acquire timeout (30 s) when the host does not answer.
+/// How long `serve` keeps starting new attempts to reach the DB and the photo storage; one DB
+/// attempt itself can take up to the pool acquire timeout (30 s) when the host does not answer,
+/// one storage attempt up to its retry timeout (15 s).
 const CONNECT_PATIENCE: Duration = Duration::from_secs(60);
 
-/// On k8s the API and Postgres start together; waiting here beats crash-looping until the DB is up.
 async fn connect_with_retry(url: &str) -> Result<DatabaseConnection> {
-    let started = Instant::now();
-    let mut attempt = 0;
-    loop {
-        match Database::connect(url).await {
-            Ok(db) => return Ok(db),
-            Err(e) if started.elapsed() < CONNECT_PATIENCE => {
-                let delay = localdate_api::retry::backoff(attempt);
-                tracing::warn!(error = %e, retry_in = ?delay, "database not reachable yet");
-                tokio::time::sleep(delay).await;
-                attempt += 1;
-            }
-            Err(e) => return Err(e).context("connecting to database"),
-        }
-    }
+    patiently(
+        "database",
+        CONNECT_PATIENCE,
+        |_| true,
+        || Database::connect(url),
+    )
+    .await
+    .context("connecting to database")
 }
 
 async fn serve() -> Result<()> {
@@ -140,14 +136,6 @@ async fn serve() -> Result<()> {
     Migrator::up(&db, None)
         .await
         .context("running migrations")?;
-    tokio::fs::create_dir_all(&config.photo_dir)
-        .await
-        .context("creating PHOTO_DIR")?;
-
-    let listener = tokio::net::TcpListener::bind(config.bind_addr)
-        .await
-        .with_context(|| format!("binding {}", config.bind_addr))?;
-    tracing::info!(addr = %config.bind_addr, "listening");
 
     // Started here rather than in `app()` so integration tests drive `cleanup::run_once` directly.
     tokio::spawn(localdate_api::cleanup::run_forever(
@@ -174,10 +162,26 @@ async fn serve() -> Result<()> {
             None
         }
     };
+    let bind_addr = config.bind_addr;
     let state = AppState::new(db, config)
         .await?
         .with_email(email)
         .with_telegram(telegram);
+    // Before binding, so a pod with bad S3 settings never turns ready: the rollout fails instead
+    // of the first upload. Refusals (403, missing bucket) fail at once; only outages are waited out.
+    patiently(
+        "photo storage",
+        CONNECT_PATIENCE,
+        PhotoStore::is_transient,
+        || state.photos.check(),
+    )
+    .await
+    .context("checking photo storage (needs write access to the bucket)")?;
+
+    let listener = tokio::net::TcpListener::bind(bind_addr)
+        .await
+        .with_context(|| format!("binding {bind_addr}"))?;
+    tracing::info!(addr = %bind_addr, "listening");
     let hub = state.hub.clone();
     let detached = state.detached.clone();
     let app = localdate_api::app(state);
