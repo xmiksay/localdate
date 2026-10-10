@@ -6,9 +6,44 @@ use entity::{Gender, Reason, filter, user};
 use sea_orm::{ActiveModelTrait, EntityTrait, Set};
 
 #[tokio::test]
-async fn health_is_ok() {
+async fn health_reports_version_commit_and_db() {
     let app = TestApp::new().await;
-    let (status, _) = app.get("/api/health", None).await;
+    let (status, body) = app.get("/api/health", None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["status"], "ok");
+    assert_eq!(body["db"], "ok");
+    assert_eq!(body["version"], env!("CARGO_PKG_VERSION"));
+    let commit = body["commit"].as_str().expect("commit string");
+    assert!(commit == "dev" || commit.len() == 7, "{commit}");
+    assert!(body["built_at"].is_null() || body["built_at"].is_string());
+    assert_eq!(
+        body.as_object().expect("object").len(),
+        5,
+        "no extra fields: {body}"
+    );
+
+    let (status, _) = app.get("/api/live", None).await;
+    assert_eq!(status, StatusCode::OK);
+}
+
+#[tokio::test]
+async fn health_is_503_without_the_db_but_live_stays_200() {
+    let app = TestApp::new().await;
+    // Closing a clone closes the shared pool, as an unreachable database would leave it unusable.
+    let _ = app.db.clone().close().await;
+
+    let (status, body) = app.get("/api/health", None).await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(body["status"], "degraded");
+    assert_eq!(body["db"], "unavailable");
+    assert_eq!(body["version"], env!("CARGO_PKG_VERSION"));
+    assert_eq!(
+        body.as_object().expect("object").len(),
+        5,
+        "no error details: {body}"
+    );
+
+    let (status, _) = app.get("/api/live", None).await;
     assert_eq!(status, StatusCode::OK);
 }
 

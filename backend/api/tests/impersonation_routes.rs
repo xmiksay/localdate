@@ -75,6 +75,7 @@ const DENIED: &[(&str, &str)] = &[
 /// No access token involved at all.
 const PUBLIC: &[&str] = &[
     "/health",
+    "/live",
     "/interests",
     "/push/config",
     "/auth/register",

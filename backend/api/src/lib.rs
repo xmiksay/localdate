@@ -6,6 +6,7 @@ pub mod config;
 pub mod detached;
 pub mod discovery;
 pub mod error;
+pub mod health;
 pub mod interests;
 pub mod mail;
 pub mod me;
@@ -22,7 +23,6 @@ pub mod ws;
 
 use axum::Router;
 use axum::extract::Extension;
-use axum::routing::get;
 use rust_embed::RustEmbed;
 use tower_http::trace::TraceLayer;
 
@@ -37,7 +37,7 @@ pub fn app(state: AppState) -> Router {
 pub fn app_with_frontend<F: RustEmbed + 'static>(state: AppState) -> Router {
     // Register each domain module's `router()` here.
     let api = Router::new()
-        .route("/health", get(|| async { "ok" }))
+        .merge(health::router())
         .merge(auth::router())
         .merge(interests::router())
         .merge(me::router())

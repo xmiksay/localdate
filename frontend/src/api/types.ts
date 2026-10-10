@@ -378,3 +378,11 @@ export interface PushPrefs {
   matches: boolean
   messages: boolean
 }
+
+export interface Health {
+  status: 'ok' | 'degraded'
+  version: string
+  commit: string
+  built_at: string | null
+  db: 'ok' | 'unavailable'
+}

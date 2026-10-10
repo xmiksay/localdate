@@ -278,16 +278,19 @@ spec:
             httpGet:
               path: /api/health
               port: http
+            timeoutSeconds: 2
             periodSeconds: 5
             failureThreshold: 60
           readinessProbe:
             httpGet:
               path: /api/health
               port: http
+            timeoutSeconds: 2
             periodSeconds: 10
+          # /api/health pings the DB; liveness must not, or a DB outage would restart-loop the pods.
           livenessProbe:
             httpGet:
-              path: /api/health
+              path: /api/live
               port: http
             periodSeconds: 30
           resources:

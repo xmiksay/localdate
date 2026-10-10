@@ -74,7 +74,7 @@ icons: ## Regenerate the PNG app/notification icons from the SVGs (needs rsvg-co
 	frontend/scripts/icons.sh
 
 image: ## Build the container image localdate:dev
-	docker build -t localdate:dev .
+	docker build --build-arg GIT_SHA=$$(git rev-parse HEAD 2>/dev/null || echo unknown) -t localdate:dev .
 
 deploy: ## Apply deploy/k8s.yml to the current kubectl context (Secret must exist, see docs/deployment.md)
 	kubectl apply -f deploy/k8s.yml

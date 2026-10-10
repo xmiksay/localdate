@@ -8,6 +8,8 @@ declare module 'vue-router' {
     guestOnly?: boolean
     onboarding?: boolean
     requiresAdmin?: boolean
+    /** Rendered inside `AppLayout` (which places the version footer above its bottom nav). */
+    appLayout?: boolean
   }
 }
 
@@ -67,7 +69,7 @@ const router = createRouter({
     {
       path: '/',
       component: () => import('@/components/AppLayout.vue'),
-      meta: { requiresAuth: true },
+      meta: { requiresAuth: true, appLayout: true },
       redirect: { name: 'nearby' },
       children: [
         { path: 'nearby', name: 'nearby', component: () => import('@/views/NearbyView.vue') },

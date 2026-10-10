@@ -30,6 +30,10 @@ RUN mkdir -p backend/api/src backend/entity/src backend/migration/src frontend/d
     && cd backend && cargo build --release --locked -p localdate-api
 COPY backend/ backend/
 COPY --from=frontend /src/frontend/dist frontend/dist
+# Build identity for GET /api/health (read by backend/api/build.rs; .git is not in the context).
+# Declared after the dependency layer so a new sha never invalidates it.
+ARG GIT_SHA=unknown
+ARG BUILD_TIME=
 # COPY keeps the source mtimes, which can be older than the stub build; touch so cargo rebuilds
 # the workspace crates and re-embeds the real bundle over the placeholder.
 RUN find backend/api backend/entity backend/migration frontend/dist -type f -exec touch {} + \
