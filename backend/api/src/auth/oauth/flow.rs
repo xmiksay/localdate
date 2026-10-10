@@ -1,4 +1,4 @@
-//! Handlers: `start` / `link` begin a flow, `callback` finishes it at the provider's redirect
+//! Handlers: `start` / `link` / `import_picture` begin a flow, `callback` finishes it at the provider's redirect
 //! (`exchange.rs` takes over from there).
 
 use anyhow::Context;
@@ -7,9 +7,11 @@ use axum::extract::{Path, Query, State};
 use axum::http::header::{CACHE_CONTROL, LOCATION, SET_COOKIE};
 use axum::http::{HeaderMap, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
-use entity::OAuthGrantPurpose;
+use entity::{OAuthGrantPurpose, user_identity};
 use percent_encoding::{NON_ALPHANUMERIC, utf8_percent_encode};
-use sea_orm::TransactionTrait;
+use sea_orm::{
+    ColumnTrait, ConnectionTrait, EntityTrait, PaginatorTrait, QueryFilter, TransactionTrait,
+};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -18,7 +20,7 @@ use super::import::{self, Outcome};
 use super::oidc::Oidc;
 use super::{Provider, grant, identity_for, insert_identity, notice};
 use crate::auth::email::message::Lang;
-use crate::auth::extractor::{Account, account_status, lock_unbanned};
+use crate::auth::extractor::{Account, account_status, lock_unbanned, lock_user};
 use crate::auth::{AuthUser, refresh};
 use crate::error::{AppError, AppJson};
 use crate::rate_limit::ClientIp;
@@ -39,6 +41,12 @@ pub(super) struct LinkBody {
     lang: Option<String>,
     #[serde(default)]
     import_photo: bool,
+}
+
+#[derive(Deserialize)]
+pub(super) struct ImportBody {
+    redirect: Option<String>,
+    lang: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -130,9 +138,34 @@ pub(super) async fn link(
     Ok(([(SET_COOKIE, set)], Json(LinkUrl { url })))
 }
 
+/// Re-import the provider's current profile picture: the access token is never stored, so this is
+/// another trip through the provider, bound to the caller like a link.
+pub(super) async fn import_picture(
+    State(state): State<AppState>,
+    Path(provider): Path<String>,
+    auth: AuthUser,
+    AppJson(body): AppJson<ImportBody>,
+) -> Result<([(axum::http::HeaderName, HeaderValue); 1], Json<LinkUrl>), AppError> {
+    let provider = Provider::parse(&provider).ok_or(AppError::NotFound)?;
+    state.oauth.offers_picture(provider)?;
+    let (set, url) = state.oauth.begin(
+        provider,
+        Mode::Import,
+        body.redirect.as_deref(),
+        Some(Linker {
+            user_id: auth.id,
+            token_issued_at: auth.issued_at,
+            lang: body.lang,
+        }),
+        true,
+    )?;
+    Ok(([(SET_COOKIE, set)], Json(LinkUrl { url })))
+}
+
 enum Done {
     Code(String),
     Linked(Provider),
+    Imported(Outcome),
 }
 
 /// `&photo=<outcome>` when an import was asked for.
@@ -163,6 +196,11 @@ pub(super) async fn callback(
         ),
         Ok((Done::Linked(p), photo)) => done(
             &format!("linked={}{}", p.as_str(), photo_param(photo)),
+            redirect.as_deref(),
+            clear,
+        ),
+        Ok((Done::Imported(outcome), _)) => done(
+            &format!("imported={}", outcome.as_str()),
             redirect.as_deref(),
             clear,
         ),
@@ -214,25 +252,24 @@ async fn finish(
         (true, Some(token)) => Some((oidc, token)),
         _ => None,
     };
-    let outcome = match flow.mode {
-        Mode::Login => login_code(state, provider, &subject, &flow.state, import)
+    if flow.mode == Mode::Login {
+        return login_code(state, provider, &subject, &flow.state, import)
             .await
-            .map(|(code, photo)| (Done::Code(code), photo)),
-        Mode::Link => match link_identity(state, provider, &subject, flow.linker).await {
-            Ok(user_id) => {
-                let photo = match import {
-                    Some((oidc, token)) => Some(match import::fetch(state, oidc, token).await {
-                        Ok(webp) => import::attach(state, user_id, webp).await,
-                        Err(outcome) => outcome,
-                    }),
-                    None => None,
-                };
-                Ok((Done::Linked(provider), photo))
-            }
-            Err(e) => Err(e),
-        },
+            .map(|(code, photo)| (Done::Code(code), photo))
+            .map_err(|e| e.code());
+    }
+    let user_id = link_identity(state, provider, &subject, flow.linker, flow.mode)
+        .await
+        .map_err(|e| e.code())?;
+    let photo = match import {
+        Some((oidc, token)) => Some(import::fetch_and_attach(state, oidc, token, user_id).await),
+        None => None,
     };
-    outcome.map_err(|e| e.code())
+    Ok(match flow.mode {
+        // `begin` sets `import_photo` for every import flow; no access token is a failed import.
+        Mode::Import => (Done::Imported(photo.unwrap_or(Outcome::Failed)), None),
+        _ => (Done::Linked(provider), photo),
+    })
 }
 
 /// A one-time code bound to this flow: `login` for a linked provider account, else `signup_code`.
@@ -276,38 +313,64 @@ async fn login_code(
     Ok((issued.token, photo))
 }
 
-/// Attaches the identity to the account that started the flow; returns that account.
+/// Attaches the identity to the account that started the flow; returns that account. In import
+/// mode the account may already hold that very identity, but not another one of the provider: the
+/// re-import would otherwise quietly add a second provider account.
 async fn link_identity(
     state: &AppState,
     provider: Provider,
     subject: &str,
     linker: Option<Linker>,
+    mode: Mode,
 ) -> Result<Uuid, AppError> {
     let linker = linker.ok_or(AppError::Unauthorized)?;
     let user_id = linker.user_id;
     let lang = Lang::parse(linker.lang.as_deref());
     let txn = state.db.begin().await.context("begin oauth link txn")?;
-    lock_unbanned(&txn, user_id).await?;
+    // Import also checks "no other identity of this provider" before inserting: two concurrent
+    // imports under share locks would both pass it and link two provider accounts.
+    if mode == Mode::Import {
+        lock_user(&txn, user_id).await?;
+    } else {
+        lock_unbanned(&txn, user_id).await?;
+    }
     // Under the row lock a password reset/change has either committed (and is seen here) or waits.
     if account_status(&txn, user_id, linker.token_issued_at).await? == Account::Superseded {
         return Err(AppError::Unauthorized);
     }
-    match identity_for(&txn, provider.identity(), subject).await? {
-        // Linking the same provider account twice is a no-op, not an error (and no new notice).
-        Some(identity) if identity.user_id == user_id => return Ok(user_id),
-        Some(_) => return Err(AppError::IdentityTaken),
-        None => {
-            insert_identity(
-                &txn,
-                user_id,
-                provider.identity(),
-                subject,
-                AppError::IdentityTaken,
-            )
-            .await?;
-        }
+    let existing = identity_for(&txn, provider.identity(), subject).await?;
+    // Linking the same provider account twice is a no-op, not an error (and no new notice).
+    if existing.as_ref().is_some_and(|i| i.user_id == user_id) {
+        return Ok(user_id);
     }
+    if mode == Mode::Import && has_provider_identity(&txn, user_id, provider).await? {
+        return Err(AppError::IdentityMismatch);
+    }
+    if existing.is_some() {
+        return Err(AppError::IdentityTaken);
+    }
+    insert_identity(
+        &txn,
+        user_id,
+        provider.identity(),
+        subject,
+        AppError::IdentityTaken,
+    )
+    .await?;
     txn.commit().await.context("commit oauth link txn")?;
     notice::linked(state, user_id, provider, lang);
     Ok(user_id)
+}
+
+async fn has_provider_identity(
+    db: &impl ConnectionTrait,
+    user_id: Uuid,
+    provider: Provider,
+) -> Result<bool, AppError> {
+    Ok(user_identity::Entity::find()
+        .filter(user_identity::Column::UserId.eq(user_id))
+        .filter(user_identity::Column::Provider.eq(provider.identity()))
+        .count(db)
+        .await?
+        > 0)
 }

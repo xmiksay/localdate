@@ -29,6 +29,8 @@ export default {
       provider_disabled: 'Tento způsob přihlášení teď není dostupný.',
       banned: 'Tento účet byl zablokován.',
       identity_taken: 'Tento účet už je propojený s jiným uživatelem.',
+      identity_mismatch:
+        'K tvému účtu je propojený jiný účet tohoto poskytovatele. Přihlas se u poskytovatele tím propojeným a zkus to znovu.',
       unauthorized: 'Tvoje přihlášení vypršelo. Přihlas se a zkus to znovu.',
       rate_limited: 'Příliš mnoho pokusů. Chvíli počkej a zkus to znovu.',
       internal: 'Něco se pokazilo na naší straně. Zkus to prosím později.',

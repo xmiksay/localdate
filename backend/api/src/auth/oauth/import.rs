@@ -1,4 +1,5 @@
-//! Optional import of the provider's profile picture (Facebook, #17), asked for at `start` / `link`.
+//! Import of the provider's profile picture (Facebook, #17): opt-in at `start` / `link`, or a
+//! signed-in user's re-import at any time (`POST …/import`, cookie mode `Import` in `flow.rs`).
 //! It runs inside the callback, the only moment the provider access token exists: the picture is
 //! looked up, downloaded from the provider's CDN and normalised by the photo pipeline; the token is
 //! dropped afterwards. A sign-up keeps the processed image in its grant until the username step.
@@ -90,6 +91,19 @@ pub async fn attach(state: &AppState, user_id: Uuid, webp: Vec<u8>) -> Outcome {
             tracing::error!(error = %e, "storing an imported photo failed");
             Outcome::Failed
         }
+    }
+}
+
+/// Fetches the picture and adds it to `user_id`'s photos.
+pub async fn fetch_and_attach(
+    state: &AppState,
+    oidc: &Oidc,
+    access_token: &str,
+    user_id: Uuid,
+) -> Outcome {
+    match fetch(state, oidc, access_token).await {
+        Ok(webp) => attach(state, user_id, webp).await,
+        Err(outcome) => outcome,
     }
 }
 

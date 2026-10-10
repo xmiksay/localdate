@@ -149,6 +149,13 @@ host is ever contacted; the body is capped at the upload limit (10 MB, `Content-
 is deleted with its expired grant by the cleanup job. The outcome is appended to the done page fragment
 (`photo=pending|imported|full|none|failed`); an import failure never fails the sign-up or link. Request errors are
 logged without their URL (`reqwest::Error::without_url`): Graph URLs carry the `appsecret_proof`, CDN URLs are signed.
+A later re-import (`POST /auth/oauth/{provider}/import`, "Importovat z Facebooku" in the photo manager) is a third
+cookie mode, `import`: a link flow with `import_photo` forced on, refused up front for a provider without a picture
+source (`OAuthService::offers_picture`). `flow::link_identity` serves both — under the user row lock (`FOR UPDATE` for import, so two concurrent imports
+cannot both pass the check below) and the same superseded
+check, import additionally refuses (`identity_mismatch`) when the account holds another identity of that provider,
+so a re-import never quietly adds a second provider account; then `import::fetch_and_attach` as for a link. The
+done fragment is `imported=<outcome>`; the SPA hands it to the photo manager (`me.justImportedPhoto`).
 
 JWT HS256 access token (15 min, `sub` = user id) + opaque refresh token (30 days, stored hashed,
 rotated on every use; reuse of a revoked token revokes the whole family). The frontend keeps both in

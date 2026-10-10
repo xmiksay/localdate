@@ -12,6 +12,7 @@ import TextInput from '@/components/ui/TextInput.vue'
 import { useT } from '@/i18n/typed'
 import { useAuthStore } from '@/stores/auth'
 import { useIdentitiesStore } from '@/stores/identities'
+import { useMeStore } from '@/stores/me'
 import { errorMessage } from '@/utils/errors'
 import { parseOAuthFragment } from '@/utils/oauthFragment'
 import { pendingToken } from '@/utils/pendingToken'
@@ -25,6 +26,7 @@ const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
 const identities = useIdentitiesStore()
+const me = useMeStore()
 
 let code = ''
 let redirect: string | null = null
@@ -118,6 +120,12 @@ onMounted(async () => {
     identities.justLinkedProvider = outcome.provider
     identities.justImportedPhoto = outcome.photo
     await router.replace(outcome.redirect ?? { name: 'settings' })
+    return
+  }
+  if (outcome.kind === 'imported') {
+    // Shown once by the photo manager the flow started from.
+    me.justImportedPhoto = outcome.outcome
+    await router.replace(outcome.redirect ?? { name: 'profile' })
     return
   }
   if (outcome.kind === 'error') {

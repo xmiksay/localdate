@@ -17,6 +17,15 @@ describe('parseOAuthFragment', () => {
     })
   })
 
+  it('reads a picture re-import outcome and ignores an unknown one', () => {
+    expect(parseOAuthFragment('#imported=none&redirect=%2Fprofile')).toEqual({
+      kind: 'imported',
+      outcome: 'none',
+      redirect: '/profile',
+    })
+    expect(parseOAuthFragment('#imported=pending')).toEqual({ kind: 'none' })
+  })
+
   it('drops a redirect that would leave the app', () => {
     for (const bad of ['%2F%2Fevil.com', 'https%3A%2F%2Fevil.com', '%2F%5Cevil.com', 'settings']) {
       expect(parseOAuthFragment(`#code=abc&redirect=${bad}`)).toEqual({

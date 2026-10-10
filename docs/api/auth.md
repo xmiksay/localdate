@@ -106,6 +106,7 @@ client credentials: `GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET`, `TELEGRAM_CLIEN
 |---|---|---|
 | `GET /auth/oauth/{provider}/start?redirect=<path>&import_photo=1` | — | `302` to the provider (login or sign-up); sets the flow cookie. `import_photo` (`1`/`true`, optional): see Facebook below |
 | `POST /auth/oauth/{provider}/link` (auth) | `{ redirect?: string, lang?: MailLang, import_photo?: boolean }` | `200 { url: string }` — navigate the browser there; sets the flow cookie |
+| `POST /auth/oauth/{provider}/import` (auth) | `{ redirect?: string, lang?: MailLang }` | `200 { url: string }` — re-import the provider's profile picture (Facebook below); navigate there; sets the flow cookie |
 | `GET /auth/oauth/{provider}/callback?code&state` | — (the provider redirects here) | `302 /auth/oauth/done#…` |
 | `POST /auth/oauth/exchange` | `{ code }` | `200 OAuthExchange` — needs the flow cookie, code consumed |
 | `POST /auth/oauth/signup` | `{ token, username }` | `201 Tokens & { photo?: 'imported' \| 'full' \| 'failed' }` (token consumed, account + identity created; `photo` only when the sign-up holds an imported picture, see Facebook below) |
@@ -127,8 +128,9 @@ when one was given):
 |---|---|
 | `#code=<one-time code>` | login or sign-up: `POST /auth/oauth/exchange { code }` within 60 s, from the same browser |
 | `#linked=<provider>` | link mode: the identity was added to the account that started the flow |
+| `#imported=<outcome>` | import mode (`POST …/import`): `imported` \| `full` \| `none` \| `failed`, as `photo=` below |
 | `&photo=<PhotoImportOutcome>` | appended to `#linked=…`, or to `#code=…` of a **new** account, only when a picture import was asked for and the provider offers one (Facebook below); never with `#error=`, never for a login to an existing account |
-| `#error=<code>` | `cancelled` (denied at the provider), `invalid_state` (cookie missing / expired / tampered, `state` mismatch, wrong provider), `oauth_failed` (code exchange or ID token check failed), `provider_disabled`, `banned`, `identity_taken` (link: that provider account belongs to another user), `unauthorized` (link: the account is gone, or its password was reset / changed after the access token that started the flow — that session was ended, so its link flow dies with it), `rate_limited`, `internal` |
+| `#error=<code>` | `cancelled` (denied at the provider), `invalid_state` (cookie missing / expired / tampered, `state` mismatch, wrong provider), `oauth_failed` (code exchange or ID token check failed), `provider_disabled`, `banned`, `identity_taken` (link / import: that provider account belongs to another user), `identity_mismatch` (import: the account already has a **different** account of that provider linked), `unauthorized` (link / import: the account is gone, or its password was reset / changed after the access token that started the flow — that session was ended, so its link flow dies with it), `rate_limited`, `internal` |
 
 ID tokens are checked against the provider's JWKS (RS256, cached, refetched for an unknown `kid`): `iss`,
 `aud` = client id, `exp`, and `nonce` = the cookie's — required for Google; for Telegram checked when present and accepted when absent (its server-side flow may not echo it; `state`, PKCE and the cookie binding still stop code injection). One-time codes (and sign-up tokens) are 32 random
@@ -168,6 +170,17 @@ stored — and only after the account checks passed (a banned, taken or supersed
 | `full` | link: the account already has the maximum of 6 photos; nothing added |
 | `none` | link or sign-up: the Facebook account only has the default silhouette |
 | `failed` | link or sign-up: lookup, download or decoding failed (or the image is not on Facebook's CDN, is over 10 MB, or is not an image) |
+
+**Re-import at any time.** `POST /auth/oauth/{provider}/import` (auth, rate-limited like `link`) lets a signed-in
+user add their *current* profile picture later. No provider token is ever stored, so it is another round trip
+through the provider: like `link` it sets the flow cookie (mode import, the caller's user id and token `iat`) and
+answers the provider URL; the callback then runs the same account checks as a link (`banned`, `unauthorized`) and:
+the consenting provider account is already linked to the caller → import; the caller has no account of that
+provider → it is linked (`identity_taken` when it belongs to someone else; the "new sign-in method" notice is
+mailed) and imported; the caller has a different one linked → `#error=identity_mismatch`, nothing linked or
+downloaded. The result is `#imported=imported|full|none|failed` (`&redirect=…` as usual). Only a provider with a
+picture source (Facebook) offers it: an unknown provider or one without a picture (Google, Telegram) → `404
+not_found`, one the server has not configured → `503 provider_disabled` (checked first).
 
 A failed import never fails the sign-up or link itself; with `none` / `failed` the signup response has no `photo`. The picture runs through the normal upload pipeline
 (decode limits, EXIF stripped, WebP, ≤ 1280 px) and then behaves like any uploaded photo (`DELETE /me/photos/{id}`).
