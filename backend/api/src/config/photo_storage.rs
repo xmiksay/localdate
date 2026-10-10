@@ -35,6 +35,13 @@ impl std::fmt::Debug for S3Config {
     }
 }
 
+impl PhotoStorage {
+    /// Just the storage settings, for CLI commands that need no full `Config`.
+    pub fn from_env() -> Result<Self> {
+        from_lookup(|name| std::env::var(name).ok())
+    }
+}
+
 /// Reads the variables through `get` (the process env in `Config::from_env`). Empty counts as
 /// unset, as an optional k8s Secret key leaves it.
 pub(super) fn from_lookup(get: impl Fn(&str) -> Option<String>) -> Result<PhotoStorage> {

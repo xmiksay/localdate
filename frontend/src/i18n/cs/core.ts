@@ -39,6 +39,8 @@ export default {
     push_disabled: 'Oznámení nejsou na tomto serveru zapnutá.',
     not_visible: 'Tato osoba už není v dosahu.',
     cannot_ban_admin: 'Administrátora nelze zablokovat.',
+    cannot_impersonate: 'Za administrátora ani zablokovaný účet se přihlásit nelze.',
+    impersonation_forbidden: 'Při jednání za jiného uživatele to není dostupné.',
     already_resolved: 'Nahlášení už někdo vyřešil.',
     underage: 'Aplikace je jen pro osoby starší 18 let.',
     profile_incomplete: 'Dokonči nejdřív profil, fotku a filtr.',

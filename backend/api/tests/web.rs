@@ -155,3 +155,29 @@ async fn without_a_bundle_everything_non_api_is_404() {
     let (status, _, _) = send(&app, Method::GET, "/api/health", None).await;
     assert_eq!(status, StatusCode::OK);
 }
+
+/// With a bundle present, nothing under the API or media namespaces may fall through to the SPA
+/// shell (a client would read `index.html` as a photo or an API answer).
+#[tokio::test]
+async fn api_and_media_namespaces_never_get_the_spa_shell() {
+    let app = TestApp::with_frontend::<Fixture>().await;
+    for path in [
+        "/media",
+        "/media/",
+        "/media/x/y",
+        "/media/nothing-here",
+        "/%6dedia/",
+        "/api",
+        "/api/",
+        "/api/nope/nested",
+    ] {
+        for method in [Method::GET, Method::HEAD] {
+            let (status, _, body) = send(&app, method.clone(), path, None).await;
+            assert_eq!(status, StatusCode::NOT_FOUND, "{method} {path}");
+            assert!(!body.contains("<html"), "{method} {path}: {body}");
+        }
+    }
+    // A client route that only starts with the same letters still gets the shell.
+    let (status, _, _) = send(&app, Method::GET, "/mediation", None).await;
+    assert_eq!(status, StatusCode::OK);
+}

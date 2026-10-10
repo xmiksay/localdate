@@ -16,8 +16,9 @@ use axum::response::Response;
 use axum::routing::get;
 use serde::Deserialize;
 
-use crate::auth::AuthUser;
-use crate::auth::extractor::{Account, account_status, verify_access};
+use crate::admin::audit;
+use crate::auth::extractor::{authorize, verify_access};
+use crate::auth::{ActingUser, jwt};
 use crate::error::AppError;
 use crate::state::AppState;
 
@@ -29,6 +30,8 @@ pub use presence::REPLICA_STALE;
 use hub::Outbound;
 
 const AUTH_TIMEOUT: Duration = Duration::from_secs(10);
+/// How impersonated sockets appear in the audit log.
+const WS_ROUTE: &str = "/api/ws";
 
 pub fn router() -> Router<AppState> {
     Router::new().route("/ws", get(upgrade))
@@ -52,12 +55,12 @@ async fn upgrade(ws: WebSocketUpgrade, State(state): State<AppState>) -> Respons
 }
 
 /// Waits for the auth frame; protocol pings/pongs before it are skipped by the stack.
-async fn authenticate(socket: &mut WebSocket, state: &AppState) -> Result<AuthUser, AppError> {
+async fn authenticate(socket: &mut WebSocket, state: &AppState) -> Result<ActingUser, AppError> {
     loop {
         match socket.recv().await {
             Some(Ok(Message::Text(text))) => {
                 let token = auth_token(&text).ok_or(AppError::Unauthorized)?;
-                return verify_access(&state.db, &state.config.jwt_secret, &token).await;
+                return verify_access(&state.db, &state.config, &token).await;
             }
             Some(Ok(Message::Ping(_) | Message::Pong(_))) => {}
             _ => return Err(AppError::Unauthorized),
@@ -78,30 +81,55 @@ async fn send_event(socket: &mut WebSocket, event: &ServerEvent) -> Result<(), (
     socket.send(Message::text(json)).await.map_err(|_| ())
 }
 
-/// Why an authenticated socket must close, given its account's current state.
-fn refusal(account: &Account) -> Option<CloseReason> {
-    match account {
-        Account::Active { .. } => None,
-        Account::Banned => Some(CloseReason::Banned),
-        Account::Missing | Account::Superseded => Some(CloseReason::Unauthorized),
+/// Why an authenticated socket must close, given why its token is refused now; any other error
+/// is a failed check, not a refusal.
+fn refusal(err: AppError) -> Result<CloseReason, AppError> {
+    match err {
+        AppError::Banned => Ok(CloseReason::Banned),
+        AppError::Unauthorized => Ok(CloseReason::Unauthorized),
+        other => Err(other),
+    }
+}
+
+/// Re-reads the account(s) behind an open socket's token (the acting admin's too).
+async fn recheck(state: &AppState, access: jwt::Access) -> Result<Option<CloseReason>, AppError> {
+    match authorize(&state.db, state.config.admin_impersonation, access).await {
+        Ok(_) => Ok(None),
+        Err(e) => refusal(e).map(Some),
     }
 }
 
 async fn session(mut socket: WebSocket, state: AppState) {
-    let (user, issued_at) =
-        match tokio::time::timeout(AUTH_TIMEOUT, authenticate(&mut socket, &state)).await {
-            Ok(Ok(auth)) => (auth.id, auth.issued_at),
-            Ok(Err(AppError::Banned)) => return close(socket, CloseReason::Banned).await,
-            Ok(Err(AppError::Internal)) => return close(socket, CloseReason::Internal).await,
-            _ => return close(socket, CloseReason::Unauthorized).await,
-        };
+    let access = match tokio::time::timeout(AUTH_TIMEOUT, authenticate(&mut socket, &state)).await {
+        Ok(Ok(auth)) => auth.access(),
+        Ok(Err(AppError::Banned)) => return close(socket, CloseReason::Banned).await,
+        Ok(Err(AppError::Internal)) => return close(socket, CloseReason::Internal).await,
+        _ => return close(socket, CloseReason::Unauthorized).await,
+    };
+    let Some(admin) = access.actor else {
+        return connected(socket, state, access).await;
+    };
+    // An admin watching the target's realtime is audited like any request, start and end.
+    let record =
+        |event: &'static str| audit::record_request(&state.db, admin, access.user, event, WS_ROUTE);
+    if record(audit::WS_OPEN).await.is_err() {
+        return close(socket, CloseReason::Internal).await;
+    }
+    connected(socket, state.clone(), access).await;
+    if let Err(e) = record(audit::WS_CLOSE).await {
+        tracing::error!(error = %e, "auditing the end of an impersonated socket failed");
+    }
+}
+
+/// An authenticated socket, from subscription to close.
+async fn connected(mut socket: WebSocket, state: AppState, access: jwt::Access) {
+    let user = access.user;
 
     let (id, mut events) = state.hub.subscribe(user).await;
     // A ban committed between the auth check and `subscribe` disconnected nothing; re-check.
-    let refused = match account_status(&state.db, user, issued_at).await {
-        Ok(account) => refusal(&account),
-        Err(_) => Some(CloseReason::Internal),
-    };
+    let refused = recheck(&state, access)
+        .await
+        .unwrap_or(Some(CloseReason::Internal));
     if let Some(reason) = refused {
         state.hub.unsubscribe(user, id).await;
         return close(socket, reason).await;
@@ -112,7 +140,7 @@ async fn session(mut socket: WebSocket, state: AppState) {
         return;
     }
     // Defence in depth: a ban whose Close op never reached this replica still ends the socket.
-    let mut recheck = tokio::time::interval_at(
+    let mut recheck_every = tokio::time::interval_at(
         tokio::time::Instant::now() + state.config.ws_account_recheck,
         state.config.ws_account_recheck,
     );
@@ -134,8 +162,8 @@ async fn session(mut socket: WebSocket, state: AppState) {
                     break;
                 }
             },
-            _ = recheck.tick() => match account_status(&state.db, user, issued_at).await {
-                Ok(account) => if let Some(reason) = refusal(&account) {
+            _ = recheck_every.tick() => match recheck(&state, access).await {
+                Ok(refused) => if let Some(reason) = refused {
                     state.hub.unsubscribe(user, id).await;
                     return close(socket, reason).await;
                 },
@@ -170,9 +198,12 @@ mod tests {
 
     #[test]
     fn refusal_follows_the_account_state() {
-        assert_eq!(refusal(&Account::Active { is_admin: false }), None);
-        assert_eq!(refusal(&Account::Banned), Some(CloseReason::Banned));
-        assert_eq!(refusal(&Account::Missing), Some(CloseReason::Unauthorized));
+        assert_eq!(refusal(AppError::Banned).ok(), Some(CloseReason::Banned));
+        assert_eq!(
+            refusal(AppError::Unauthorized).ok(),
+            Some(CloseReason::Unauthorized)
+        );
+        assert!(refusal(AppError::Internal).is_err(), "a failed check");
     }
 
     #[test]

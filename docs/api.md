@@ -5,7 +5,8 @@ Base path `/api`, JSON bodies, `Authorization: Bearer <access_token>` on everyth
 
 Every authenticated request checks the account: a deleted account gets `401 unauthorized`,
 a banned one `403 banned`, and an access token issued before the account's last password reset or change
-`401 unauthorized` — the 15-minute access token is no grace period.
+`401 unauthorized` — the 15-minute access token is no grace period. An impersonation token (`act` claim,
+[auth](api/auth.md#impersonation-tokens)) also checks the acting admin on every request.
 
 ## Sections
 
@@ -13,7 +14,7 @@ a banned one `403 banned`, and an access token issued before the account's last 
 - [Me / profile](api/profile.md) — profile, photos, filter, identities, password change
 - [Discovery](api/discovery.md) — visibility window & location, areas, nearby
 - [Social](api/social.md) — waves & matches, safety
-- [Admin (moderation)](api/admin.md) — reports, bans, areas
+- [Admin (moderation)](api/admin.md) — reports, bans, areas, test users, impersonation, audit log
 - [WebSocket `/api/ws`](api/realtime.md) — realtime protocol and close codes
 - [Push notifications (Web Push)](api/push.md) — config, subscriptions, preferences, payload
 
@@ -30,6 +31,7 @@ Internal/DB errors are logged and returned as `500 internal` with a generic mess
 | 401 | `invalid_credentials` | login failed; `PUT /me/password` with a wrong `current_password` |
 | 401 | `invalid_refresh_token` | refresh token unknown, expired or revoked |
 | 403 | `forbidden` | not a participant / blocked / match partner banned; `/admin/*` for non-admins |
+| 403 | `impersonation_forbidden` | the request uses an impersonation token (`act` claim) on an endpoint an admin acting as someone may not use — see [admin](api/admin.md#users-test-users-and-impersonation-alpha--beta-testing) |
 | 403 | `banned` | account suspended: any authenticated request, login (after a correct password), refresh, password reset |
 | 404 | `not_found` | |
 | 409 | `username_taken` | register, `POST /auth/email/signup`, `POST /auth/oauth/signup` |
@@ -42,6 +44,7 @@ Internal/DB errors are logged and returned as `500 internal` with a generic mess
 | 409 | `not_visible` | wave target is not currently mutually visible |
 | 409 | `push_disabled` | `POST /me/push/subscriptions` while the server has no VAPID keys (push off) |
 | 409 | `cannot_ban_admin` | `POST /admin/users/{id}/ban` on an admin (incl. yourself) |
+| 409 | `cannot_impersonate` | `POST /admin/users/{id}/impersonate` on an admin (incl. yourself) or a banned account |
 | 409 | `already_resolved` | `POST /admin/reports/{id}/dismiss` on a resolved report |
 | 422 | `underage` | birth date < 18 years ago |
 | 422 | `profile_incomplete` | window start without profile + filter + ≥ 1 photo |

@@ -175,9 +175,10 @@ async fn failed_insert_removes_the_object_again() {
         app.upload_photo(&t, 8, 8).await;
     }
     // Bypass the early count check: `add` itself must clean up when the locked check refuses.
-    let err = localdate_api::me::photos::add(&app.state, t.user_id, vec![1, 2, 3])
-        .await
-        .expect_err("seventh photo");
+    let err =
+        localdate_api::me::photos::add(&app.state.db, &app.state.photos, t.user_id, vec![1, 2, 3])
+            .await
+            .expect_err("seventh photo");
     assert!(matches!(err, localdate_api::error::AppError::PhotoLimit));
     assert_eq!(s3.keys().len(), 6);
 }

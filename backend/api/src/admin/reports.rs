@@ -28,7 +28,8 @@ SELECT r.id, r.reason::text AS reason, r.note, r.created_at, r.resolved_at,
        rb.id AS resolved_by_id, rb.username AS resolved_by_username,
        rp.id AS reporter_id, rp.username AS reporter_username,
        s.id AS subject_id, s.username AS subject_username, s.banned_at AS subject_banned_at,
-       s.is_admin AS subject_is_admin, p.display_name AS subject_display_name,
+       s.is_admin AS subject_is_admin, s.is_test AS subject_is_test,
+       p.display_name AS subject_display_name,
        (SELECT ph.file_name FROM photo ph WHERE ph.user_id = s.id
         ORDER BY ph.position LIMIT 1) AS subject_photo,
        (SELECT count(*) FROM report o
@@ -59,6 +60,7 @@ struct Row {
     subject_username: String,
     subject_banned_at: Option<DateTimeWithTimeZone>,
     subject_is_admin: bool,
+    subject_is_test: bool,
     subject_display_name: Option<String>,
     subject_photo: Option<String>,
     open_reports: i64,
@@ -78,6 +80,7 @@ pub struct SubjectDto {
     photo_url: Option<String>,
     banned_at: Option<DateTime<Utc>>,
     is_admin: bool,
+    is_test: bool,
     open_reports: i64,
 }
 
@@ -94,7 +97,7 @@ pub struct AdminReport {
     subject: SubjectDto,
 }
 
-fn user_ref(id: Option<Uuid>, username: Option<String>) -> Option<UserRef> {
+pub(super) fn user_ref(id: Option<Uuid>, username: Option<String>) -> Option<UserRef> {
     Some(UserRef {
         id: id?,
         username: username?,
@@ -124,6 +127,7 @@ impl TryFrom<Row> for AdminReport {
                 photo_url: r.subject_photo.as_deref().map(media_url),
                 banned_at: r.subject_banned_at.map(|t| t.to_utc()),
                 is_admin: r.subject_is_admin,
+                is_test: r.subject_is_test,
                 open_reports: r.open_reports,
             },
         })

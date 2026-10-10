@@ -10,7 +10,7 @@ endif
 BE := cd backend &&
 FE := cd frontend &&
 
-.PHONY: help install build lint check-pins fmt test test-unit test-integration migrate run-api run-web admin-grant admin-revoke vapid-keys icons image deploy deploy-letsgo deploy-letsgo-diff clean
+.PHONY: help install build lint check-pins fmt test test-unit test-integration migrate run-api run-web admin-grant admin-revoke seed-test-users vapid-keys icons image deploy deploy-letsgo deploy-letsgo-diff clean
 
 help: ## List targets
 	@grep -hE '^[a-z-]+:.*##' Makefile | awk -F':.*## ' '{printf "  %-18s %s\n", $$1, $$2}'
@@ -59,6 +59,9 @@ run-web: ## Run Vite dev server
 admin-grant: ## Make ADMIN=<username> an admin (DATABASE_URL)
 	@test -n "$$ADMIN" || { echo "usage: make admin-grant ADMIN=<username>"; exit 1; }
 	$(BE) cargo run -p localdate-api -- admin grant -- "$$ADMIN"
+
+seed-test-users: ## Create COUNT (default 10) onboarded test users with placeholder avatars
+	$(BE) cargo run -p localdate-api -- admin seed-test-users --count $(or $(COUNT),10)
 
 admin-revoke: ## Take the admin role from ADMIN=<username>
 	@test -n "$$ADMIN" || { echo "usage: make admin-revoke ADMIN=<username>"; exit 1; }

@@ -49,14 +49,24 @@ waves, and chats after a mutual wave.
   `frontend/dist`: files, SPA `index.html` fallback, cache headers/ETag, traversal guard; `/api` has its
   own JSON 404 fallback so it never gets the shell; `build.rs` rebuilds on dist changes and refuses a
   release build without it), `safety.rs` (blocks/reports, `is_blocked_between`, `blocked_with` — both also cover banned accounts),
-  `admin/` (report queue, soft ban/unban, `set_admin` for the CLI), `error.rs`
+  `admin/` (report queue, soft ban/unban, `set_admin` for the CLI; `directory` = user search + `AdminUserRow`,
+  `test_users` = `is_test` accounts (create/photo/delete, shared `create` with `seed` = CLI bulk profiles,
+  `avatar` = placeholder PNG), `impersonate` = "act as" token + `/admin/settings`, `audit` = `admin_audit`
+  log), `error.rs`
   (`AppError`, `AppJson`, `parse_id`), `rate_limit.rs` (per-IP bucket; `TRUST_PROXY_HEADERS` keys on the
   first `X-Forwarded-For` entry), `retry.rs` (backoff + `patiently` = startup retry for DB and photo storage). New domain = module with `router()` merged in `lib.rs`.
   `AuthUser` loads the account on every request (deleted or token `iat` before `credentials_changed_at` → 401,
   banned → 403 `banned`; the WS re-check applies the same); `AdminUser` also
   needs `is_admin`; `lock_unbanned` (`FOR SHARE`) guards window/wave/refresh writes against a concurrent ban;
   `lock_user` (`FOR UPDATE`, same account mapping) for writes to the user row itself (password).
-  `main.rs` is a clap CLI: no subcommand = serve, `admin grant|revoke <username>` (refuses with pending migrations).
+  Impersonation (`ADMIN_IMPERSONATION`, docs/architecture/auth.md) is deny-by-default: `AuthUser` refuses a
+  token with an `act` claim (`403 impersonation_forbidden`); a handler opts in by taking `ActingUser`
+  (`acting_admin: Option<Uuid>`) — only for endpoints safe for an admin acting as the user, never credentials,
+  identities, push, deletion or admin. Every new route must be classified in `tests/impersonation_routes.rs`.
+  `extractor::authorize` re-checks TTL, flag and actor (also the WS re-check); every impersonated request (and
+  WS open/close) is audited in the `ActingUser` extractor.
+  `main.rs` is a clap CLI: no subcommand = serve, `admin grant|revoke <username>`, `admin seed-test-users --count N`
+  (refuse with pending migrations).
 - `backend/api/tests/common/mod.rs`: `TestApp` harness (fresh DB per test, `register`, `onboard`, `open_window`,
   `visible_user`, `match_up`, `admin`, multipart helpers; `with_frontend::<F>()` serves a fixture bundle from `tests/fixtures/dist`;
   `with_config(|c| …)` tweaks the `Config`, e.g. to enable the rate limiter; `photo_dir()`/`photo_files()` = disk backend);
@@ -86,13 +96,18 @@ waves, and chats after a mutual wave.
   `utils/webPush.ts` (support/iOS detection + the only `PushManager`/`Notification` adapter),
   `utils/visibility.ts` (closes the WS after 30 s hidden), `scripts/icons.sh` (`make icons`: PNG icons from SVG),
   `NotificationsSection.vue` (Settings opt-in), `composables/usePushSync.ts`, `views/AdminView.vue` (`/admin`, admins only:
-  reports + areas tabs), `composables/` (geolocation sharing — `left_area` ends the window and sets the notice
+  reports, areas, test users, users, audit tabs), `composables/` (geolocation sharing — `left_area` ends the window and sets the notice
   shown by `WindowEndedNotice` in `AppLayout`; realtime), `i18n/cs/` (source of truth, one module per domain — core, auth, profile, discovery, moderation, notifications — merged in
   `cs/index.ts`; each `en/<domain>.ts` is typed against its cs module via `Messages<T>` in `i18n/messages.ts`;
   `i18n/plural.ts` = Czech one/few/many rule; `i18n/typed.ts` `useT()` = key-checked `t`, use it instead of
   `useI18n`, enforced by ESLint), `utils/interests.ts` (`sharedFirst` chips, `byOverlapThenBand` client-side
   nearby order), `utils/imageResize.ts` (`prepareUpload`: re-encode to a ≤ 2048 px JPEG unless already an accepted small file, before `PhotoManager` uploads),
-  `SharedInterestsBadge.vue`, `AreaPicker.vue` (area mode of the window start panel), `components/ui/`
+  `SharedInterestsBadge.vue`, `AreaPicker.vue` (area mode of the window start panel),
+  admin "act as": `api/tokens.ts` layers the impersonation token (sessionStorage, this tab only; no refresh) over
+  the admin's untouched localStorage tokens, `stores/impersonation.ts` (start/stop/expiry, `ImpersonationBanner`
+  in `App.vue`), `stores/session.ts` (`resetUserStores()`), `stores/adminUsers.ts` (search, test users, audit),
+  `stores/pinnedLocation.ts` + `PositionPanel.vue` / lazy `LocationMap.vue` (Leaflet + OSM tiles, own chunk;
+  start-or-move the window); geolocation sharing and push sync pause while acting, `components/ui/`
   primitives (`PillRadios` = shared pill radiogroup).
 
 ## Commands (always via make)
@@ -107,6 +122,7 @@ make test              # test-unit (cargo --lib/--bins + vitest) + test-integrat
 make migrate
 make vapid-keys        # fresh VAPID pair for Web Push (VAPID_* env; unset = push off)
 make admin-grant ADMIN=<username>   # / admin-revoke — moderator role via `localdate-api admin …`
+make seed-test-users COUNT=20       # onboarded password-less test users with placeholder avatars
 make image             # docker build -t localdate:dev .
 make deploy            # kubectl apply -f deploy/k8s.yml (current context!)
 make deploy-letsgo     # kubectl apply -k deploy/letsgo (letsgo.sc-l.eu example; -diff to preview)

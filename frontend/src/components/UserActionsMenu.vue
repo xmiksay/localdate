@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useT } from '@/i18n/typed'
+import { useImpersonationStore } from '@/stores/impersonation'
 import { useSafetyStore } from '@/stores/safety'
 import { errorMessage } from '@/utils/errors'
 import ReportDialog from './ReportDialog.vue'
@@ -14,6 +15,7 @@ const emit = defineEmits<{ done: [] }>()
 
 const { t } = useT()
 const safety = useSafetyStore()
+const impersonation = useImpersonationStore()
 const open = ref(false)
 const dialog = ref<'block' | 'report' | null>(null)
 const busy = ref(false)
@@ -39,7 +41,8 @@ async function block() {
 </script>
 
 <template>
-  <div class="relative">
+  <!-- Blocking and reporting are refused to an impersonation token (403 impersonation_forbidden). -->
+  <div v-if="!impersonation.isActive" class="relative">
     <button
       type="button"
       :aria-label="t('safety.menu')"

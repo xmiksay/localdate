@@ -8,7 +8,7 @@ bucket. General operations (updates, rollback, backups, provider details) are in
 
 | Object | What |
 |---|---|
-| `ConfigMap letsgo` | `BIND_ADDR`, `RUST_LOG`, `CLEANUP_INTERVAL_SECS`, `PHOTO_STORAGE=s3`, `S3_ENDPOINT`, `S3_REGION`, `S3_BUCKET`, `TRUST_PROXY_HEADERS=true`, `APP_BASE_URL`, `EMAIL_FROM`, `VAPID_SUBJECT` |
+| `ConfigMap letsgo` | `BIND_ADDR`, `RUST_LOG`, `CLEANUP_INTERVAL_SECS`, `PHOTO_STORAGE=s3`, `S3_ENDPOINT`, `S3_REGION`, `S3_BUCKET`, `TRUST_PROXY_HEADERS=true`, `ADMIN_IMPERSONATION=true`, `APP_BASE_URL`, `EMAIL_FROM`, `VAPID_SUBJECT` |
 | `Secret letsgo` (by hand) | `DATABASE_URL`, `JWT_SECRET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, optional integrations ([secret.example.yaml](secret.example.yaml)) |
 | `Deployment localdate-api` | 1 replica, `Recreate`, read-only root FS, no volumes |
 | `Service localdate-api` + `Ingress letsgo` | Traefik, cert-manager `letsencrypt-prod`, TLS Secret `letsgo-sc-l-eu-tls` |
@@ -152,6 +152,30 @@ kubectl -n sites exec deploy/localdate-api -- localdate-api admin grant <usernam
 
 New `master` build: `kubectl -n sites rollout restart deployment/localdate-api`. ConfigMap
 changes: `make deploy-letsgo`, then the same restart.
+
+Test users for the alpha (password-less, onboarded, placeholder avatars; also creatable in the admin
+UI, tab "Testovací uživatelé"):
+
+```sh
+kubectl -n sites exec deploy/localdate-api -- localdate-api admin seed-test-users --count 20
+```
+
+## Impersonation
+
+The ConfigMap sets `ADMIN_IMPERSONATION=true` for alpha/beta testing: an admin can "act as" any
+non-admin, unbanned user from the admin UI (60-minute token, no refresh). Only the everyday app endpoints
+(profile, photos, filter, window, location, nearby, waves, chat, realtime) accept it; everything else —
+password, linked accounts, account deletion, push, blocks/reports, the admin API — is refused. Starting it,
+every request made while acting (reads included) and each realtime connection's start and end are written
+to the `admin_audit` table (tab "Audit"). A running impersonation ends at its expiry, when the flag is turned
+off, or when the acting admin is demoted, banned or changes their password — not when the admin logs out
+(the UI drops it then, but the token itself stays valid until one of the above). Details:
+[docs/api/admin.md](../../docs/api/admin.md#users-test-users-and-impersonation-alpha--beta-testing).
+
+**To disable** (e.g. before opening to the public): set `ADMIN_IMPERSONATION: "false"` in
+`configmap.yaml`, `make deploy-letsgo`, then `kubectl -n sites rollout restart deployment/localdate-api`.
+The endpoint then answers 404, the UI hides the button, and every impersonation token already issued
+is refused (open sockets close within a minute).
 
 ## Client IP
 

@@ -6,7 +6,7 @@ Not swipe-based: a user who opens a **visibility window** sees every mutually-ma
 ## Sections
 
 - [Data model and storage](architecture/data-model.md) — tables, cleanup job and retention, photos
-- [Auth](architecture/auth.md) — tokens, login providers, identities, password reset
+- [Auth](architecture/auth.md) — tokens, login providers, identities, password reset, admin impersonation
 - [Realtime and push](architecture/realtime-push.md) — WebSocket hub, LISTEN/NOTIFY, Web Push
 - [Configuration and serving](architecture/config.md) — env table, serving the PWA
 

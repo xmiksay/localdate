@@ -23,6 +23,7 @@ export type ErrorCode =
   | 'invalid_credentials'
   | 'invalid_refresh_token'
   | 'forbidden'
+  | 'impersonation_forbidden'
   | 'banned'
   | 'not_found'
   | 'username_taken'
@@ -35,6 +36,7 @@ export type ErrorCode =
   | 'push_disabled'
   | 'not_visible'
   | 'cannot_ban_admin'
+  | 'cannot_impersonate'
   | 'already_resolved'
   | 'underage'
   | 'profile_incomplete'
@@ -56,6 +58,7 @@ export const ERROR_CODES: (ErrorCode | ClientErrorCode)[] = [
   'invalid_credentials',
   'invalid_refresh_token',
   'forbidden',
+  'impersonation_forbidden',
   'banned',
   'not_found',
   'username_taken',
@@ -68,6 +71,7 @@ export const ERROR_CODES: (ErrorCode | ClientErrorCode)[] = [
   'push_disabled',
   'not_visible',
   'cannot_ban_admin',
+  'cannot_impersonate',
   'already_resolved',
   'underage',
   'profile_incomplete',
@@ -301,9 +305,55 @@ export interface AdminReport {
     photo_url: string | null
     banned_at: string | null
     is_admin: boolean
+    is_test: boolean
     /** open reports against this subject, this one included */
     open_reports: number
   }
+}
+
+export interface AdminSettings {
+  /** Whether `ADMIN_IMPERSONATION` is on. */
+  impersonation: boolean
+}
+export interface AdminUserRow {
+  id: string
+  username: string
+  display_name: string | null
+  photo_url: string | null
+  gender: Gender | null
+  age: number | null
+  is_test: boolean
+  is_admin: boolean
+  banned_at: string | null
+  created_at: string
+}
+/** Body of `POST /admin/test-users`. */
+export interface TestUserInput {
+  username: string
+  display_name: string
+  gender: Gender
+  birth_date: string
+  bio?: string
+  interest_ids: number[]
+  /** Default true: a generated avatar, so the account can open a window at once. */
+  placeholder_photo?: boolean
+}
+export interface Impersonation {
+  /** Carries the `act` claim; there is no refresh token. */
+  access_token: string
+  expires_at: string
+  user: User
+}
+export type AuditAction = 'impersonate' | 'impersonated_request'
+export interface AuditEntry {
+  id: string
+  created_at: string
+  action: AuditAction
+  /** null once that admin's account was deleted */
+  admin: UserRef | null
+  /** null once the target was deleted */
+  target: UserRef | null
+  meta: { method?: string; route?: string }
 }
 
 export type WsEvent =

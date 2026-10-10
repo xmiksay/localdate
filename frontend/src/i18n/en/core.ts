@@ -42,6 +42,8 @@ const en: Messages<typeof cs> = {
     push_disabled: 'Notifications are not enabled on this server.',
     not_visible: 'This person is no longer in range.',
     cannot_ban_admin: 'An admin cannot be banned.',
+    cannot_impersonate: 'You cannot act as an admin or a banned account.',
+    impersonation_forbidden: 'Not available while acting as another user.',
     already_resolved: 'Someone already resolved this report.',
     underage: 'This app is for people aged 18 and over.',
     profile_incomplete: 'Complete your profile, a photo and a filter first.',

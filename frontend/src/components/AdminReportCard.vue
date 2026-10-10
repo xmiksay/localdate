@@ -3,6 +3,8 @@ import { computed } from 'vue'
 import { useT } from '@/i18n/typed'
 import type { AdminReport } from '@/api/types'
 import { formatDateTime } from '@/utils/time'
+import ImpersonateButton from './ImpersonateButton.vue'
+import UserBadges from './UserBadges.vue'
 import AvatarImage from './ui/AvatarImage.vue'
 import BaseButton from './ui/BaseButton.vue'
 
@@ -52,21 +54,13 @@ const resolution = computed(() => {
         <p class="truncate text-sm text-muted">@{{ subject.username }}</p>
         <p class="text-xs text-muted">{{ t('admin.openReports', { n: subject.open_reports }) }}</p>
       </div>
-      <div class="flex shrink-0 flex-col items-end gap-1">
-        <span
-          v-if="subject.banned_at"
-          class="rounded-full bg-danger px-2.5 py-0.5 text-xs font-bold text-white"
-        >
-          {{ t('admin.bannedBadge') }}
-        </span>
-        <span
-          v-if="subject.is_admin"
-          class="rounded-full bg-plum/10 px-2.5 py-0.5 text-xs font-bold text-plum"
-        >
-          {{ t('admin.adminBadge') }}
-        </span>
-      </div>
+      <UserBadges
+        :is-test="subject.is_test"
+        :is-admin="subject.is_admin"
+        :banned-at="subject.banned_at"
+      />
     </div>
+    <ImpersonateButton :user="subject" />
 
     <p v-if="resolution" class="text-sm font-semibold text-plum">{{ resolution }}</p>
 

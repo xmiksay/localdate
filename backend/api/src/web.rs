@@ -1,5 +1,5 @@
 //! The built PWA (`frontend/dist`) served from the binary as the router fallback.
-//! `/api` and `/media` are matched first in `lib.rs`, so they never reach this module.
+//! `/api` and `/media` are matched first in `lib.rs`; what they leave unmatched gets a 404 here.
 
 use axum::body::Body;
 use axum::http::{HeaderMap, Method, StatusCode, Uri, header};
@@ -25,6 +25,9 @@ pub const NO_CACHE: &str = "no-cache";
 
 /// Fallback handler: an embedded file, else the SPA shell for route-like paths, else 404.
 pub async fn serve<E: RustEmbed>(method: Method, uri: Uri, headers: HeaderMap) -> Response {
+    if reserved(uri.path()) {
+        return StatusCode::NOT_FOUND.into_response();
+    }
     if method != Method::GET && method != Method::HEAD {
         return (
             StatusCode::METHOD_NOT_ALLOWED,
@@ -43,6 +46,19 @@ pub async fn serve<E: RustEmbed>(method: Method, uri: Uri, headers: HeaderMap) -
             None => StatusCode::NOT_FOUND.into_response(),
         },
     }
+}
+
+/// Paths of the API and media namespaces that their routers did not match (`/media/`, `/api`,
+/// `/media/x/y`, also percent-encoded): a plain 404, never the SPA shell, so a client or test can
+/// never mistake `index.html` for an API or photo answer.
+fn reserved(uri_path: &str) -> bool {
+    let decoded = percent_decode_str(uri_path).decode_utf8_lossy();
+    let first = decoded
+        .trim_start_matches('/')
+        .split('/')
+        .next()
+        .unwrap_or("");
+    matches!(first, "api" | "media")
 }
 
 /// The percent-decoded bundle-relative name, or `None` if it could leave the bundle folder.

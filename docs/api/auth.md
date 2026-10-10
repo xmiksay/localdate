@@ -196,3 +196,16 @@ not_found`, one the server has not configured → `503 provider_disabled` (check
 
 A failed import never fails the sign-up or link itself; with `none` / `failed` the signup response has no `photo`. The picture runs through the normal upload pipeline
 (decode limits, EXIF stripped, WebP, ≤ 1280 px) and then behaves like any uploaded photo (`DELETE /me/photos/{id}`).
+
+### Impersonation tokens
+
+`POST /admin/users/{id}/impersonate` ([admin](admin.md#users-test-users-and-impersonation-alpha--beta-testing))
+issues an access token for the target with one extra claim, `act` = the acting admin's user id, and a 60-minute
+`exp`. It comes without a refresh token. On every request (and when a WebSocket authenticates, and on its periodic
+re-check) such a token is refused with `401 unauthorized` — WebSocket `4401` — unless all of this still holds:
+it was issued less than 60 minutes ago (checked against `iat` too, so a socket opened with it cannot outlive it);
+`ADMIN_IMPERSONATION` is on; the acting admin exists, is not banned, still has the admin role and has not changed
+or reset their password since the token was issued; the target exists, is not an admin and has not changed its
+password since. A banned target is `403 banned` as for any token. The admin logging out does not end it (logout
+only revokes refresh tokens; the admin UI discards the token itself). Only the endpoints listed in admin.md accept
+it; every other authenticated endpoint answers `403 impersonation_forbidden`.

@@ -6,7 +6,7 @@ Production runs on the k8s cluster behind ingress-nginx + cert-manager (`letsenc
 
 | Object | What |
 |---|---|
-| `ConfigMap localdate` | non-secret env (`BIND_ADDR`, `PHOTO_DIR` (disk photo storage, the default), `RUST_LOG`, `CLEANUP_INTERVAL_SECS`, `TRUST_PROXY_HEADERS=true`, `APP_BASE_URL`, `EMAIL_FROM`, `VAPID_SUBJECT`) |
+| `ConfigMap localdate` | non-secret env (`BIND_ADDR`, `PHOTO_DIR` (disk photo storage, the default), `RUST_LOG`, `CLEANUP_INTERVAL_SECS`, `TRUST_PROXY_HEADERS=true`, `APP_BASE_URL`, `EMAIL_FROM`, `VAPID_SUBJECT`; `ADMIN_IMPERSONATION` is left unset = admin "act as" off — see [architecture/auth.md](architecture/auth.md#admin-impersonation-act-as)) |
 | `Secret localdate` | `POSTGRES_PASSWORD`, `JWT_SECRET`, optional `TELEGRAM_CLIENT_ID` + `TELEGRAM_CLIENT_SECRET`, optional `TELEGRAM_BOT_TOKEN`, optional `SMTP_URL`, optional `GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET`, optional `FACEBOOK_APP_ID` + `FACEBOOK_APP_SECRET`, optional `VAPID_PUBLIC_KEY` + `VAPID_PRIVATE_KEY` — **not in git**, created by hand (below) |
 | `StatefulSet localdate-db` + headless `Service` | Postgres 18, 5 Gi PVC `data-localdate-db-0` |
 | `NetworkPolicy localdate-db` | only `app=localdate-api` pods may reach 5432 |

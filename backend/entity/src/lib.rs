@@ -1,5 +1,6 @@
 //! SeaORM entities, one module per table (see docs/architecture/data-model.md).
 
+pub mod admin_audit;
 pub mod area;
 pub mod block;
 pub mod email_token;

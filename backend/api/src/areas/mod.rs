@@ -15,7 +15,7 @@ use sea_orm::{ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter, QuerySelec
 use serde::Serialize;
 use uuid::Uuid;
 
-use crate::auth::AuthUser;
+use crate::auth::ActingUser;
 use crate::discovery::geo::{Circle, ensure_valid};
 use crate::error::AppError;
 use crate::state::AppState;
@@ -107,7 +107,7 @@ fn coord(params: &HashMap<String, String>, key: &str) -> Result<f64, AppError> {
 /// admin-curated, so filtering in Rust with the shared haversine beats a second SQL formula.
 async fn containing(
     State(state): State<AppState>,
-    _auth: AuthUser,
+    _auth: ActingUser,
     Query(params): Query<HashMap<String, String>>,
 ) -> Result<Json<Vec<AreaDto>>, AppError> {
     let (lat, lon) = (coord(&params, "lat")?, coord(&params, "lon")?);

@@ -19,7 +19,7 @@ use super::geo::{DistanceBand, distance_band};
 use super::rules::AREA_STALE_SECS;
 use super::window;
 use crate::areas::AreaRef;
-use crate::auth::AuthUser;
+use crate::auth::ActingUser;
 use crate::error::AppError;
 use crate::interests::InterestDto;
 use crate::me::PhotoDto;
@@ -293,7 +293,7 @@ pub async fn list(
 
 pub async fn get_nearby(
     State(state): State<AppState>,
-    auth: AuthUser,
+    auth: ActingUser,
 ) -> Result<Json<Vec<NearbyProfile>>, AppError> {
     Ok(Json(list(&state.db, auth.id, &[]).await?))
 }

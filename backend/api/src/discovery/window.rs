@@ -15,7 +15,7 @@ use uuid::Uuid;
 use super::duration::{Length, MAX_AHEAD, Until, check_minutes};
 use super::geo::{ensure_valid, round_coord};
 use crate::areas::{self, AreaRef};
-use crate::auth::AuthUser;
+use crate::auth::ActingUser;
 use crate::auth::extractor::lock_unbanned;
 use crate::error::{AppError, AppJson};
 use crate::state::AppState;
@@ -158,7 +158,7 @@ pub async fn active_locked(
 
 pub async fn get_window(
     State(state): State<AppState>,
-    auth: AuthUser,
+    auth: ActingUser,
 ) -> Result<Json<Option<WindowDto>>, AppError> {
     let Some(w) = active(&state.db, auth.id).await? else {
         return Ok(Json(None));
@@ -168,7 +168,7 @@ pub async fn get_window(
 
 pub async fn start_window(
     State(state): State<AppState>,
-    auth: AuthUser,
+    auth: ActingUser,
     AppJson(body): AppJson<StartBody>,
 ) -> Result<(StatusCode, Json<WindowDto>), AppError> {
     let length = Length::requested(body.minutes, body.until, body.tz.as_deref())?;
@@ -227,7 +227,7 @@ pub async fn start_window(
 
 pub async fn extend_window(
     State(state): State<AppState>,
-    auth: AuthUser,
+    auth: ActingUser,
     AppJson(body): AppJson<ExtendBody>,
 ) -> Result<Json<WindowDto>, AppError> {
     let extra = check_minutes("extend_minutes", body.extend_minutes)?;
@@ -253,7 +253,7 @@ pub async fn extend_window(
 
 pub async fn end_window(
     State(state): State<AppState>,
-    auth: AuthUser,
+    auth: ActingUser,
 ) -> Result<StatusCode, AppError> {
     let txn = state.db.begin().await?;
     if let Some(w) = open_window(&txn, auth.id).await? {

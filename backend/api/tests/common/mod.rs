@@ -113,6 +113,7 @@ impl TestApp {
             oauth: Vec::new(),
             app_base_url: Some(email::BASE_URL.into()),
             telegram_bot: None,
+            admin_impersonation: false,
         };
         tweak(&mut config);
         let outbox = std::sync::Arc::new(localdate_api::mail::MemoryMailer::default());

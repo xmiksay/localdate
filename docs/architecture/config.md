@@ -26,6 +26,7 @@ Part of the [architecture](../architecture.md) docs.
 | `FACEBOOK_APP_ID` / `FACEBOOK_APP_SECRET` | from Meta for Developers | optional (Secret); both or neither; unset = Facebook login off; redirect URI `{APP_BASE_URL}/api/auth/oauth/facebook/callback` |
 | `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` | from `make vapid-keys` | optional (Secret); both or neither; unset = Web Push off |
 | `VAPID_SUBJECT` | `https://localdate.mmik.cz` | `mailto:` or `https://` contact; required when the keys are set |
+| `ADMIN_IMPERSONATION` | `false` | optional (`true`/`false`/`1`/`0`), default false; admins may "act as" other users (see [Auth](auth.md#admin-impersonation-act-as)). Setting it to `false` and restarting also invalidates every impersonation token already issued |
 | `RUST_LOG` | `info,sqlx=warn,localdate_api=debug` | sqlx logs every query at info |
 
 Frontend dev server (Vite, :5173) proxies `/api` and `/media` (incl. WS) to `BIND_ADDR`.
