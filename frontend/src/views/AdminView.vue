@@ -25,7 +25,7 @@ onMounted(() => adminUsers.loadSettings().catch(() => undefined))
   <div
     role="tablist"
     :aria-label="t('admin.sections')"
-    class="mb-5 flex gap-2 overflow-x-auto border-b-2 border-line"
+    class="mb-5 flex flex-wrap gap-x-1 border-b-2 border-line"
   >
     <button
       v-for="s in SECTIONS"
@@ -33,7 +33,7 @@ onMounted(() => adminUsers.loadSettings().catch(() => undefined))
       type="button"
       role="tab"
       :aria-selected="section === s"
-      class="min-h-11 shrink-0 border-b-4 px-4 font-display text-lg font-semibold transition"
+      class="min-h-11 border-b-4 px-2 font-display text-base font-semibold transition sm:px-4 sm:text-lg"
       :class="
         section === s ? 'border-coral text-ink' : 'border-transparent text-muted hover:text-ink'
       "
