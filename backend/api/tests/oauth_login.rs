@@ -104,7 +104,7 @@ async fn new_google_account_signs_up_then_logs_in() {
     let (app, fake) = TestApp::with_google().await;
     let t = google_signup(&app, &fake, "g-123", "Gina").await;
     let (_, me) = app.get("/api/me", Some(&t.access_token)).await;
-    assert_eq!(me["user"]["username"], "gina");
+    assert_eq!(me["user"]["username"], "Gina");
     let (_, ids) = app.get("/api/me/identities", Some(&t.access_token)).await;
     assert_eq!(ids["has_password"], false);
     assert_eq!(ids["identities"][0]["provider"], "google");
@@ -266,7 +266,7 @@ async fn signup_with_a_taken_username_keeps_the_token() {
     let (status, _) = app
         .post(
             "/api/auth/oauth/signup",
-            json!({ "token": token, "username": "x" }),
+            json!({ "token": token, "username": "a\nb" }),
         )
         .await;
     assert_eq!(status, StatusCode::BAD_REQUEST, "validation");

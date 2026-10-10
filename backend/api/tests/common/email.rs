@@ -75,4 +75,27 @@ impl TestApp {
         assert_eq!(status, StatusCode::CREATED, "signup failed: {body}");
         tokens_from(&body)
     }
+
+    /// A password account with `email` linked through the real link flow.
+    pub async fn linked(&self, username: &str, email: &str) -> Tokens {
+        let t = self.register(username).await;
+        let (status, _) = self
+            .post_as(
+                "/api/me/identities/email",
+                &t.access_token,
+                json!({ "email": email }),
+            )
+            .await;
+        assert_eq!(status, StatusCode::ACCEPTED);
+        let (_, token) = self.last_link(email).await;
+        let (status, body) = self
+            .post_as(
+                "/api/me/identities/email/confirm",
+                &t.access_token,
+                json!({ "token": token }),
+            )
+            .await;
+        assert_eq!(status, StatusCode::CREATED, "{body}");
+        t
+    }
 }

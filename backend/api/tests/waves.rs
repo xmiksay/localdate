@@ -124,8 +124,8 @@ async fn wave_limit_is_twenty_per_window() {
     let (a, b) = pair(&app).await;
     app.sql(&format!(
         r#"
-        INSERT INTO "user" (id, username, password_hash)
-          SELECT gen_random_uuid(), 'seed' || g, 'x' FROM generate_series(1, 20) g;
+        INSERT INTO "user" (id, username, username_key, password_hash)
+          SELECT gen_random_uuid(), 'seed' || g, 'seed' || g, 'x' FROM generate_series(1, 20) g;
         INSERT INTO wave (id, from_user_id, to_user_id, window_id, expires_at)
           SELECT gen_random_uuid(), '{a}', u.id, w.id, w.ends_at
           FROM "user" u, visibility_window w

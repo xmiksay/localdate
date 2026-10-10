@@ -41,7 +41,7 @@ per-IP limiter on `start`, `signup`, `/auth/password/forgot`, `POST /me/identiti
 is configured, which makes the endpoints `503 email_disabled` and `GET /auth/providers` report `email: false`.
 Tokens are never logged outside dev-log mode.
 
-**Password reset** (`auth/reset.rs`). `POST /auth/password/forgot` takes a username or an address (an `@` decides),
+**Password reset** (`auth/reset.rs`). `POST /auth/password/forgot` takes a username or an address (`deliver::Login`: tried as both when it is both, since usernames may contain `@`),
 charges `ResetLimiter` (`auth/email/limit.rs`; a budget separate from the magic-link `EmailLimiter`, so neither
 drains the other: 3 per (input as typed, IP) / 15 min up front, 5 messages per account / hour once the account is
 known) and answers `202` at once; the account lookup and the sending run afterwards in `AppState::detached`,
@@ -50,7 +50,7 @@ OAuth link notice uses it too; graceful shutdown waits up to 10 s for it after t
 tasks it abandoned). `GET /auth/providers` → `password_reset` is true when a mailer or the bot exists; with the bot
 alone the forgot page asks for a username only. A username's link goes to every linked channel (`reset::deliver::linked_channels`:
 each email identity by mail, each Telegram identity by bot message; Google identities cannot be messaged); an address
-only to itself; a channel whose sender is not configured is skipped. Telegram delivery goes through the
+only to itself; a login that is both reaches both accounts (or one account's channels once); a channel whose sender is not configured is skipped. Telegram delivery goes through the
 `TelegramBot` trait (`auth/telegram/bot.rs`): `HttpBot` calls `sendMessage` (chat id = the identity subject) with
 reqwest — https only, no redirects, 10 s timeout; its URL holds the bot token, so the type has no `Debug` and errors
 are stripped of the URL — at most 4 in flight, failures logged; `MemoryBot` in tests. `AppState::telegram` is `None`

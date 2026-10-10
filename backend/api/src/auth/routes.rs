@@ -7,9 +7,7 @@ use axum::routing::post;
 use axum::{Json, Router, middleware};
 use chrono::{DateTime, Utc};
 use entity::user;
-use sea_orm::{
-    ActiveModelTrait, ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter, Set, SqlErr,
-};
+use sea_orm::{ActiveModelTrait, ConnectionTrait, EntityTrait, QueryFilter, Set, SqlErr};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -100,7 +98,8 @@ async fn register(
 
     let inserted = user::ActiveModel {
         id: Set(Uuid::new_v4()),
-        username: Set(username),
+        username: Set(username.name),
+        username_key: Set(username.key),
         password_hash: Set(Some(password_hash)),
         created_at: Set(Utc::now().fixed_offset()),
         is_admin: Set(false),
@@ -124,9 +123,8 @@ async fn login(
     State(state): State<AppState>,
     AppJson(body): AppJson<Credentials>,
 ) -> Result<Json<Tokens>, AppError> {
-    let username = body.username.trim().to_lowercase();
     let found = user::Entity::find()
-        .filter(user::Column::Username.eq(username))
+        .filter(validation::username_matches(&body.username))
         .one(&state.db)
         .await?;
 

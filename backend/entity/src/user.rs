@@ -5,8 +5,11 @@ use sea_orm::entity::prelude::*;
 pub struct Model {
     #[sea_orm(primary_key, auto_increment = false)]
     pub id: Uuid,
-    #[sea_orm(unique)]
+    /// Display form, as typed (trimmed, NFC).
     pub username: String,
+    /// `auth::validation::username_key`: what uniqueness and every lookup compare.
+    #[sea_orm(unique)]
+    pub username_key: String,
     /// `None` for accounts created through an identity (email, later OAuth).
     pub password_hash: Option<String>,
     pub created_at: DateTimeWithTimeZone,

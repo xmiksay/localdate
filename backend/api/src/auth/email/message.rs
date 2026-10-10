@@ -205,6 +205,24 @@ mod tests {
     }
 
     #[test]
+    fn free_form_username_is_escaped_in_html() {
+        let name = "<b>Eva</b> & \"spol\"";
+        let e = render(
+            Kind::Login,
+            Lang::En,
+            to(),
+            Some("https://a.cz/x"),
+            Some(name),
+        );
+        assert!(e.text.contains(name));
+        assert!(
+            e.html
+                .contains("For account: &lt;b&gt;Eva&lt;/b&gt; &amp; &quot;spol&quot;")
+        );
+        assert!(!e.html.contains("<b>Eva"));
+    }
+
+    #[test]
     fn every_kind_and_lang_has_text() {
         for kind in [Kind::Login, Kind::Signup, Kind::Link, Kind::PasswordReset] {
             for lang in [Lang::Cs, Lang::En] {

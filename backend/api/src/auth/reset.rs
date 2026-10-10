@@ -56,11 +56,10 @@ async fn forgot(
         telegram: state.telegram.clone(),
     };
     // An address can only be reached by mail; a username by whatever channel is configured.
-    match (&login, &senders.email, &senders.telegram) {
-        (Login::Email(_), None, _) | (Login::Username(_), None, None) => {
-            return Err(AppError::EmailDisabled);
-        }
-        _ => {}
+    let reachable =
+        senders.email.is_some() || (login.username.is_some() && senders.telegram.is_some());
+    if !reachable {
+        return Err(AppError::EmailDisabled);
     }
     // Silently dropped like /auth/email/start: a 429 would confirm the target is being used.
     if !state.reset_limiter.check_request(&login.limit_key(), ip) {

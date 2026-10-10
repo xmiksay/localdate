@@ -28,7 +28,7 @@ make run-web                  # PWA on http://localhost:5173
 | `make migrate` | apply migrations to `DATABASE_URL` |
 | `make icons` | regenerate the committed PNG icons (`frontend/public/*.png`) from the SVGs (needs `rsvg-convert`) |
 | `make vapid-keys` | print a fresh VAPID key pair (`VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY`) to turn on Web Push |
-| `make admin-grant ADMIN=<username>` / `make admin-revoke ADMIN=<username>` | give / take the moderator role (`localdate-api admin grant\|revoke <username>`; exits non-zero for an unknown user or pending migrations — run `make migrate` first) |
+| `make admin-grant ADMIN=<username>` / `make admin-revoke ADMIN=<username>` | give / take the moderator role (`localdate-api admin grant\|revoke <username>`; the name is matched case-insensitively, quote one with spaces: `ADMIN="Petr Novák"`; exits non-zero for an unknown user or pending migrations — run `make migrate` first) |
 | `make build` | frontend bundle, then the release `localdate-api` binary that embeds it (single deployable: API + PWA) |
 | `make image` | container image `localdate:dev` |
 | `make deploy` | `kubectl apply -f deploy/k8s.yml` to the current context (see [docs/deployment.md](docs/deployment.md)) |

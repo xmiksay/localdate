@@ -8,8 +8,9 @@ use axum::Router;
 use axum::routing::{get, post};
 use entity::user;
 use sea_orm::sea_query::Expr;
-use sea_orm::{ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter};
+use sea_orm::{ConnectionTrait, EntityTrait, QueryFilter};
 
+use crate::auth::validation;
 use crate::state::AppState;
 
 pub use users::ban;
@@ -28,10 +29,9 @@ pub async fn set_admin(
     username: &str,
     is_admin: bool,
 ) -> anyhow::Result<()> {
-    let username = username.trim().to_lowercase();
     let updated = user::Entity::update_many()
         .col_expr(user::Column::IsAdmin, Expr::value(is_admin))
-        .filter(user::Column::Username.eq(&username))
+        .filter(validation::username_matches(username))
         .exec(db)
         .await?
         .rows_affected;

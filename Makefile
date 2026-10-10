@@ -57,12 +57,12 @@ run-web: ## Run Vite dev server
 	$(FE) npm run dev
 
 admin-grant: ## Make ADMIN=<username> an admin (DATABASE_URL)
-	@test -n "$(ADMIN)" || { echo "usage: make admin-grant ADMIN=<username>"; exit 1; }
-	$(BE) cargo run -p localdate-api -- admin grant $(ADMIN)
+	@test -n "$$ADMIN" || { echo "usage: make admin-grant ADMIN=<username>"; exit 1; }
+	$(BE) cargo run -p localdate-api -- admin grant -- "$$ADMIN"
 
 admin-revoke: ## Take the admin role from ADMIN=<username>
-	@test -n "$(ADMIN)" || { echo "usage: make admin-revoke ADMIN=<username>"; exit 1; }
-	$(BE) cargo run -p localdate-api -- admin revoke $(ADMIN)
+	@test -n "$$ADMIN" || { echo "usage: make admin-revoke ADMIN=<username>"; exit 1; }
+	$(BE) cargo run -p localdate-api -- admin revoke -- "$$ADMIN"
 
 vapid-keys: ## Print a fresh VAPID key pair for Web Push (put both in .env / the k8s Secret)
 	$(BE) cargo run -q -p localdate-api -- vapid generate
