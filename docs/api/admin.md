@@ -101,7 +101,7 @@ is no refresh, the admin starts again. It is **deny-by-default**: only these end
 Every other authenticated endpoint answers `403 impersonation_forbidden` — among them password, identities
 (list, email link/confirm, unlink, OAuth link), `DELETE /me`, push subscriptions and preferences, blocks and
 reports, and all of `/admin/*`; endpoints added later are refused too unless they opt in
-(`backend/api/tests/impersonation_routes.rs` makes every route be classified). **Every** request made with an
+(`backend/api/tests/impersonation_routes.rs` makes every route and every `ActingUser` handler be classified). **Every** request made with an
 impersonation token — `GET`s and refused ones included — writes an `impersonated_request` audit row
 (`{ method, route }`: the route template, never the body or concrete ids) before it runs; an impersonated
 WebSocket writes one with `method: 'WS OPEN'` when it is accepted and one with `'WS CLOSE'` when it ends (route

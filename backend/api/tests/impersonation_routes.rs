@@ -141,6 +141,111 @@ fn every_route_is_classified_for_impersonation() {
     assert!(stale.is_empty(), "no longer routed: {stale:?}");
 }
 
+/// Every function outside the extractor itself that takes or returns `ActingUser` (handlers and
+/// the WebSocket's `authenticate`), as `path/in/src.rs::name`. Paired with the route list above:
+/// a new method on an allowed path, or a handler mounted some other way (`route_service`, `nest`,
+/// `on(…)`), cannot accept impersonation tokens without showing up here.
+const ACTING_FNS: &[&str] = &[
+    "areas/mod.rs::containing",
+    "discovery/location.rs::update_location",
+    "discovery/nearby.rs::get_nearby",
+    "discovery/window.rs::get_window",
+    "discovery/window.rs::start_window",
+    "discovery/window.rs::extend_window",
+    "discovery/window.rs::end_window",
+    "me/filter.rs::get_filter",
+    "me/filter.rs::put_filter",
+    "me/mod.rs::get_me",
+    "me/photos.rs::upload",
+    "me/photos.rs::remove",
+    "me/photos.rs::reorder",
+    "me/profile.rs::put_profile",
+    "social/matches.rs::list",
+    "social/messages.rs::list",
+    "social/messages.rs::send",
+    "social/waves.rs::post_wave",
+    "social/waves.rs::incoming",
+    "ws/mod.rs::authenticate",
+];
+
+/// Where `ActingUser` is defined and checked; everything else must be listed in `ACTING_FNS`.
+const EXTRACTOR: &str = "auth/extractor.rs";
+
+/// (`file::fn` taking/returning `ActingUser`, stray uses outside any fn signature) under `src/`.
+fn acting_uses(root: &Path, dir: &Path, fns: &mut BTreeSet<String>, stray: &mut Vec<String>) {
+    for entry in std::fs::read_dir(dir).expect("read src dir") {
+        let path = entry.expect("dir entry").path();
+        if path.is_dir() {
+            acting_uses(root, &path, fns, stray);
+            continue;
+        }
+        if path.extension().is_none_or(|e| e != "rs") {
+            continue;
+        }
+        let rel = path
+            .strip_prefix(root)
+            .expect("under src")
+            .to_string_lossy()
+            .replace('\\', "/");
+        if rel == EXTRACTOR {
+            continue;
+        }
+        let text = std::fs::read_to_string(&path).expect("read source");
+        // Signature spans: from `fn ` to the body's `{` (or a `;` for a declaration).
+        let mut spans = Vec::new();
+        for (at, _) in text.match_indices("fn ") {
+            let name: String = text[at + 3..]
+                .chars()
+                .take_while(|c| c.is_alphanumeric() || *c == '_')
+                .collect();
+            if name.is_empty() {
+                continue;
+            }
+            let end = at + text[at..].find(['{', ';']).unwrap_or(text.len() - at);
+            if text[at..end].contains("ActingUser") {
+                fns.insert(format!("{rel}::{name}"));
+            }
+            spans.push(at..end);
+        }
+        for (at, _) in text.match_indices("ActingUser") {
+            let line_start = text[..at].rfind('\n').map_or(0, |i| i + 1);
+            let line = text[line_start..].lines().next().unwrap_or("").trim_start();
+            let declared = line.starts_with("use ") || line.starts_with("pub use ");
+            let comment = line.starts_with("//");
+            if !declared && !comment && !spans.iter().any(|s| s.contains(&at)) {
+                stray.push(format!("{rel}: {line}"));
+            }
+        }
+    }
+}
+
+#[test]
+fn only_the_allow_listed_functions_accept_impersonation_tokens() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let (mut fns, mut stray) = (BTreeSet::new(), Vec::new());
+    acting_uses(&root, &root, &mut fns, &mut stray);
+    let allowed: BTreeSet<String> = ACTING_FNS.iter().map(|s| (*s).to_owned()).collect();
+    let unexpected: Vec<_> = fns.difference(&allowed).collect();
+    let missing: Vec<_> = allowed.difference(&fns).collect();
+    assert!(
+        unexpected.is_empty(),
+        "these take ActingUser but are not allow-listed in ACTING_FNS (is impersonation safe there?): {unexpected:?}"
+    );
+    assert!(
+        missing.is_empty(),
+        "allow-listed but no longer take ActingUser: {missing:?}"
+    );
+    assert!(
+        stray.is_empty(),
+        "ActingUser used outside a fn signature (closure handler?): {stray:?}"
+    );
+    assert_eq!(
+        fns.len(),
+        ACTING.len(),
+        "one function per ACTING route (+ WS)"
+    );
+}
+
 fn concrete(template: &str) -> String {
     let path = template.replace("{provider}", "google");
     let id = uuid::Uuid::new_v4().to_string();
