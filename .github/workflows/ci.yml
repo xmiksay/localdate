@@ -59,6 +59,9 @@ jobs:
         with:
           context: .
           push: false
+          # github.sha is the PR's synthetic merge commit; the head is what the author pushed.
+          build-args: |
+            GIT_SHA=${{ github.event.pull_request.head.sha || github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -92,5 +95,8 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            GIT_SHA=${{ github.sha }}
+            BUILD_TIME=${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.created'] }}
           cache-from: type=gha
           cache-to: type=gha,mode=max

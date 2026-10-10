@@ -1,7 +1,8 @@
 # API contract
 
 Base path `/api`, JSON bodies, `Authorization: Bearer <access_token>` on everything except
-`/auth/*`, `/interests` and `/push/config`. Timestamps RFC 3339 UTC. IDs are UUID strings unless noted.
+`/auth/*`, `/interests`, `/push/config`, `/health` and `/live`. Timestamps RFC 3339 UTC. IDs are UUID
+strings unless noted.
 
 Every authenticated request checks the account: a deleted account gets `401 unauthorized`,
 a banned one `403 banned`, and an access token issued before the account's last password reset or change
@@ -17,6 +18,29 @@ a banned one `403 banned`, and an access token issued before the account's last 
 - [Admin (moderation)](api/admin.md) — reports, bans, areas, test users, impersonation, audit log
 - [WebSocket `/api/ws`](api/realtime.md) — realtime protocol and close codes
 - [Push notifications (Web Push)](api/push.md) — config, subscriptions, preferences, payload
+
+## Health & version
+
+No auth, no rate limit. Both back the k8s probes, which look only at the status code.
+
+| Method & path | 2xx response | Probe |
+|---|---|---|
+| `GET /health` | `200 Health` with `db: 'ok'`; `503 Health` with `status: 'degraded'`, `db: 'unavailable'` when a `SELECT 1` against the pool fails or takes > 1 s (the cause is only logged) | startup + readiness |
+| `GET /live` | `200`, empty body — no dependencies, so a DB outage marks pods unready instead of restarting them | liveness |
+
+Object storage (S3) is not checked per probe; startup already verifies it. `commit` is the image's
+`GIT_SHA` build arg, else `git rev-parse --short HEAD` at build time, else `"dev"`; `built_at` is the
+`BUILD_TIME` build arg, else `null`. The PWA footer shows `v<version> · <commit>` (from a 503 body too).
+
+```ts
+interface Health {
+  status: 'ok' | 'degraded'
+  version: string         // crate version, e.g. "0.1.0"
+  commit: string          // 7-char short sha, or "dev"
+  built_at: string | null // as passed at build time (RFC 3339 UTC from CI)
+  db: 'ok' | 'unavailable'
+}
+```
 
 ## Errors
 

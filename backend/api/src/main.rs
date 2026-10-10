@@ -19,7 +19,7 @@ use tracing_subscriber::EnvFilter;
 
 #[derive(Parser)]
 #[command(
-    version,
+    version = concat!(env!("CARGO_PKG_VERSION"), " (", env!("LOCALDATE_COMMIT"), ")"),
     about = "localdate API server; without a subcommand it serves"
 )]
 struct Cli {

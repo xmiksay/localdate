@@ -61,7 +61,10 @@ as part of `make lint`. Dependencies are compiled in a separate layer from stubb
 code-only change rebuilds just the workspace crates. A new workspace crate has to be added to that
 stub list.
 
-- Local: `make image` → `localdate:dev`.
+The `GIT_SHA` / `BUILD_TIME` build args are declared after the dependency layer, so a new commit never
+invalidates it (see [build identity](architecture/config.md#build-identity-build-time-not-runtime-env)).
+
+- Local: `make image` → `localdate:dev` (with `GIT_SHA` of the checkout's HEAD).
 - CI ([`ci.yml`](../.github/workflows/ci.yml)) only builds the image after the `gate` job (lint +
   test) passes:
   - On pull requests, `image-build` builds it without pushing, so Dockerfile breakage shows up before
@@ -77,6 +80,21 @@ Smoke-test an image against the host Postgres:
 docker run --rm --network host -e DATABASE_URL=postgres://localdate:localdate@localhost/localdate \
   -e JWT_SECRET="$(openssl rand -hex 32)" -e BIND_ADDR=127.0.0.1:3900 localdate:dev
 curl -s localhost:3900/api/health; curl -sI localhost:3900/
+```
+
+## Probes and the running version
+
+Startup and readiness probes hit `GET /api/health`, which pings the DB (1 s timeout, probe
+`timeoutSeconds: 2`) and answers `503` while it is unreachable, so a DB outage takes pods out of the
+Service. Liveness hits `GET /api/live`, which checks nothing, so the same outage never restart-loops
+them. Neither touches S3; the startup storage check covers that.
+
+Which build is running (also shown in the PWA footer, `v<version> · <commit>`):
+
+```sh
+curl -s https://letsgo.sc-l.eu/api/health
+# {"status":"ok","version":"0.1.0","commit":"fa15e9c","built_at":"2026-10-10T12:00:00.000Z","db":"ok"}
+kubectl -n sites exec deploy/localdate-api -- localdate-api --version   # 0.1.0 (fa15e9c)
 ```
 
 ## First deploy

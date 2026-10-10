@@ -6,6 +6,7 @@ import { useRealtime } from '@/composables/useRealtime'
 import { useMatchesStore } from '@/stores/matches'
 import { useWindowStore } from '@/stores/window'
 import BottomNav from './BottomNav.vue'
+import VersionFooter from './VersionFooter.vue'
 import WindowEndedNotice from './WindowEndedNotice.vue'
 
 // Mounted only for authed + onboarded routes, so these live exactly as long as the session.
@@ -25,6 +26,8 @@ onMounted(() => {
     <main class="flex-1 px-4 pb-28 pt-6">
       <WindowEndedNotice />
       <RouterView />
+      <!-- In flow, inside main's bottom padding, so the fixed BottomNav never covers it. -->
+      <VersionFooter class="mt-10" />
     </main>
     <BottomNav />
   </div>

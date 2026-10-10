@@ -48,7 +48,8 @@ waves, and chats after a mutual wave.
   job spawned from `main`; tests call `run_once(db, shift)`), `web.rs` (router fallback serving the `rust-embed`ded
   `frontend/dist`: files, SPA `index.html` fallback, cache headers/ETag, traversal guard; `/api` has its
   own JSON 404 fallback so it never gets the shell; `build.rs` rebuilds on dist changes and refuses a
-  release build without it), `safety.rs` (blocks/reports, `is_blocked_between`, `blocked_with` — both also cover banned accounts),
+  release build without it; it also bakes `LOCALDATE_COMMIT`/`LOCALDATE_BUILT_AT` from `GIT_SHA`/`BUILD_TIME`
+  or git), `health.rs` (`/health` = readiness with DB ping + version/commit, `/live` = liveness), `safety.rs` (blocks/reports, `is_blocked_between`, `blocked_with` — both also cover banned accounts),
   `admin/` (report queue, soft ban/unban, `set_admin` for the CLI; `directory` = user search + `AdminUserRow`,
   `test_users` = `is_test` accounts (create/photo/delete, shared `create` with `seed` = CLI bulk profiles,
   `avatar` = placeholder PNG), `impersonate` = "act as" token + `/admin/settings`, `audit` = `admin_audit`

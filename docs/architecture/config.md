@@ -38,6 +38,19 @@ bucket, any other 4xx — stops the start at once; an outage (connection failure
 60 s like the DB connection, then the start fails too. Bad S3 settings thus fail the rollout (the pod never turns
 ready), not the first upload.
 
+## Build identity (build-time, not runtime env)
+
+`backend/api/build.rs` bakes the commit and build time into the binary; `GET /api/health` and
+`localdate-api --version` report them.
+
+| Build env / Docker `--build-arg` | Example | Notes |
+|---|---|---|
+| `GIT_SHA` | `$(git rev-parse HEAD)` | first 7 hex chars become `commit`; unset or not hex (the Dockerfile's `unknown`) → `git rev-parse HEAD` of the checkout, else `dev` (the image context has no `.git`) |
+| `BUILD_TIME` | `2026-10-10T12:00:00Z` | passed through as `built_at`; unset → `null` |
+
+CI passes both (`GIT_SHA` = the pushed commit, `BUILD_TIME` = the OCI `created` label); `make image`
+passes `GIT_SHA`. A local `cargo build` reruns `build.rs` only when HEAD or the branch ref moves.
+
 ## Serving the PWA
 
 `web.rs` is the router fallback, so `/api/*` (which has its own JSON `not_found` fallback) and

@@ -140,7 +140,7 @@ make deploy-letsgo-diff               # kubectl diff -k deploy/letsgo
 make deploy-letsgo                    # kubectl apply -k deploy/letsgo
 kubectl -n sites rollout status deployment/localdate-api
 kubectl -n sites get certificate letsgo-sc-l-eu-tls   # READY=True after the HTTP-01 challenge
-curl -fsS https://letsgo.sc-l.eu/api/health
+curl -fsS https://letsgo.sc-l.eu/api/health        # version, commit, db: "ok"
 ```
 
 First admin, after the user has registered and the rollout has finished (the CLI refuses to run
