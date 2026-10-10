@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use super::matches::{find_between, find_or_create, summaries};
-use crate::auth::AuthUser;
+use crate::auth::ActingUser;
 use crate::auth::extractor::lock_unbanned;
 use crate::discovery::nearby::{self, NearbyProfile};
 use crate::discovery::window::{self, MAX_WAVES_PER_WINDOW};
@@ -38,7 +38,7 @@ enum Outcome {
 
 pub async fn post_wave(
     State(state): State<AppState>,
-    auth: AuthUser,
+    auth: ActingUser,
     AppJson(body): AppJson<WaveBody>,
 ) -> Result<Json<WaveResult>, AppError> {
     let (me, target) = (auth.id, body.to_user_id);
@@ -150,7 +150,7 @@ pub async fn post_wave(
 
 pub async fn incoming(
     State(state): State<AppState>,
-    auth: AuthUser,
+    auth: ActingUser,
 ) -> Result<Json<Vec<NearbyProfile>>, AppError> {
     window::active(&state.db, auth.id)
         .await?

@@ -58,6 +58,10 @@ const en: Messages<typeof cs> = {
     sections: 'Moderation sections',
     reports: 'Reports',
     areas: 'Areas',
+    testUsers: 'Test users',
+    users: 'Users',
+    audit: 'Audit',
+    testBadge: 'test',
   },
   adminArea: {
     add: 'Add area',

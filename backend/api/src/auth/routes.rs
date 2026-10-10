@@ -105,6 +105,7 @@ async fn register(
         is_admin: Set(false),
         banned_at: Set(None),
         credentials_changed_at: Set(None),
+        is_test: Set(false),
     }
     .insert(&state.db)
     .await

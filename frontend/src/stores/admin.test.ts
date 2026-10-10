@@ -22,6 +22,7 @@ const report = (id: string, subjectId: string, open = true): AdminReport => ({
     photo_url: null,
     banned_at: null,
     is_admin: false,
+    is_test: false,
     open_reports: 2,
   },
 })

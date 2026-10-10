@@ -1,4 +1,5 @@
-use axum::extract::FromRequestParts;
+use axum::extract::{FromRequestParts, MatchedPath};
+
 use axum::http::header::AUTHORIZATION;
 use axum::http::request::Parts;
 use entity::user;
@@ -7,18 +8,34 @@ use sea_orm::{ConnectionTrait, EntityTrait, QuerySelect};
 use uuid::Uuid;
 
 use super::jwt;
+use crate::admin::audit;
+use crate::config::Config;
 use crate::error::AppError;
 use crate::state::AppState;
 
 /// Authenticated caller, taken from `Authorization: Bearer <access token>`.
 /// Add it as a handler argument to protect a route. The account row is checked on every request
-/// so a ban or account deletion cuts a still-valid access token immediately.
+/// so a ban or account deletion cuts a still-valid access token immediately. Impersonation tokens
+/// are refused (`403 impersonation_forbidden`): every endpoint is closed to an acting admin unless
+/// it opts in with [`ActingUser`].
 #[derive(Debug, Clone, Copy)]
 pub struct AuthUser {
     pub id: Uuid,
     pub is_admin: bool,
-    /// The access token's `iat`, for re-checks against a later password change (WS).
+    /// The access token's `iat`, for re-checks against a later password change.
     pub issued_at: i64,
+}
+
+/// Like [`AuthUser`], but also accepts an impersonation token. Only for endpoints that are safe
+/// for an admin acting as the user (docs/api/admin.md lists them): nothing that touches
+/// credentials, identities, push subscriptions, account deletion or admin rights.
+#[derive(Debug, Clone, Copy)]
+pub struct ActingUser {
+    pub id: Uuid,
+    pub is_admin: bool,
+    pub issued_at: i64,
+    /// Set when an admin acts as this user with an impersonation token.
+    pub acting_admin: Option<Uuid>,
 }
 
 /// An [`AuthUser`] with `is_admin`; anyone else gets `403 forbidden`.
@@ -118,27 +135,73 @@ pub async fn lock_user(db: &impl ConnectionTrait, id: Uuid) -> Result<user::Mode
 }
 
 /// The usable account for `token`: bad token, deleted account or a token older than the last
-/// password change → 401, banned → 403.
+/// password change → 401, banned → 403; impersonation tokens see [`authorize`].
 pub async fn verify_access(
     db: &impl ConnectionTrait,
-    secret: &str,
+    config: &Config,
     token: &str,
-) -> Result<AuthUser, AppError> {
-    let access = jwt::verify(secret, token).ok_or(AppError::Unauthorized)?;
-    match account_status(db, access.user, access.issued_at).await? {
-        Account::Missing | Account::Superseded => Err(AppError::Unauthorized),
-        Account::Banned => Err(AppError::Banned),
-        Account::Active { is_admin } => Ok(AuthUser {
-            id: access.user,
-            is_admin,
-            issued_at: access.issued_at,
-        }),
+) -> Result<ActingUser, AppError> {
+    let access = jwt::verify(&config.jwt_secret, token).ok_or(AppError::Unauthorized)?;
+    authorize(db, config.admin_impersonation, access).await
+}
+
+/// Whether an impersonation token issued at `issued_at` has outlived its TTL at `now`. The JWT's
+/// `exp` says the same for HTTP; a WebSocket keeps its token long after the handshake.
+pub fn impersonation_expired(issued_at: i64, now: i64) -> bool {
+    now >= issued_at + jwt::IMPERSONATION_TTL_SECS
+}
+
+/// Checks a verified token against the accounts now (also the WebSocket re-check). An
+/// impersonation token additionally needs to be within its TTL, the feature on, a non-admin
+/// target, and an actor who is still an unbanned admin without a password change since the token
+/// was issued.
+pub async fn authorize(
+    db: &impl ConnectionTrait,
+    impersonation: bool,
+    access: jwt::Access,
+) -> Result<ActingUser, AppError> {
+    if access.actor.is_some()
+        && (!impersonation
+            || impersonation_expired(access.issued_at, chrono::Utc::now().timestamp()))
+    {
+        return Err(AppError::Unauthorized);
+    }
+    let is_admin = match account_status(db, access.user, access.issued_at).await? {
+        Account::Missing | Account::Superseded => return Err(AppError::Unauthorized),
+        Account::Banned => return Err(AppError::Banned),
+        Account::Active { is_admin } => is_admin,
+    };
+    if let Some(actor) = access.actor
+        && (is_admin
+            || account_status(db, actor, access.issued_at).await?
+                != (Account::Active { is_admin: true }))
+    {
+        return Err(AppError::Unauthorized);
+    }
+    Ok(ActingUser {
+        id: access.user,
+        is_admin,
+        issued_at: access.issued_at,
+        acting_admin: access.actor,
+    })
+}
+
+impl ActingUser {
+    /// The token this caller presented, for re-checks of a long-lived connection.
+    pub fn access(&self) -> jwt::Access {
+        jwt::Access {
+            user: self.id,
+            issued_at: self.issued_at,
+            actor: self.acting_admin,
+        }
     }
 }
 
-impl FromRequestParts<AppState> for AuthUser {
+impl FromRequestParts<AppState> for ActingUser {
     type Rejection = AppError;
 
+    /// Every request with an impersonation token is audited here, before any handler logic,
+    /// whether it is then allowed (this extractor) or refused ([`AuthUser`]).
     async fn from_request_parts(
         parts: &mut Parts,
         state: &AppState,
@@ -149,7 +212,35 @@ impl FromRequestParts<AppState> for AuthUser {
             .and_then(|v| v.to_str().ok())
             .and_then(|v| v.strip_prefix("Bearer "))
             .ok_or(AppError::Unauthorized)?;
-        verify_access(&state.db, &state.config.jwt_secret, token).await
+        let user = verify_access(&state.db, &state.config, token).await?;
+        if let Some(admin) = user.acting_admin {
+            // The template, never the concrete path: ids in it would be noise, bodies stay private.
+            let route = parts
+                .extensions
+                .get::<MatchedPath>()
+                .map_or("<unmatched>", MatchedPath::as_str);
+            audit::record_request(&state.db, admin, user.id, parts.method.as_str(), route).await?;
+        }
+        Ok(user)
+    }
+}
+
+impl FromRequestParts<AppState> for AuthUser {
+    type Rejection = AppError;
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &AppState,
+    ) -> Result<Self, Self::Rejection> {
+        let user = ActingUser::from_request_parts(parts, state).await?;
+        if user.acting_admin.is_some() {
+            return Err(AppError::ImpersonationForbidden);
+        }
+        Ok(Self {
+            id: user.id,
+            is_admin: user.is_admin,
+            issued_at: user.issued_at,
+        })
     }
 }
 
@@ -189,5 +280,13 @@ mod tests {
         );
         assert!(!superseded(at(1_000), 1_001));
         assert!(!superseded(None, 0), "never changed");
+    }
+
+    #[test]
+    fn impersonation_ends_exactly_at_its_ttl() {
+        let ttl = jwt::IMPERSONATION_TTL_SECS;
+        assert!(!impersonation_expired(1_000, 1_000));
+        assert!(!impersonation_expired(1_000, 1_000 + ttl - 1));
+        assert!(impersonation_expired(1_000, 1_000 + ttl));
     }
 }

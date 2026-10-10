@@ -10,7 +10,7 @@ use sea_orm::{
 use serde::{Deserialize, Serialize};
 
 use super::photos::{self, PhotoDto};
-use crate::auth::AuthUser;
+use crate::auth::ActingUser;
 use crate::error::{AppError, AppJson};
 use crate::interests::InterestDto;
 use crate::state::AppState;
@@ -31,11 +31,11 @@ pub struct ProfileDto {
 
 #[derive(Deserialize)]
 pub struct ProfileBody {
-    display_name: String,
-    birth_date: NaiveDate,
-    gender: Gender,
-    bio: String,
-    interest_ids: Vec<i32>,
+    pub display_name: String,
+    pub birth_date: NaiveDate,
+    pub gender: Gender,
+    pub bio: String,
+    pub interest_ids: Vec<i32>,
 }
 
 /// Completed years on `today`. A Feb 29 birthday counts from Mar 1 in common years.
@@ -106,12 +106,23 @@ pub async fn load(
 
 pub async fn put_profile(
     State(state): State<AppState>,
-    auth: AuthUser,
+    auth: ActingUser,
     AppJson(body): AppJson<ProfileBody>,
 ) -> Result<Json<ProfileDto>, AppError> {
+    save(&state.db, auth.id, body).await?;
+    let dto = load(&state.db, auth.id).await?.ok_or(AppError::Internal)?;
+    Ok(Json(dto))
+}
+
+/// Validates and writes the profile with its interests, in one transaction.
+pub async fn save(
+    db: &impl TransactionTrait,
+    user_id: uuid::Uuid,
+    body: ProfileBody,
+) -> Result<(), AppError> {
     let display_name = validate(&body, Utc::now().date_naive())?;
 
-    let txn = state.db.begin().await?;
+    let txn = db.begin().await?;
     let found = interest::Entity::find()
         .filter(interest::Column::Id.is_in(body.interest_ids.clone()))
         .count(&txn)
@@ -120,7 +131,7 @@ pub async fn put_profile(
         return Err(AppError::validation("unknown interest id"));
     }
     let row = profile::ActiveModel {
-        user_id: Set(auth.id),
+        user_id: Set(user_id),
         display_name: Set(display_name),
         birth_date: Set(body.birth_date),
         gender: Set(body.gender),
@@ -142,13 +153,13 @@ pub async fn put_profile(
         .exec(&txn)
         .await?;
     user_interest::Entity::delete_many()
-        .filter(user_interest::Column::UserId.eq(auth.id))
+        .filter(user_interest::Column::UserId.eq(user_id))
         .exec(&txn)
         .await?;
     if !body.interest_ids.is_empty() {
         user_interest::Entity::insert_many(body.interest_ids.iter().map(|&interest_id| {
             user_interest::ActiveModel {
-                user_id: Set(auth.id),
+                user_id: Set(user_id),
                 interest_id: Set(interest_id),
             }
         }))
@@ -156,9 +167,7 @@ pub async fn put_profile(
         .await?;
     }
     txn.commit().await?;
-
-    let dto = load(&state.db, auth.id).await?.ok_or(AppError::Internal)?;
-    Ok(Json(dto))
+    Ok(())
 }
 
 #[cfg(test)]

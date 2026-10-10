@@ -9,10 +9,12 @@ import BaseButton from '@/components/ui/BaseButton.vue'
 import PageHeading from '@/components/ui/PageHeading.vue'
 import { LOCALES, setLocale, type Locale } from '@/i18n'
 import { useAuthStore } from '@/stores/auth'
+import { useImpersonationStore } from '@/stores/impersonation'
 import { useMeStore } from '@/stores/me'
 
 const { t, locale } = useT()
 const auth = useAuthStore()
+const impersonation = useImpersonationStore()
 const me = useMeStore()
 </script>
 
@@ -50,13 +52,17 @@ const me = useMeStore()
       </div>
     </section>
 
-    <LinkedAccountsSection />
+    <!-- The server refuses these with an impersonation token (403 impersonation_forbidden). -->
+    <p v-if="impersonation.isActive" class="rounded-2xl border-2 border-danger/40 p-4 text-sm">
+      {{ t('impersonation.settingsNote') }}
+    </p>
+    <template v-else>
+      <LinkedAccountsSection />
+      <PasswordSection />
+      <NotificationsSection />
+    </template>
 
-    <PasswordSection />
-
-    <NotificationsSection />
-
-    <SafetySection />
+    <SafetySection v-if="!impersonation.isActive" />
 
     <section aria-labelledby="s-account" class="flex flex-col gap-3">
       <h2 id="s-account" class="font-display text-xl font-semibold">{{ t('settings.account') }}</h2>
@@ -70,7 +76,18 @@ const me = useMeStore()
       >
         {{ t('settings.admin') }}
       </RouterLink>
-      <BaseButton variant="ghost" block @click="auth.logout()">{{ t('common.logout') }}</BaseButton>
+      <!-- Logging out here would end the admin's own session behind the impersonation. -->
+      <BaseButton
+        v-if="impersonation.isActive"
+        variant="danger"
+        block
+        @click="impersonation.stop()"
+      >
+        {{ t('impersonation.stop') }}
+      </BaseButton>
+      <BaseButton v-else variant="ghost" block @click="auth.logout()">
+        {{ t('common.logout') }}
+      </BaseButton>
     </section>
   </div>
 </template>

@@ -8,7 +8,7 @@ use clap::{Parser, Subcommand};
 use localdate_api::auth::email::EmailService;
 use localdate_api::auth::telegram::TelegramService;
 use localdate_api::auth::telegram::bot::HttpBot;
-use localdate_api::config::Config;
+use localdate_api::config::{Config, PhotoStorage};
 use localdate_api::media::PhotoStore;
 use localdate_api::retry::patiently;
 use localdate_api::state::AppState;
@@ -29,7 +29,7 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Manage the admin role (needs only DATABASE_URL)
+    /// Admin role and test users (needs DATABASE_URL)
     Admin {
         #[command(subcommand)]
         action: AdminAction,
@@ -53,6 +53,12 @@ enum AdminAction {
     Grant { username: String },
     /// Take the admin role away from <username>
     Revoke { username: String },
+    /// Create onboarded, password-less test users with placeholder avatars
+    /// (also needs the photo storage settings: PHOTO_STORAGE, PHOTO_DIR / S3_*)
+    SeedTestUsers {
+        #[arg(long, default_value_t = 10)]
+        count: u32,
+    },
 }
 
 #[tokio::main]
@@ -95,6 +101,17 @@ async fn admin(action: AdminAction) -> Result<()> {
     let (username, grant) = match &action {
         AdminAction::Grant { username } => (username, true),
         AdminAction::Revoke { username } => (username, false),
+        AdminAction::SeedTestUsers { count } => {
+            let store = PhotoStore::new(&PhotoStorage::from_env()?)?;
+            let mut rng = localdate_api::admin::seed::Rng::from_entropy();
+            let created =
+                localdate_api::admin::seed::seed_test_users(&db, &store, *count, &mut rng).await?;
+            println!("created {} test user(s):", created.len());
+            for name in created {
+                println!("  {name}");
+            }
+            return Ok(());
+        }
     };
     localdate_api::admin::set_admin(&db, username, grant).await?;
     println!(

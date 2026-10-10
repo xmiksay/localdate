@@ -5,22 +5,23 @@ use axum::{Json, Router};
 use chrono::Utc;
 use entity::{photo, user};
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, ConnectionTrait, EntityTrait, PaginatorTrait, QueryFilter,
-    QueryOrder, QuerySelect, Set, TransactionTrait,
+    ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait,
+    PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Set, TransactionTrait,
 };
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use super::image_proc;
-use crate::auth::AuthUser;
+use crate::auth::ActingUser;
 use crate::error::{AppError, AppJson, parse_id};
+use crate::media::PhotoStore;
 use crate::state::AppState;
 
 pub const MAX_PHOTOS: u64 = 6;
 /// Also the cap on a picture imported from an OAuth provider.
 pub const MAX_UPLOAD_BYTES: usize = 10 * 1024 * 1024;
 /// Headroom for multipart framing so a file of exactly 10 MB isn't cut off by the body limit.
-const BODY_LIMIT: usize = MAX_UPLOAD_BYTES + 64 * 1024;
+pub const BODY_LIMIT: usize = MAX_UPLOAD_BYTES + 64 * 1024;
 
 pub fn router() -> Router<AppState> {
     Router::new()
@@ -110,16 +111,25 @@ async fn lock_user(db: &impl ConnectionTrait, user_id: Uuid) -> Result<(), AppEr
 
 async fn upload(
     State(state): State<AppState>,
-    auth: AuthUser,
+    auth: ActingUser,
+    multipart: Multipart,
+) -> Result<(StatusCode, Json<PhotoDto>), AppError> {
+    upload_for(&state, auth.id, multipart).await
+}
+
+/// The `POST /me/photos` pipeline for `user_id` (also used by admins for test users).
+pub async fn upload_for(
+    state: &AppState,
+    user_id: Uuid,
     multipart: Multipart,
 ) -> Result<(StatusCode, Json<PhotoDto>), AppError> {
     // Cheap early exit; the authoritative check runs under the lock below.
-    if count(&state.db, auth.id).await? >= MAX_PHOTOS {
+    if count(&state.db, user_id).await? >= MAX_PHOTOS {
         return Err(AppError::PhotoLimit);
     }
     let bytes = read_file_field(multipart).await?;
-    let webp = to_webp(&state, bytes).await?;
-    let model = add(&state, auth.id, webp).await?;
+    let webp = to_webp(state, bytes).await?;
+    let model = add(&state.db, &state.photos, user_id, webp).await?;
     Ok((StatusCode::CREATED, Json(model.into())))
 }
 
@@ -146,26 +156,31 @@ pub async fn to_webp(state: &AppState, bytes: Vec<u8>) -> Result<Vec<u8>, AppErr
 /// Stores already normalised WebP bytes as the user's last photo; `PhotoLimit` when full.
 /// The object is stored before the row exists, so a row never points at a missing file; when the
 /// insert fails, the object is deleted again.
-pub async fn add(state: &AppState, user_id: Uuid, webp: Vec<u8>) -> Result<photo::Model, AppError> {
+pub async fn add(
+    db: &DatabaseConnection,
+    store: &PhotoStore,
+    user_id: Uuid,
+    webp: Vec<u8>,
+) -> Result<photo::Model, AppError> {
     let id = Uuid::new_v4();
     let file_name = crate::media::file_name(id);
-    state.photos.put(&file_name, webp).await?;
-    match insert_row(state, user_id, id, &file_name).await {
+    store.put(&file_name, webp).await?;
+    match insert_row(db, user_id, id, &file_name).await {
         Ok(model) => Ok(model),
         Err(e) => {
-            state.photos.remove_all(&[file_name]).await;
+            store.remove_all(&[file_name]).await;
             Err(e)
         }
     }
 }
 
 async fn insert_row(
-    state: &AppState,
+    db: &DatabaseConnection,
     user_id: Uuid,
     id: Uuid,
     file_name: &str,
 ) -> Result<photo::Model, AppError> {
-    let txn = state.db.begin().await?;
+    let txn = db.begin().await?;
     lock_user(&txn, user_id).await?;
     let position = count(&txn, user_id).await?;
     if position >= MAX_PHOTOS {
@@ -186,7 +201,7 @@ async fn insert_row(
 
 async fn remove(
     State(state): State<AppState>,
-    auth: AuthUser,
+    auth: ActingUser,
     Path(id): Path<String>,
 ) -> Result<StatusCode, AppError> {
     let id = parse_id(&id)?;
@@ -248,7 +263,7 @@ fn validate_order(current: &[Uuid], requested: &[Uuid]) -> Result<(), AppError> 
 
 async fn reorder(
     State(state): State<AppState>,
-    auth: AuthUser,
+    auth: ActingUser,
     AppJson(body): AppJson<OrderBody>,
 ) -> Result<Json<Vec<PhotoDto>>, AppError> {
     let txn = state.db.begin().await?;

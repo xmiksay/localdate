@@ -13,6 +13,6 @@ mod routes;
 pub mod telegram;
 pub mod validation;
 
-pub use extractor::{AdminUser, AuthUser};
+pub use extractor::{ActingUser, AdminUser, AuthUser};
 pub(crate) use routes::{Tokens, session};
 pub use routes::{UserDto, router};

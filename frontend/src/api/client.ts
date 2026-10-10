@@ -1,5 +1,5 @@
 import type { ClientErrorCode, ErrorCode, Tokens } from './types'
-import { tokenStorage } from './tokens'
+import { impersonationStorage, tokenStorage } from './tokens'
 
 const BASE = '/api'
 
@@ -28,8 +28,26 @@ export function setAuthHooks(h: Hooks) {
   hooks.onBanned = h.onBanned
 }
 
-/** A suspended account has no session to keep: drop tokens and let the app show why. */
+/** Why an impersonation ended without the admin ending it. */
+export type ImpersonationLoss = 'expired' | 'banned'
+let onImpersonationLost: ((reason: ImpersonationLoss) => void) | undefined
+
+/** The impersonation store registers here; the admin's own session stays in place. */
+export function setImpersonationHook(fn: (reason: ImpersonationLoss) => void) {
+  onImpersonationLost = fn
+}
+
+function endImpersonation(reason: ImpersonationLoss) {
+  impersonationStorage.clear()
+  onImpersonationLost?.(reason)
+}
+
+/**
+ * A suspended account has no session to keep: drop tokens and let the app show why. A suspended
+ * impersonation target only ends the impersonation, never the admin's session.
+ */
 export function signalBanned() {
+  if (impersonationStorage.get()) return endImpersonation('banned')
   tokenStorage.clear()
   hooks.onBanned?.()
 }
@@ -98,6 +116,8 @@ function accessExpiresSoon(token: string): boolean {
  */
 export async function freshAccessToken(force = false): Promise<string | null> {
   const current = tokenStorage.access()
+  // Nothing to refresh: the impersonation store ends it at `expires_at` (or on a 401).
+  if (impersonationStorage.get()) return current
   if (current && !force && !accessExpiresSoon(current)) return current
   await refreshTokens()
   return tokenStorage.access()
@@ -139,9 +159,17 @@ async function send(path: string, o: RequestOptions): Promise<Response> {
 
 export async function request<T>(path: string, o: RequestOptions = {}): Promise<T> {
   const sentWith = o.anon ? null : tokenStorage.access()
+  const sentImpersonating = !o.anon && impersonationStorage.get() !== null
+  // An impersonation that has since ended (or begun) makes this reply about another identity.
+  const switched = () => tokenStorage.access() !== sentWith
   let res = await send(path, o)
   if (res.status === 401 && !o.anon) {
     const err = await parseError(res.clone())
+    if (err.code === 'unauthorized' && (sentImpersonating || impersonationStorage.get())) {
+      // No refresh exists for an impersonation token, and a retry would run as the other identity.
+      if (sentImpersonating && !switched()) endImpersonation('expired')
+      throw err
+    }
     if (err.code === 'unauthorized') {
       // Tokens replaced while this was in flight (password change): retry with them, no refresh.
       const refreshed = tokenStorage.access() !== sentWith ? 'ok' : await refreshTokens()
@@ -161,7 +189,7 @@ export async function request<T>(path: string, o: RequestOptions = {}): Promise<
     const err = await parseError(res)
     // Only a session's own request may end it; an anonymous one (a reset link opened while logged
     // in as someone else) says nothing about the stored session.
-    if (err.code === 'banned' && !o.anon) signalBanned()
+    if (err.code === 'banned' && !o.anon && !(sentImpersonating && switched())) signalBanned()
     throw err
   }
   // 204 and e.g. `201` from POST /reports carry no body.

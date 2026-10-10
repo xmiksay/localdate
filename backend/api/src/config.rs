@@ -42,6 +42,9 @@ pub struct Config {
     pub app_base_url: Option<String>,
     /// Bot that sends password-reset links by Telegram; `None` (no token) = no such messages.
     pub telegram_bot: Option<TelegramBotConfig>,
+    /// `ADMIN_IMPERSONATION`: admins may act as other users. Off also invalidates every
+    /// impersonation token already issued (checked per request).
+    pub admin_impersonation: bool,
 }
 
 /// Raw `VAPID_*` values; `push::vapid::Vapid::from_config` checks that they fit together.
@@ -157,6 +160,8 @@ impl Config {
                 app_base_url.as_deref(),
             )?,
             app_base_url,
+            admin_impersonation: flag(std::env::var("ADMIN_IMPERSONATION").ok())
+                .context("ADMIN_IMPERSONATION must be true or false")?,
         };
         let telegram_login = config
             .oauth

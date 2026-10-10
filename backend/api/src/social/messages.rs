@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use super::matches::other_user;
-use crate::auth::AuthUser;
+use crate::auth::ActingUser;
 use crate::error::{AppError, AppJson, parse_id};
 use crate::safety::is_blocked_between;
 use crate::state::AppState;
@@ -89,7 +89,7 @@ fn clean_body(raw: &str) -> Result<String, AppError> {
 /// Query is read as a raw map so malformed values get the contract's 400 envelope.
 pub async fn list(
     State(state): State<AppState>,
-    auth: AuthUser,
+    auth: ActingUser,
     Path(match_id): Path<String>,
     Query(params): Query<HashMap<String, String>>,
 ) -> Result<Json<Vec<MessageDto>>, AppError> {
@@ -129,7 +129,7 @@ pub async fn list(
 
 pub async fn send(
     State(state): State<AppState>,
-    auth: AuthUser,
+    auth: ActingUser,
     Path(match_id): Path<String>,
     AppJson(body): AppJson<SendBody>,
 ) -> Result<(StatusCode, Json<MessageDto>), AppError> {

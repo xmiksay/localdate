@@ -14,7 +14,7 @@ use uuid::Uuid;
 use super::geo::exit_margin;
 use super::window::{self, check_coords};
 use crate::areas;
-use crate::auth::AuthUser;
+use crate::auth::ActingUser;
 use crate::error::{AppError, AppJson};
 use crate::state::AppState;
 
@@ -60,7 +60,7 @@ async fn move_timed(
 
 pub async fn update_location(
     State(state): State<AppState>,
-    auth: AuthUser,
+    auth: ActingUser,
     AppJson(body): AppJson<LocationBody>,
 ) -> Result<StatusCode, AppError> {
     let rounded = check_coords(body.lat, body.lon)?;

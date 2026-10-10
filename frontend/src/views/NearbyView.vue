@@ -3,12 +3,14 @@ import { onMounted, onUnmounted, ref, watch } from 'vue'
 import { useT } from '@/i18n/typed'
 import MatchMoment from '@/components/MatchMoment.vue'
 import NearbyCard from '@/components/NearbyCard.vue'
+import PositionPanel from '@/components/PositionPanel.vue'
 import WaveButton from '@/components/WaveButton.vue'
 import WindowStartPanel from '@/components/WindowStartPanel.vue'
 import WindowStatusBar from '@/components/WindowStatusBar.vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
 import ErrorNote from '@/components/ui/ErrorNote.vue'
 import PageHeading from '@/components/ui/PageHeading.vue'
+import { useImpersonationStore } from '@/stores/impersonation'
 import { useNearbyStore } from '@/stores/nearby'
 import { useWindowStore } from '@/stores/window'
 import { errorMessage } from '@/utils/errors'
@@ -18,6 +20,7 @@ const REFRESH_MS = 60_000
 const { t } = useT()
 const win = useWindowStore()
 const nearby = useNearbyStore()
+const impersonation = useImpersonationStore()
 
 const loading = ref(false)
 const failure = ref<string | null>(null)
@@ -68,6 +71,7 @@ onUnmounted(stopTimer)
 
 <template>
   <PageHeading :title="t('nearby.title')" />
+  <PositionPanel v-if="impersonation.isActive && win.loaded" class="mb-6" />
 
   <p v-if="!win.loaded && !failure" class="text-muted">{{ t('common.loading') }}</p>
   <ErrorNote v-else-if="!win.loaded" :message="failure" />

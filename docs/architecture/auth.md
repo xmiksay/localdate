@@ -169,3 +169,46 @@ the peer address, or — with `TRUST_PROXY_HEADERS=true`, as in k8s — the firs
 default `use-forwarded-headers`/`compute-full-forwarded-for` off, *overwrites* the header with the
 address it saw; a proxy that appends would let clients pick their bucket. Without the flag the header
 is ignored, so a directly exposed server cannot be bypassed by spoofing it.
+
+## Admin impersonation ("act as")
+
+For alpha/beta testing an admin can use the app as another user, typically a test user (`user.is_test`,
+created in the admin UI or by `localdate-api admin seed-test-users`). Security model:
+
+- **Off by default.** `ADMIN_IMPERSONATION=true` turns it on (the letsgo deployment does). Off, the issuing
+  endpoint answers 404 and `auth::extractor::authorize` refuses every token carrying an `act` claim — so
+  disabling = set `false` + restart, which also ends every running impersonation (sockets within one
+  `WS_ACCOUNT_RECHECK`, 60 s).
+- **Token.** `POST /admin/users/{id}/impersonate` (`admin::impersonate`) issues an access JWT with `sub` =
+  target, `act` = admin, 60 min, and no refresh token: when it runs out the admin starts again. A malformed
+  `act` invalidates the whole token rather than degrading it to a plain one.
+- **Per-request checks.** `authorize` (used by the extractors and by the WebSocket at auth and on every
+  re-check) refuses an impersonation token older than its TTL (`iat` + 60 min — the JWT `exp` covers HTTP,
+  this covers a socket that keeps the token it was opened with), checks the target as for any token and then
+  the actor: it must still exist, be unbanned, be an admin and not have changed or reset its password since the
+  token's `iat`; the target must not be an admin. Demoting, banning or re-passwording the admin therefore ends
+  the impersonation at the next request (a socket at its next re-check). The admin's **logout does not**: it
+  revokes refresh tokens, and the impersonation token has none — the client discards it instead (below).
+- **Deny by default.** `AuthUser` (and `AdminUser`, built on it) refuses any impersonation token with
+  `403 impersonation_forbidden`. Only handlers that take `ActingUser` accept one: own profile, photos, filter,
+  window, location, nearby, areas, waves, matches, messages, the WebSocket (list in
+  [api/admin.md](../api/admin.md#users-test-users-and-impersonation-alpha--beta-testing)). Credentials,
+  identities, push subscriptions and preferences, blocks and reports, account deletion and admin rights stay
+  closed without anyone having to remember a guard, and `tests/impersonation_routes.rs` fails until every new
+  route is classified (and checks the refusal for each denied one).
+- **No privilege confusion.** Admins (yourself included) and banned users cannot be targets, and an admin
+  endpoint never accepts the token, so it never carries admin rights.
+- **Audit.** Issuing writes an `impersonate` row to `admin_audit`. The `ActingUser` extractor (which `AuthUser`
+  runs too) writes an `impersonated_request` row (method + matched route template, never the body or concrete
+  ids) for **every** request with such a token *before* the handler runs — `GET`s and refused requests
+  included; if the insert fails, the request fails. An impersonated WebSocket writes `WS OPEN` when it is
+  accepted (no row → the socket is closed `1011`) and `WS CLOSE` when it ends.
+- **Known effect.** An impersonated WebSocket registers presence for the target, so the target's Web Push is
+  suppressed while it is open (accepted for alpha testing; the target is normally a test user).
+
+Client side (`api/tokens.ts`): the admin's own access and refresh tokens **stay in `localStorage`**, untouched;
+the impersonation token, its expiry, the target and the admin's user live in this tab's **`sessionStorage`**
+and take precedence for requests, with no refresh token while acting. Stop, expiry, a `401`, the admin's logout
+(which clears both storages) and a logout in another tab (a `storage` event on the admin token) all drop that
+record. While acting, geolocation sharing and push sync are paused, and a position picker (Leaflet +
+OpenStreetMap tiles, area names bound as text, never HTML) places the target by hand.

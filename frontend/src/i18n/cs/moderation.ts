@@ -55,6 +55,10 @@ export default {
     sections: 'Sekce moderace',
     reports: 'Nahlášení',
     areas: 'Oblasti',
+    testUsers: 'Testovací uživatelé',
+    users: 'Uživatelé',
+    audit: 'Audit',
+    testBadge: 'test',
   },
   adminArea: {
     add: 'Přidat oblast',

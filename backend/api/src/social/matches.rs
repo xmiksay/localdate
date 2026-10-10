@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use super::messages::MessageDto;
-use crate::auth::AuthUser;
+use crate::auth::ActingUser;
 use crate::error::AppError;
 use crate::me::media_url;
 use crate::safety::blocked_with;
@@ -143,7 +143,7 @@ pub async fn summaries(
 
 pub async fn list(
     State(state): State<AppState>,
-    auth: AuthUser,
+    auth: ActingUser,
 ) -> Result<Json<Vec<MatchSummaryDto>>, AppError> {
     let blocked = blocked_with(&state.db, auth.id).await?;
     let models: Vec<matches::Model> = matches::Entity::find()

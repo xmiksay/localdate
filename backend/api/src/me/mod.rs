@@ -1,11 +1,11 @@
 //! The caller's own account: `/me`, profile, photos, filter, password and linked identities.
 
-mod filter;
+pub mod filter;
 mod identities;
-mod image_proc;
+pub(crate) mod image_proc;
 mod password;
 pub mod photos;
-mod profile;
+pub mod profile;
 
 use axum::extract::State;
 use axum::http::StatusCode;
@@ -14,8 +14,9 @@ use axum::{Json, Router};
 use entity::{photo, user};
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 use serde::Serialize;
+use uuid::Uuid;
 
-use crate::auth::{AuthUser, UserDto};
+use crate::auth::{ActingUser, AuthUser, UserDto};
 use crate::error::AppError;
 use crate::state::AppState;
 
@@ -44,7 +45,7 @@ struct MeDto {
     is_admin: bool,
 }
 
-async fn get_me(State(state): State<AppState>, auth: AuthUser) -> Result<Json<MeDto>, AppError> {
+async fn get_me(State(state): State<AppState>, auth: ActingUser) -> Result<Json<MeDto>, AppError> {
     let user = user::Entity::find_by_id(auth.id)
         .one(&state.db)
         .await?
@@ -58,16 +59,22 @@ async fn get_me(State(state): State<AppState>, auth: AuthUser) -> Result<Json<Me
 }
 
 async fn delete_me(State(state): State<AppState>, auth: AuthUser) -> Result<StatusCode, AppError> {
+    delete_account(&state, auth.id).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// Deletes the account (rows cascade) and then its photo files.
+pub async fn delete_account(state: &AppState, user_id: Uuid) -> Result<(), AppError> {
     // Names must be read first: the cascade removes the rows that know them.
     let files: Vec<String> = photo::Entity::find()
-        .filter(photo::Column::UserId.eq(auth.id))
+        .filter(photo::Column::UserId.eq(user_id))
         .all(&state.db)
         .await?
         .into_iter()
         .map(|p| p.file_name)
         .collect();
-    user::Entity::delete_by_id(auth.id).exec(&state.db).await?;
+    user::Entity::delete_by_id(user_id).exec(&state.db).await?;
     // The account is gone either way; objects that failed to delete are logged by name.
     state.photos.remove_all(&files).await;
-    Ok(StatusCode::NO_CONTENT)
+    Ok(())
 }

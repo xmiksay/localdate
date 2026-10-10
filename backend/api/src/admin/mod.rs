@@ -1,6 +1,13 @@
-//! Moderation: the report queue, soft bans and the admin role (`/api/admin`, `AdminUser` only).
+//! Moderation: the report queue, soft bans and the admin role (`/api/admin`, `AdminUser` only);
+//! for alpha/beta testing also test users, impersonation ("act as") and its audit log.
 
+pub mod audit;
+mod avatar;
+mod directory;
+mod impersonate;
 mod reports;
+pub mod seed;
+pub mod test_users;
 mod users;
 
 use anyhow::bail;
@@ -21,6 +28,14 @@ pub fn router() -> Router<AppState> {
         .route("/admin/reports/{id}/dismiss", post(reports::dismiss))
         .route("/admin/users/{id}/ban", post(users::post_ban))
         .route("/admin/users/{id}/unban", post(users::post_unban))
+        .route("/admin/users", get(directory::search))
+        .route(
+            "/admin/users/{id}/impersonate",
+            post(impersonate::impersonate),
+        )
+        .route("/admin/settings", get(impersonate::settings))
+        .route("/admin/audit", get(audit::list))
+        .merge(test_users::router())
 }
 
 /// `localdate-api admin grant|revoke <username>`: flips `is_admin`; unknown users are an error.

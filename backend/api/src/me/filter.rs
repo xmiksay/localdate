@@ -6,7 +6,7 @@ use sea_orm::{ConnectionTrait, EntityTrait, Set};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::auth::AuthUser;
+use crate::auth::ActingUser;
 use crate::discovery::duration::check_minutes;
 use crate::error::{AppError, AppJson};
 use crate::state::AppState;
@@ -87,7 +87,7 @@ pub async fn load(
 
 pub async fn get_filter(
     State(state): State<AppState>,
-    auth: AuthUser,
+    auth: ActingUser,
 ) -> Result<Json<FilterDto>, AppError> {
     let dto = load(&state.db, auth.id)
         .await?
@@ -97,12 +97,21 @@ pub async fn get_filter(
 
 pub async fn put_filter(
     State(state): State<AppState>,
-    auth: AuthUser,
+    auth: ActingUser,
     AppJson(body): AppJson<FilterDto>,
 ) -> Result<Json<FilterDto>, AppError> {
+    Ok(Json(save(&state.db, auth.id, body).await?))
+}
+
+/// Validates and upserts the filter; returns it as stored.
+pub async fn save(
+    db: &impl ConnectionTrait,
+    user_id: Uuid,
+    body: FilterDto,
+) -> Result<FilterDto, AppError> {
     let f = validate(body)?;
     let row = filter::ActiveModel {
-        user_id: Set(auth.id),
+        user_id: Set(user_id),
         max_distance_m: Set(f.max_distance_m),
         genders: Set(f.genders.clone()),
         age_min: Set(f.age_min),
@@ -123,9 +132,9 @@ pub async fn put_filter(
                 ])
                 .to_owned(),
         )
-        .exec(&state.db)
+        .exec(db)
         .await?;
-    Ok(Json(f))
+    Ok(f)
 }
 
 #[cfg(test)]

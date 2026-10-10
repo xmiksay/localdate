@@ -3,21 +3,17 @@ import { createPinia } from 'pinia'
 import App from './App.vue'
 import { i18n, setLocale } from './i18n'
 import router from './router'
-import { useAdminStore } from './stores/admin'
-import { useAreasStore } from './stores/areas'
 import { useAuthStore } from './stores/auth'
-import { useIdentitiesStore } from './stores/identities'
-import { useMatchesStore } from './stores/matches'
-import { useMeStore } from './stores/me'
-import { useNearbyStore } from './stores/nearby'
-import { usePushStore } from './stores/push'
+import { useImpersonationStore } from './stores/impersonation'
+import { resetUserStores } from './stores/session'
 import { navigateTarget } from './sw/push'
-import { useWindowStore } from './stores/window'
 import { reloadAfterPreloadError } from './utils/preloadReload'
 import './assets/main.css'
 
 const app = createApp(App)
 app.use(createPinia())
+// Before anything reads a token: restores (or drops an expired) impersonation from this tab.
+const impersonation = useImpersonationStore()
 app.use(i18n)
 app.use(router)
 
@@ -29,14 +25,8 @@ watch(
   () => auth.isAuthed,
   (authed) => {
     if (authed) return
-    useMeStore().reset()
-    useWindowStore().reset()
-    useNearbyStore().reset()
-    useMatchesStore().reset()
-    useAdminStore().reset()
-    useAreasStore().reset()
-    useIdentitiesStore().reset()
-    usePushStore().reset()
+    resetUserStores()
+    impersonation.reset()
     if (router.currentRoute.value.meta.requiresAuth) router.replace({ name: 'login' })
   },
 )

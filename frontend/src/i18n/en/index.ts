@@ -7,6 +7,7 @@ import discovery from './discovery'
 import moderation from './moderation'
 import notifications from './notifications'
 import oauth from './oauth'
+import testing from './testing'
 
 // Typed against the whole cs tree as well, so a missing domain module fails the build.
 const en: Messages<typeof cs> = {
@@ -17,6 +18,7 @@ const en: Messages<typeof cs> = {
   ...moderation,
   ...notifications,
   ...oauth,
+  ...testing,
 }
 
 export default en

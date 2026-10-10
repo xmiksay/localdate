@@ -17,6 +17,10 @@ pub enum AppError {
     InvalidCredentials,
     #[error("invalid refresh token")]
     InvalidRefreshToken,
+    #[error("not allowed while acting as another user")]
+    ImpersonationForbidden,
+    #[error("admins and banned accounts cannot be impersonated")]
+    CannotImpersonate,
     #[error("forbidden")]
     Forbidden,
     #[error("this account has been suspended")]
@@ -82,12 +86,13 @@ impl AppError {
             Self::Unauthorized | Self::InvalidCredentials | Self::InvalidRefreshToken => {
                 StatusCode::UNAUTHORIZED
             }
-            Self::Forbidden | Self::Banned => StatusCode::FORBIDDEN,
+            Self::Forbidden | Self::Banned | Self::ImpersonationForbidden => StatusCode::FORBIDDEN,
             Self::NotFound => StatusCode::NOT_FOUND,
             Self::UsernameTaken
             | Self::NoActiveWindow
             | Self::NotVisible
             | Self::CannotBanAdmin
+            | Self::CannotImpersonate
             | Self::AlreadyResolved
             | Self::OutsideArea
             | Self::LeftArea
@@ -114,6 +119,8 @@ impl AppError {
             Self::InvalidCredentials => "invalid_credentials",
             Self::InvalidRefreshToken => "invalid_refresh_token",
             Self::Forbidden => "forbidden",
+            Self::ImpersonationForbidden => "impersonation_forbidden",
+            Self::CannotImpersonate => "cannot_impersonate",
             Self::Banned => "banned",
             Self::NotFound => "not_found",
             Self::UsernameTaken => "username_taken",

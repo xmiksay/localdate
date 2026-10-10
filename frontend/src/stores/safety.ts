@@ -40,5 +40,9 @@ export const useSafetyStore = defineStore('safety', () => {
     useAuthStore().clear()
   }
 
-  return { blocked, loadBlocked, block, report, unblock, deleteAccount }
+  function reset() {
+    blocked.value = []
+  }
+
+  return { blocked, loadBlocked, block, report, unblock, deleteAccount, reset }
 })

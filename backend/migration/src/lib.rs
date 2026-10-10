@@ -15,6 +15,7 @@ mod m20261008_000012_google_identity;
 mod m20261008_000013_telegram_identity;
 mod m20261008_000014_facebook_identity;
 mod m20261010_000015_free_usernames;
+mod m20261010_000016_admin_test_users;
 
 /// Append-only: never edit a shipped migration, add a new one at the end of the list.
 pub struct Migrator;
@@ -38,6 +39,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20261008_000013_telegram_identity::Migration),
             Box::new(m20261008_000014_facebook_identity::Migration),
             Box::new(m20261010_000015_free_usernames::Migration),
+            Box::new(m20261010_000016_admin_test_users::Migration),
         ]
     }
 }

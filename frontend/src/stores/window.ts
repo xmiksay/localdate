@@ -62,6 +62,7 @@ export const useWindowStore = defineStore('window', () => {
   function reset() {
     clear()
     dismissNotice()
+    loaded.value = false
   }
 
   async function start(duration: WindowDuration, at: Coords, areaId?: string) {

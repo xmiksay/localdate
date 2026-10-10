@@ -19,6 +19,9 @@ data:
   # entry is the real client, which is what rate_limit::client_ip relies on. See README.md
   # "Client IP" before putting a load balancer in front or adding forwardedHeaders.* to Traefik.
   TRUST_PROXY_HEADERS: "true"
+  # Alpha/beta testing: admins may act as any non-admin user (audited, see README "Impersonation").
+  # To disable: set "false" and restart the pod; every impersonation token dies with it.
+  ADMIN_IMPERSONATION: "true"
   # Public origin: OAuth redirect URIs and mailed links are built from it, so it must match exactly.
   APP_BASE_URL: https://letsgo.sc-l.eu
   # Only used once the Secret has SMTP_URL; the domain needs SPF/DKIM at the mail provider.

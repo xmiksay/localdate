@@ -1,6 +1,7 @@
 import { onScopeDispose, watch } from 'vue'
 import { ApiError } from '@/api/client'
 import { updateLocation } from '@/api/window'
+import { useImpersonationStore } from '@/stores/impersonation'
 import { useWindowStore } from '@/stores/window'
 import { shouldSendLocation, type Coords } from '@/utils/geo'
 
@@ -25,6 +26,7 @@ export function currentPosition(): Promise<Coords> {
 /** Watches position while a window is active and keeps the server location fresh. */
 export function useLocationSharing() {
   const win = useWindowStore()
+  const impersonation = useImpersonationStore()
   let watchId: number | null = null
   let lastSent: { at: Coords; time: number } | null = null
 
@@ -71,8 +73,10 @@ export function useLocationSharing() {
     )
   }
 
+  // Paused while impersonating: the admin's device is not the target's whereabouts; the position
+  // is set by hand then (pinnedLocation store).
   watch(
-    () => win.isActive,
+    () => win.isActive && !impersonation.isActive,
     (active) => (active ? start() : stop()),
     { immediate: true },
   )

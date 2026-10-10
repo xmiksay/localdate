@@ -4,6 +4,8 @@ import { createPinia, setActivePinia } from 'pinia'
 import { ApiError } from '@/api/client'
 import * as windowApi from '@/api/window'
 import type { Window } from '@/api/types'
+import type { StoredImpersonation } from '@/api/tokens'
+import { useImpersonationStore } from '@/stores/impersonation'
 import { useWindowStore } from '@/stores/window'
 import { useLocationSharing } from './useGeolocation'
 
@@ -16,6 +18,12 @@ const areaWindow: Window = {
   starts_at: new Date().toISOString(),
   ends_at: new Date(Date.now() + 3_600_000).toISOString(),
   waves_left: 20,
+}
+const impersonating: StoredImpersonation = {
+  access_token: 'imp-a',
+  expires_at: new Date(Date.now() + 3_600_000).toISOString(),
+  user: { id: 't', username: 'tester', created_at: '' },
+  admin: null,
 }
 let onFix: PositionCallback = () => undefined
 const geo = {
@@ -94,6 +102,20 @@ describe('location sharing', () => {
     await flush()
     expect(win.isActive).toBe(false)
     expect(win.endedNotice).toBeNull()
+    scope.stop()
+  })
+
+  it('is paused while impersonating and resumes afterwards', async () => {
+    const imp = useImpersonationStore()
+    imp.active = impersonating
+    const { scope } = await sharing()
+    expect(geo.watchPosition).not.toHaveBeenCalled()
+    imp.active = null
+    await nextTick()
+    expect(geo.watchPosition).toHaveBeenCalledTimes(1)
+    imp.active = impersonating
+    await nextTick()
+    expect(geo.clearWatch).toHaveBeenCalledWith(1)
     scope.stop()
   })
 

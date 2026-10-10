@@ -2,6 +2,7 @@ import { onScopeDispose, watch } from 'vue'
 import { freshAccessToken, signalBanned } from '@/api/client'
 import { createWsClient } from '@/api/ws'
 import { useAuthStore } from '@/stores/auth'
+import { useImpersonationStore } from '@/stores/impersonation'
 import { useMatchesStore } from '@/stores/matches'
 import { useMeStore } from '@/stores/me'
 import { watchLongHidden } from '@/utils/visibility'
@@ -11,6 +12,7 @@ export function useRealtime() {
   const auth = useAuthStore()
   const me = useMeStore()
   const matches = useMatchesStore()
+  const impersonation = useImpersonationStore()
   const client = createWsClient({
     getToken: freshAccessToken,
     onEvent: (ev) => {
@@ -23,6 +25,14 @@ export function useRealtime() {
 
   const wanted = () => auth.isAuthed && me.isOnboarded
   watch(wanted, (on) => (on ? client.start() : client.stop()), { immediate: true })
+  // A socket authenticates once: switching identity needs a new one.
+  watch(
+    () => impersonation.active?.access_token,
+    () => {
+      client.stop()
+      if (wanted()) client.start()
+    },
+  )
   // A backgrounded or frozen PWA must not keep its socket: an open socket counts as online and so
   // suppresses Web Push. On return, `ready` triggers the usual resync of missed events.
   const unwatchHidden = watchLongHidden(document, client.stop, () => {

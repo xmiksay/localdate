@@ -6,6 +6,7 @@ import discovery from './discovery'
 import moderation from './moderation'
 import notifications from './notifications'
 import oauth from './oauth'
+import testing from './testing'
 
 export default {
   ...core,
@@ -15,4 +16,5 @@ export default {
   ...moderation,
   ...notifications,
   ...oauth,
+  ...testing,
 }
