@@ -12,12 +12,13 @@ use axum::http::StatusCode;
 use axum::routing::{get, put};
 use axum::{Json, Router};
 use entity::{photo, user};
-use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
+use sea_orm::{ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter};
 use serde::Serialize;
 use uuid::Uuid;
 
 use crate::auth::{ActingUser, AuthUser, UserDto};
 use crate::error::AppError;
+use crate::media::PhotoStore;
 use crate::state::AppState;
 
 pub use filter::FilterDto;
@@ -65,16 +66,25 @@ async fn delete_me(State(state): State<AppState>, auth: AuthUser) -> Result<Stat
 
 /// Deletes the account (rows cascade) and then its photo files.
 pub async fn delete_account(state: &AppState, user_id: Uuid) -> Result<(), AppError> {
+    delete_account_in(&state.db, &state.photos, user_id).await
+}
+
+/// [`delete_account`] without the app state (test-user creation rolls back through it).
+pub async fn delete_account_in(
+    db: &impl ConnectionTrait,
+    store: &PhotoStore,
+    user_id: Uuid,
+) -> Result<(), AppError> {
     // Names must be read first: the cascade removes the rows that know them.
     let files: Vec<String> = photo::Entity::find()
         .filter(photo::Column::UserId.eq(user_id))
-        .all(&state.db)
+        .all(db)
         .await?
         .into_iter()
         .map(|p| p.file_name)
         .collect();
-    user::Entity::delete_by_id(user_id).exec(&state.db).await?;
+    user::Entity::delete_by_id(user_id).exec(db).await?;
     // The account is gone either way; objects that failed to delete are logged by name.
-    state.photos.remove_all(&files).await;
+    store.remove_all(&files).await;
     Ok(())
 }

@@ -118,7 +118,9 @@ pub async fn create(
     }
     .await;
     if let Err(e) = filled {
-        if let Err(cleanup) = user::Entity::delete_by_id(id).exec(db).await {
+        // Also removes any photo object stored for the account (`photos::add` cleans up its own
+        // failed insert; this covers every other order of failures).
+        if let Err(cleanup) = crate::me::delete_account_in(db, store, id).await {
             tracing::error!(error = %cleanup, "removing a half-created test user failed");
         }
         return Err(e);

@@ -62,7 +62,8 @@ waves, and chats after a mutual wave.
   Impersonation (`ADMIN_IMPERSONATION`, docs/architecture/auth.md) is deny-by-default: `AuthUser` refuses a
   token with an `act` claim (`403 impersonation_forbidden`); a handler opts in by taking `ActingUser`
   (`acting_admin: Option<Uuid>`) — only for endpoints safe for an admin acting as the user, never credentials,
-  identities, push, deletion or admin. Every new route must be classified in `tests/impersonation_routes.rs`.
+  identities, push, deletion or admin. Every new route, and every function taking `ActingUser` (`ACTING_FNS`),
+  must be classified in `tests/impersonation_routes.rs`.
   `extractor::authorize` re-checks TTL, flag and actor (also the WS re-check); every impersonated request (and
   WS open/close) is audited in the `ActingUser` extractor.
   `main.rs` is a clap CLI: no subcommand = serve, `admin grant|revoke <username>`, `admin seed-test-users --count N`

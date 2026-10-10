@@ -195,7 +195,9 @@ created in the admin UI or by `localdate-api admin seed-test-users`). Security m
   [api/admin.md](../api/admin.md#users-test-users-and-impersonation-alpha--beta-testing)). Credentials,
   identities, push subscriptions and preferences, blocks and reports, account deletion and admin rights stay
   closed without anyone having to remember a guard, and `tests/impersonation_routes.rs` fails until every new
-  route is classified (and checks the refusal for each denied one).
+  route is classified (and checks the refusal for each denied one) and until every function taking
+  `ActingUser` is in its explicit `ACTING_FNS` allow-list (so a new method on an allowed path, or a handler
+  mounted via `route_service` / `nest` / `on(…)`, cannot slip through).
 - **No privilege confusion.** Admins (yourself included) and banned users cannot be targets, and an admin
   endpoint never accepts the token, so it never carries admin rights.
 - **Audit.** Issuing writes an `impersonate` row to `admin_audit`. The `ActingUser` extractor (which `AuthUser`
