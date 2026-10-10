@@ -48,8 +48,8 @@ const en: Messages<typeof cs> = {
     ban: 'Ban account',
     unban: 'Unban account',
     dismissTitle: 'Dismiss this report?',
-    dismissBody: 'The report against @{username} will be closed with no further action.',
-    banTitle: 'Ban @{username}?',
+    dismissBody: "The report against {'@'}{username} will be closed with no further action.",
+    banTitle: "Ban {'@'}{username}?",
     banBody:
       'They are logged out, disappear from nearby and chats, and all their open reports are closed. The ban can be lifted later.',
     resolvedDismissed: 'Dismissed',
