@@ -1,5 +1,6 @@
 //! Where a password-reset link goes: every email address and Telegram account linked to the
-//! account the user named (an address only ever reaches itself).
+//! account whose username was typed, and an address typed that is an email identity (an address
+//! only ever reaches itself).
 
 use entity::{EmailTokenPurpose, IdentityProvider, user, user_identity};
 use lettre::Address;
@@ -12,28 +13,32 @@ use crate::auth::telegram::TelegramService;
 use crate::auth::validation;
 use crate::error::AppError;
 
-/// What the user typed into "forgot password".
+/// What the user typed into "forgot password": a username, an email address, or both at once —
+/// usernames may contain `@`, so `a@b.cz` can name an account and an address.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) enum Login {
-    Username(String),
-    Email(Address),
+pub(super) struct Login {
+    pub username: Option<String>,
+    pub email: Option<Address>,
 }
 
 impl Login {
-    /// Usernames cannot contain `@`, so anything with one is meant as an address.
+    /// `400 validation` only when the input is neither a valid username nor a valid address.
     pub(super) fn parse(raw: &str) -> Result<Self, AppError> {
-        if raw.contains('@') {
-            Ok(Self::Email(token::normalize_email(raw)?))
-        } else {
-            Ok(Self::Username(validation::normalize_username(raw)?))
-        }
+        let email = token::normalize_email(raw).ok();
+        let username = match validation::normalize_username(raw) {
+            Ok(name) => Some(name.name),
+            Err(e) if email.is_none() => return Err(e),
+            Err(_) => None,
+        };
+        Ok(Self { username, email })
     }
 
-    /// Limiter key; the prefix keeps usernames apart from addresses.
+    /// Limiter key, case-insensitive like the lookup; the prefix keeps usernames apart from addresses.
     pub(super) fn limit_key(&self) -> String {
-        match self {
-            Self::Username(name) => format!("user:{name}"),
-            Self::Email(addr) => addr.to_string(),
+        match (&self.email, &self.username) {
+            (Some(addr), _) => addr.to_string(),
+            (None, Some(name)) => format!("user:{}", validation::username_key(name)),
+            (None, None) => String::new(),
         }
     }
 }
@@ -117,20 +122,53 @@ pub(super) async fn deliver(
     login: Login,
     lang: Lang,
 ) -> Result<(), AppError> {
-    let (user_id, channels) = match login {
-        Login::Email(addr) => match identity_for(db, addr.as_ref()).await? {
-            Some(identity) => (identity.user_id, vec![Channel::Email(addr)]),
-            None => return Ok(()),
-        },
-        Login::Username(name) => {
-            let found = user::Entity::find()
-                .filter(user::Column::Username.eq(name))
-                .one(db)
-                .await?;
-            let Some(found) = found else { return Ok(()) };
-            (found.id, linked_channels(db, found.id).await?)
+    // One account's failure must not cost the other account (username vs address) its link.
+    for (user_id, channels) in targets(db, login).await? {
+        if let Err(e) = send_to(db, senders, limiter, user_id, channels, lang).await {
+            tracing::error!(error = ?e, %user_id, "password reset delivery failed");
         }
-    };
+    }
+    Ok(())
+}
+
+/// The accounts `login` names and their channels: the username's account gets every linked
+/// channel, an address that is an email identity gets itself. The two can be one account (merged,
+/// no channel twice) or two different ones (both get theirs).
+async fn targets(
+    db: &impl ConnectionTrait,
+    login: Login,
+) -> Result<Vec<(Uuid, Vec<Channel>)>, AppError> {
+    let mut targets: Vec<(Uuid, Vec<Channel>)> = Vec::new();
+    if let Some(name) = &login.username {
+        let found = user::Entity::find()
+            .filter(validation::username_matches(name))
+            .one(db)
+            .await?;
+        if let Some(found) = found {
+            targets.push((found.id, linked_channels(db, found.id).await?));
+        }
+    }
+    if let Some(addr) = login.email
+        && let Some(identity) = identity_for(db, addr.as_ref()).await?
+    {
+        let channel = Channel::Email(addr);
+        match targets.iter_mut().find(|(id, _)| *id == identity.user_id) {
+            Some((_, channels)) if channels.contains(&channel) => {}
+            Some((_, channels)) => channels.push(channel),
+            None => targets.push((identity.user_id, vec![channel])),
+        }
+    }
+    Ok(targets)
+}
+
+async fn send_to(
+    db: &impl ConnectionTrait,
+    senders: &Senders,
+    limiter: &ResetLimiter,
+    user_id: Uuid,
+    channels: Vec<Channel>,
+    lang: Lang,
+) -> Result<(), AppError> {
     let Some(username) = username_of(db, user_id).await? else {
         return Ok(());
     };
@@ -180,27 +218,42 @@ mod tests {
     use chrono::Utc;
 
     #[test]
-    fn login_with_at_sign_is_an_address() {
+    fn login_that_is_an_address_is_also_a_username() {
         let login = Login::parse("  Eva@Example.CZ ").expect("valid");
         assert_eq!(
             login,
-            Login::Email("eva@example.cz".parse().expect("address"))
+            Login {
+                username: Some("Eva@Example.CZ".into()),
+                email: Some("eva@example.cz".parse().expect("address")),
+            }
         );
         assert_eq!(login.limit_key(), "eva@example.cz");
     }
 
     #[test]
-    fn login_without_at_sign_is_a_username() {
-        let login = Login::parse(" Eva_1 ").expect("valid");
-        assert_eq!(login, Login::Username("eva_1".into()));
-        assert_eq!(login.limit_key(), "user:eva_1");
+    fn login_that_is_no_address_is_a_username() {
+        for raw in [" Eva Nová ", "eva@", "a@b@c.cz"] {
+            let login = Login::parse(raw).expect("valid");
+            assert_eq!(login.username.as_deref(), Some(raw.trim()));
+            assert_eq!(login.email, None);
+        }
+        let login = Login::parse(" Eva Nová ").expect("valid");
+        assert_eq!(login.limit_key(), "user:eva nová");
     }
 
     #[test]
     fn malformed_login_is_rejected() {
-        for bad in ["", "a b", "x", "eva@", "@b.cz", "a@b@c.cz"] {
+        for bad in ["", "   ", "a\nb", &"x".repeat(65)] {
             assert!(Login::parse(bad).is_err(), "{bad:?} should fail");
         }
+    }
+
+    #[test]
+    fn long_address_is_only_an_address() {
+        let raw = format!("{}@example.cz", "x".repeat(60));
+        let login = Login::parse(&raw).expect("valid");
+        assert_eq!(login.username, None);
+        assert!(login.email.is_some());
     }
 
     fn identity(provider: IdentityProvider, subject: &str) -> user_identity::Model {

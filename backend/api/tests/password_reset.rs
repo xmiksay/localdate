@@ -49,29 +49,6 @@ async fn refresh(app: &TestApp, t: &Tokens) -> StatusCode {
     .0
 }
 
-/// A password account with `email` linked through the real link flow.
-async fn linked(app: &TestApp, username: &str, email: &str) -> Tokens {
-    let t = app.register(username).await;
-    let (status, _) = app
-        .post_as(
-            "/api/me/identities/email",
-            &t.access_token,
-            json!({ "email": email }),
-        )
-        .await;
-    assert_eq!(status, StatusCode::ACCEPTED);
-    let (_, token) = app.last_link(email).await;
-    let (status, body) = app
-        .post_as(
-            "/api/me/identities/email/confirm",
-            &t.access_token,
-            json!({ "token": token }),
-        )
-        .await;
-    assert_eq!(status, StatusCode::CREATED, "{body}");
-    t
-}
-
 /// The token of the newest reset mail to `email`.
 async fn reset_token(app: &TestApp, email: &str) -> String {
     let (path, token) = app.last_link(email).await;
@@ -82,7 +59,7 @@ async fn reset_token(app: &TestApp, email: &str) -> String {
 #[tokio::test]
 async fn reset_by_username_sets_the_password_and_logs_every_device_out() {
     let app = TestApp::with_email().await;
-    let first = linked(&app, "alice", "alice@example.cz").await;
+    let first = app.linked("alice", "alice@example.cz").await;
     let (_, body) = app
         .post(
             "/api/auth/login",
@@ -126,7 +103,7 @@ async fn reset_by_username_sets_the_password_and_logs_every_device_out() {
 #[tokio::test]
 async fn reset_by_email_mails_that_address_in_the_asked_language() {
     let app = TestApp::with_email().await;
-    linked(&app, "alice", "alice@example.cz").await;
+    app.linked("alice", "alice@example.cz").await;
     let (status, _) = app
         .post(
             "/api/auth/password/forgot",
@@ -159,7 +136,7 @@ async fn unknown_or_emailless_accounts_get_the_same_answer_and_no_mail() {
 #[tokio::test]
 async fn malformed_login_is_rejected_and_disabled_email_is_503() {
     let app = TestApp::with_email().await;
-    for bad in ["", "a b", "eva@", "x"] {
+    for bad in ["", "   ", "a\nb", &"x".repeat(65)] {
         let (status, body) = app
             .post("/api/auth/password/forgot", json!({ "login": bad }))
             .await;
@@ -185,7 +162,7 @@ async fn reset_mails(app: &TestApp, to: &str) -> usize {
 #[tokio::test]
 async fn reset_mails_have_their_own_budget() {
     let app = TestApp::with_email().await;
-    linked(&app, "alice", "alice@example.cz").await;
+    app.linked("alice", "alice@example.cz").await;
     for _ in 0..4 {
         assert_eq!(forgot(&app, "alice").await, StatusCode::ACCEPTED);
     }
@@ -218,7 +195,7 @@ async fn reset_mails_have_their_own_budget() {
 #[tokio::test]
 async fn login_and_reset_tokens_do_not_cross() {
     let app = TestApp::with_email().await;
-    linked(&app, "alice", "alice@example.cz").await;
+    app.linked("alice", "alice@example.cz").await;
     assert_eq!(
         app.email_start("alice@example.cz").await,
         StatusCode::ACCEPTED
@@ -259,7 +236,7 @@ async fn login_and_reset_tokens_do_not_cross() {
 #[tokio::test]
 async fn expired_token_is_rejected() {
     let app = TestApp::with_email().await;
-    linked(&app, "alice", "alice@example.cz").await;
+    app.linked("alice", "alice@example.cz").await;
     forgot(&app, "alice").await;
     let token = reset_token(&app, "alice@example.cz").await;
     app.sql("UPDATE email_token SET expires_at = now() - interval '1 second'")
@@ -274,7 +251,7 @@ async fn expired_token_is_rejected() {
 #[tokio::test]
 async fn banned_account_cannot_reset_and_keeps_the_token() {
     let app = TestApp::with_email().await;
-    let t = linked(&app, "alice", "alice@example.cz").await;
+    let t = app.linked("alice", "alice@example.cz").await;
     forgot(&app, "alice").await;
     let token = reset_token(&app, "alice@example.cz").await;
     let set_ban = |on: bool| {
@@ -300,7 +277,7 @@ async fn banned_account_cannot_reset_and_keeps_the_token() {
 #[tokio::test]
 async fn weak_password_is_refused_without_spending_the_token() {
     let app = TestApp::with_email().await;
-    linked(&app, "alice", "alice@example.cz").await;
+    app.linked("alice", "alice@example.cz").await;
     forgot(&app, "alice").await;
     let token = reset_token(&app, "alice@example.cz").await;
     for bad in ["short".to_owned(), "x".repeat(129)] {
@@ -317,7 +294,7 @@ async fn weak_password_is_refused_without_spending_the_token() {
 #[tokio::test]
 async fn unlinking_the_address_kills_its_reset_link() {
     let app = TestApp::with_email().await;
-    let t = linked(&app, "alice", "alice@example.cz").await;
+    let t = app.linked("alice", "alice@example.cz").await;
     forgot(&app, "alice").await;
     let token = reset_token(&app, "alice@example.cz").await;
     let (_, list) = app.get("/api/me/identities", Some(&t.access_token)).await;

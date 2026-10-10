@@ -11,7 +11,17 @@ Part of the [API contract](../api.md); conventions, errors and shared types live
 | `POST /auth/refresh` | `{ refresh_token }` | `200 Tokens` (old token revoked) |
 | `POST /auth/logout` | `{ refresh_token }` | `204`; also clears the OAuth flow cookie (`ld_oauth`, `Path=/api/auth/oauth`) |
 
-Username: trimmed, lowercased, `[a-z0-9_]{3,32}`. Password: 10–128 chars.
+**Username** (identical rule on the client): free-form display name — trimmed, then Unicode NFC, then
+1–64 characters (code points). Refused, against look-alike and empty names: control characters (`Cc`),
+U+2028/U+2029, format characters (`Cf`: zero-width spaces, BOM, bidi overrides/isolates) except U+200D ZWJ (emoji
+sequences), and names with no visible character (only White_Space, `Cf`, `Mn` and the blank letters U+3164, U+2800,
+U+115F, U+1160, U+FFA0). Trimming strips Unicode White_Space only (U+FEFF is not trimmed, so it is refused). Spaces
+inside (kept as typed, never collapsed), diacritics, emoji, `@` and punctuation are fine. It is stored and returned
+exactly in that form (case kept).
+Uniqueness and every lookup by username (login, forgot password, `admin grant|revoke`) are case-insensitive
+in every script (Unicode lowercase of the NFC form, computed by the server), so `Petr` and `petr`, or `Řeka`
+and `řeka`, are the same account (`409 username_taken`). Password:
+7–128 chars, checked whenever one is set (existing passwords keep working).
 An account created by email (or a later OAuth provider) has **no password**: password login for it
 answers the same `401 invalid_credentials` as a wrong password (same argon2 timing).
 
@@ -62,17 +72,19 @@ stays usable for another name). The new account then goes through onboarding lik
 | `POST /auth/password/reset/preview` | `{ token }` | `200 { username: string }` — never consumes the token |
 | `POST /auth/password/reset` | `{ token, new_password }` | `204` |
 
-`login` containing `@` is validated as an email address, anything else as a username (`400 validation` for a
-malformed one — that says nothing about whether it exists). The answer is `202` whether or not there is such an
+`login` is tried as both: as a username (the rule above) and, when it is also a valid email address (the
+rule above), as an address — usernames may contain `@`, so `eva@example.cz` can be both at once. `400 validation`
+only when it is neither (that says nothing about whether it exists). The answer is `202` whether or not there is such an
 account, and it is sent **before** the account is even looked up, so its timing reveals nothing either. Then:
 an email address that is a linked email identity gets a reset link; a username gets one at every email address
 linked to that account **and** by Telegram message to every Telegram account linked to it (an address only ever
-reaches that address). Accounts with neither get nothing — the UI says "if the account has a linked email or
+reaches that address). When `login` matches both, both get theirs — two accounts each get their own, one account
+gets every channel once (no duplicate mail). Accounts with neither get nothing — the UI says "if the account has a linked email or
 Telegram…". A channel the server has not configured is skipped (no mailer; no `TELEGRAM_BOT_TOKEN`), and Google
-identities are never a channel. `503 email_disabled` for an address while the server has no mailer, and for a
-username while it has neither a mailer nor a Telegram bot. Limits, a
+identities are never a channel. `503 email_disabled` while the server has no mailer and `login` is only an address
+(not a valid username, e.g. longer than 64 characters), and while it has neither a mailer nor a Telegram bot. Limits, a
 budget of their own (asking for resets never uses up an inbox's magic-link mails, nor the other way round); over
-them still `202` and nothing sent: 3 requests per (username or address as typed, client IP) per 15 min, and 5
+them still `202` and nothing sent: 3 requests per (address, or else username key, client IP) per 15 min, and 5
 reset messages (mails and Telegram messages together) per account per hour however they were asked for.
 
 The link is `{APP_BASE_URL}/auth/password/reset#token=…` (fragment, as above; the same link in a Telegram

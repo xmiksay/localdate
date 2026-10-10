@@ -2055,6 +2055,8 @@ dependencies = [
  "tower-http",
  "tracing",
  "tracing-subscriber",
+ "unicode-normalization",
+ "unicode-properties",
  "url",
  "uuid",
  "web-push-native",

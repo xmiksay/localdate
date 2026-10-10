@@ -116,7 +116,8 @@ pub(super) async fn signup(
     let row = token::consume(&txn, &body.token, EmailTokenPurpose::Signup, None).await?;
     let user = user::ActiveModel {
         id: Set(Uuid::new_v4()),
-        username: Set(username),
+        username: Set(username.name),
+        username_key: Set(username.key),
         password_hash: Set(None),
         created_at: Set(Utc::now().fixed_offset()),
         is_admin: Set(false),

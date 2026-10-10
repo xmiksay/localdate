@@ -14,7 +14,7 @@ async fn register_and_login_happy_path() {
         )
         .await;
     assert_eq!(status, StatusCode::CREATED);
-    assert_eq!(body["user"]["username"], "alice_1");
+    assert_eq!(body["user"]["username"], "Alice_1");
     assert!(body["user"]["created_at"].is_string());
     assert!(body["user"].get("password_hash").is_none());
 
@@ -37,9 +37,10 @@ async fn register_and_login_happy_path() {
 async fn register_validates_input() {
     let app = TestApp::new().await;
     for body in [
-        json!({ "username": "ab", "password": PASSWORD }),
-        json!({ "username": "bad name", "password": PASSWORD }),
-        json!({ "username": "valid_name", "password": "short" }),
+        json!({ "username": "   ", "password": PASSWORD }),
+        json!({ "username": "a\nb", "password": PASSWORD }),
+        json!({ "username": "x".repeat(65), "password": PASSWORD }),
+        json!({ "username": "valid name", "password": "sixsix" }),
     ] {
         let (status, resp) = app.post("/api/auth/register", body).await;
         assert_eq!(status, StatusCode::BAD_REQUEST);

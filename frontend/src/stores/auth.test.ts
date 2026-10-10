@@ -29,7 +29,7 @@ describe('auth store', () => {
     vi.mocked(authApi.login).mockResolvedValue(tokens)
     const s = useAuthStore()
     await s.login({ username: ' Bob ', password: 'x'.repeat(10) })
-    expect(authApi.login).toHaveBeenCalledWith({ username: 'bob', password: 'xxxxxxxxxx' })
+    expect(authApi.login).toHaveBeenCalledWith({ username: 'Bob', password: 'xxxxxxxxxx' })
     expect(s.isAuthed).toBe(true)
     expect(s.user?.username).toBe('bob')
     expect(tokenStorage.refresh()).toBe('r1')
@@ -202,18 +202,18 @@ describe('auth store', () => {
     vi.mocked(authApi.emailSignup).mockResolvedValue(tokens)
     const s = useAuthStore()
     await s.emailSignup('tok', ' Bob ')
-    expect(authApi.emailSignup).toHaveBeenCalledWith({ token: 'tok', username: 'bob' })
+    expect(authApi.emailSignup).toHaveBeenCalledWith({ token: 'tok', username: 'Bob' })
     expect(s.isAuthed).toBe(true)
   })
 
-  it('passwordForgot normalizes a username or an address and sends the UI language', async () => {
+  it('passwordForgot trims the login, keeps its case and sends the UI language', async () => {
     vi.mocked(authApi.passwordForgot).mockResolvedValue(undefined)
     const s = useAuthStore()
     await s.passwordForgot(' Bob ')
     await s.passwordForgot(' Bob@Example.CZ ')
     expect(vi.mocked(authApi.passwordForgot).mock.calls).toEqual([
-      [{ login: 'bob', lang: 'cs' }],
-      [{ login: 'bob@example.cz', lang: 'cs' }],
+      [{ login: 'Bob', lang: 'cs' }],
+      [{ login: 'Bob@Example.CZ', lang: 'cs' }],
     ])
   })
 
@@ -312,7 +312,7 @@ describe('auth store', () => {
     vi.mocked(oauthApi.oauthSignup).mockResolvedValue(tokens)
     const s = useAuthStore()
     await s.oauthSignup('st', ' Bob ')
-    expect(oauthApi.oauthSignup).toHaveBeenCalledWith({ token: 'st', username: 'bob' })
+    expect(oauthApi.oauthSignup).toHaveBeenCalledWith({ token: 'st', username: 'Bob' })
     expect(s.isAuthed).toBe(true)
   })
 })

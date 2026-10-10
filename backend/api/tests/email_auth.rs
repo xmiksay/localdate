@@ -273,7 +273,7 @@ async fn signup_token_is_previewed_then_spent_by_signup() {
             json!({ "token": token, "username": username }),
         )
     };
-    let (status, body) = signup("x").await;
+    let (status, body) = signup("a\nb").await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
     assert_eq!(body["error"]["code"], "validation");
     let (status, body) = signup("Taken").await;
@@ -282,7 +282,7 @@ async fn signup_token_is_previewed_then_spent_by_signup() {
 
     let (status, body) = signup("Newbie").await;
     assert_eq!(status, StatusCode::CREATED, "{body}");
-    assert_eq!(body["user"]["username"], "newbie");
+    assert_eq!(body["user"]["username"], "Newbie");
     let t = tokens_from(&body);
     let (_, ids) = app.get("/api/me/identities", Some(&t.access_token)).await;
     assert_eq!(ids["has_password"], false);

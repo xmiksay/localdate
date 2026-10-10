@@ -51,6 +51,8 @@ web-push-native = "0.5"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
 tokio-tungstenite = "0.29"
+unicode-normalization = "0.1"
+unicode-properties = { version = "0.1", default-features = false, features = ["general-category"] }
 url = "2"
 uuid = { version = "1", features = ["v4", "serde"] }
 

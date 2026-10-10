@@ -33,16 +33,43 @@ describe('age', () => {
 })
 
 describe('credentials', () => {
-  it('normalizes and validates usernames', () => {
-    expect(normalizeUsername('  Bob_1 ')).toBe('bob_1')
-    expect(isValidUsername(' Bob_1 ')).toBe(true)
-    expect(isValidUsername('ab')).toBe(false)
-    expect(isValidUsername('bad name')).toBe(false)
-    expect(isValidUsername('a'.repeat(33))).toBe(false)
+  it('trims and NFC-normalizes usernames but keeps their case', () => {
+    expect(normalizeUsername('  Petr Novák ')).toBe('Petr Novák')
+    expect(normalizeUsername('Nova\u0301k')).toBe('Novák')
+    expect(normalizeUsername(' Petr  Novák ')).toBe('Petr  Novák')
+    // U+FEFF is not White_Space: kept like the server keeps it, then refused.
+    expect(normalizeUsername('\uFEFFeva')).toBe('\uFEFFeva')
+  })
+  it('accepts free-form usernames', () => {
+    for (const ok of ['Petr Novák', '👨\u200D👩\u200D👧', '🦊', 'a', 'a@b.cz', 'dash-name!', 'x'.repeat(64), '🦊'.repeat(64)]) {
+      expect(isValidUsername(ok), ok).toBe(true)
+    }
+  })
+  it('rejects empty, overlong, invisible, control- and format-character usernames', () => {
+    for (const bad of [
+      '',
+      '   ',
+      '\u3000\u00A0',
+      'x'.repeat(65),
+      'a\nb',
+      '\u0007',
+      'a\u2028b',
+      'admin\u200B',
+      '\u202Enimda',
+      '\u200B',
+      '\uFEFFeva',
+      '\u3164',
+      '\u2800\u115F',
+      '\u0301',
+      '\u200D',
+    ]) {
+      expect(isValidUsername(bad), JSON.stringify(bad)).toBe(false)
+    }
   })
   it('validates password length', () => {
-    expect(isValidPassword('123456789')).toBe(false)
-    expect(isValidPassword('1234567890')).toBe(true)
+    expect(isValidPassword('123456')).toBe(false)
+    expect(isValidPassword('1234567')).toBe(true)
+    expect(isValidPassword('x'.repeat(128))).toBe(true)
     expect(isValidPassword('x'.repeat(129))).toBe(false)
   })
 })
@@ -50,24 +77,27 @@ describe('credentials', () => {
 describe('new password', () => {
   it('checks the policy before the repetition', () => {
     expect(newPasswordError('short', 'short')).toBe('invalid')
-    expect(newPasswordError('x'.repeat(10), 'x'.repeat(11))).toBe('mismatch')
-    expect(newPasswordError('x'.repeat(10), 'x'.repeat(10))).toBeNull()
+    expect(newPasswordError('x'.repeat(7), 'x'.repeat(8))).toBe('mismatch')
+    expect(newPasswordError('x'.repeat(7), 'x'.repeat(7))).toBeNull()
   })
 
   it('counts code points like the server', () => {
-    expect(isValidPassword('😀'.repeat(10))).toBe(true)
+    expect(isValidPassword('😀'.repeat(7))).toBe(true)
     expect(isValidPassword('😀'.repeat(129))).toBe(false)
   })
 })
 
 describe('forgot-password login', () => {
-  it('treats anything with @ as an address, the rest as a username', () => {
-    expect(normalizeLogin(' Eva@Example.CZ ')).toBe('eva@example.cz')
-    expect(normalizeLogin(' Eva_1 ')).toBe('eva_1')
+  it('sends the login as typed and accepts a username or an address', () => {
+    expect(normalizeLogin(' Eva@Example.CZ ')).toBe('Eva@Example.CZ')
+    expect(normalizeLogin(' Eva Nová ')).toBe('Eva Nová')
     expect(isValidLogin('eva@example.cz')).toBe(true)
-    expect(isValidLogin('Eva_1')).toBe(true)
-    expect(isValidLogin('eva@')).toBe(false)
-    expect(isValidLogin('a b')).toBe(false)
+    expect(isValidLogin('Eva Nová')).toBe(true)
+    expect(isValidLogin('eva@')).toBe(true)
+    // Too long for a username, still a valid address.
+    expect(isValidLogin(`${'e'.repeat(60)}@example.cz`)).toBe(true)
+    expect(isValidLogin('   ')).toBe(false)
+    expect(isValidLogin('a\nb')).toBe(false)
   })
 })
 

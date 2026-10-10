@@ -26,29 +26,6 @@ async fn ws_refusal(url: &str, t: &Tokens) -> u16 {
     next(&mut ws).await.expect_err("socket refused")
 }
 
-/// A password account with `email` linked.
-async fn linked(app: &TestApp, username: &str, email: &str) -> Tokens {
-    let t = app.register(username).await;
-    let (status, _) = app
-        .post_as(
-            "/api/me/identities/email",
-            &t.access_token,
-            json!({ "email": email }),
-        )
-        .await;
-    assert_eq!(status, StatusCode::ACCEPTED);
-    let (_, token) = app.last_link(email).await;
-    let (status, _) = app
-        .post_as(
-            "/api/me/identities/email/confirm",
-            &t.access_token,
-            json!({ "token": token }),
-        )
-        .await;
-    assert_eq!(status, StatusCode::CREATED);
-    t
-}
-
 async fn reset_token(app: &TestApp, login: &str, email: &str) -> String {
     let (status, _) = app
         .post("/api/auth/password/forgot", json!({ "login": login }))
@@ -76,7 +53,7 @@ async fn reset(app: &TestApp, token: &str) -> StatusCode {
 #[tokio::test]
 async fn reset_closes_the_accounts_sockets_with_4401() {
     let app = TestApp::with_email().await;
-    let alice = linked(&app, "alice", "alice@example.cz").await;
+    let alice = app.linked("alice", "alice@example.cz").await;
     let bob = app.register("bob").await;
     let url = common::ws::serve(&app.router).await;
     let mut ws_alice = ready_socket(&url, &alice).await;
@@ -130,7 +107,7 @@ async fn password_change_refuses_older_access_tokens_but_not_the_fresh_session()
 #[tokio::test]
 async fn reset_refuses_the_accounts_older_access_tokens() {
     let app = TestApp::with_email().await;
-    let alice = linked(&app, "alice", "alice@example.cz").await;
+    let alice = app.linked("alice", "alice@example.cz").await;
     let bob = app.register("bob").await;
     let url = common::ws::serve(&app.router).await;
     next_second().await;
@@ -179,7 +156,7 @@ async fn periodic_recheck_closes_a_socket_whose_token_a_change_superseded() {
 #[tokio::test]
 async fn reset_voids_every_other_mailed_token_of_the_account() {
     let app = TestApp::with_email().await;
-    linked(&app, "alice", "alice@example.cz").await;
+    app.linked("alice", "alice@example.cz").await;
     let login = login_token(&app, "alice@example.cz").await;
     let first = reset_token(&app, "alice", "alice@example.cz").await;
     let second = reset_token(&app, "alice", "alice@example.cz").await;
@@ -196,8 +173,8 @@ async fn reset_voids_every_other_mailed_token_of_the_account() {
 #[tokio::test]
 async fn password_change_voids_mailed_tokens_but_not_other_accounts() {
     let app = TestApp::with_email().await;
-    let alice = linked(&app, "alice", "alice@example.cz").await;
-    linked(&app, "bob", "bob@example.cz").await;
+    let alice = app.linked("alice", "alice@example.cz").await;
+    app.linked("bob", "bob@example.cz").await;
     let alice_reset = reset_token(&app, "alice", "alice@example.cz").await;
     let bob_login = login_token(&app, "bob@example.cz").await;
 
@@ -242,7 +219,7 @@ async fn insert_push_rows(app: &TestApp, t: &Tokens, name: &str) {
 #[tokio::test]
 async fn reset_deletes_the_accounts_push_subscriptions_only() {
     let app = TestApp::with_email().await;
-    let alice = linked(&app, "alice", "alice@example.cz").await;
+    let alice = app.linked("alice", "alice@example.cz").await;
     let bob = app.register("bob").await;
     insert_push_rows(&app, &alice, "alice").await;
     insert_push_rows(&app, &bob, "bob").await;

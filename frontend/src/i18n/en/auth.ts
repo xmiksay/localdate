@@ -4,17 +4,17 @@ import type { Messages } from '../messages'
 const en: Messages<typeof cs> = {
   auth: {
     username: 'Username',
-    usernameHint: '3–32 characters: lowercase letters, digits and underscore.',
+    usernameHint: '1–64 characters; spaces, accents and emoji are fine. Login ignores letter case.',
     password: 'Password',
-    passwordHint: '10–128 characters.',
+    passwordHint: '7–128 characters.',
     loginTitle: 'Welcome back',
     loginSubmit: 'Log in',
     loginSwitch: "Don't have an account?",
     registerTitle: 'Create your account',
     registerSubmit: 'Sign up',
     registerSwitch: 'Already have an account?',
-    invalidUsername: 'Only a–z, 0–9 and _ are allowed (3–32 characters).',
-    invalidPassword: 'Password must be 10 to 128 characters.',
+    invalidUsername: 'A username must be 1 to 64 characters, at least one visible, without control or invisible characters (such as a line break).',
+    invalidPassword: 'Password must be 7 to 128 characters.',
     suspendedTitle: 'Account suspended',
     suspendedBody:
       'Your account was suspended for breaking the rules. You can no longer log in or use the app.',

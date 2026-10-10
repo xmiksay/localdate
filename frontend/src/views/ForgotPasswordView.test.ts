@@ -32,19 +32,20 @@ beforeEach(() => {
 })
 
 describe('ForgotPasswordView', () => {
-  it('with only the Telegram bot asks for a username and refuses an address', async () => {
+  it('with only the Telegram bot asks for a username and refuses what can only be an address', async () => {
     const w = await render(false)
     expect(w.text()).toContain(i18n.global.t('password.forgotIntroTelegram'))
-    await w.find('input').setValue('eva@example.cz')
+    await w.find('input').setValue(`${'e'.repeat(60)}@example.cz`)
     await w.find('form').trigger('submit')
     await flushPromises()
     expect(authApi.passwordForgot).not.toHaveBeenCalled()
     expect(w.text()).toContain(i18n.global.t('auth.invalidUsername'))
 
-    await w.find('input').setValue('eva')
+    // Usernames may contain `@`.
+    await w.find('input').setValue(' Eva@Example.cz ')
     await w.find('form').trigger('submit')
     await flushPromises()
-    expect(authApi.passwordForgot).toHaveBeenCalledWith({ login: 'eva', lang: 'cs' })
+    expect(authApi.passwordForgot).toHaveBeenCalledWith({ login: 'Eva@Example.cz', lang: 'cs' })
     expect(w.text()).toContain(i18n.global.t('password.forgotSentBodyTelegram'))
   })
 

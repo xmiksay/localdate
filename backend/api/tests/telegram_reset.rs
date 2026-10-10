@@ -74,14 +74,18 @@ async fn username_reset_link_arrives_by_telegram_and_works() {
 #[tokio::test]
 async fn telegram_only_server_still_offers_reset_but_not_by_address() {
     let (app, _fake) = TestApp::with_telegram(false, true).await;
+    // Too long for a username, so it can only be an address, and nothing can mail it.
+    let address = format!("{}@example.cz", "e".repeat(60));
     let (status, body) = app
-        .post(
-            "/api/auth/password/forgot",
-            json!({ "login": "eva@example.cz" }),
-        )
+        .post("/api/auth/password/forgot", json!({ "login": address }))
         .await;
     assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
     assert_eq!(body["error"]["code"], "email_disabled");
+    // Usernames may contain `@`: this one is looked up as a username.
+    assert_eq!(
+        forgot(&app, "eva@example.cz", "cs").await,
+        StatusCode::ACCEPTED
+    );
     assert_eq!(forgot(&app, "nobody", "cs").await, StatusCode::ACCEPTED);
     app.settle_messages().await;
     assert!(app.bot.sent().is_empty());

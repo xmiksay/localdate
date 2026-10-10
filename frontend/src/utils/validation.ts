@@ -1,4 +1,6 @@
-export const USERNAME_RE = /^[a-z0-9_]{3,32}$/
+export const USERNAME_MAX = 64
+export const PASSWORD_MIN = 7
+export const PASSWORD_MAX = 128
 export const MAX_PHOTO_BYTES = 10 * 1024 * 1024
 export const PHOTO_TYPES = ['image/jpeg', 'image/png', 'image/webp']
 export const MAX_PHOTOS = 6
@@ -6,10 +8,30 @@ export const MAX_INTERESTS = 10
 export const MAX_BIO = 500
 export const MAX_NAME = 40
 
-export const normalizeUsername = (s: string) => s.trim().toLowerCase()
-export const isValidUsername = (s: string) => USERNAME_RE.test(normalizeUsername(s))
-// Code points, like the server's `chars().count()`.
-export const isValidPassword = (s: string) => [...s].length >= 10 && [...s].length <= 128
+// Unicode White_Space, like Rust's `str::trim`; `String.prototype.trim` also strips U+FEFF,
+// which the server keeps (and then refuses as a format character).
+const EDGE_WHITESPACE = /^\p{White_Space}+|\p{White_Space}+$/gu
+/** The server's canonical form (docs/api/auth.md, "Username"): trimmed, NFC, case kept. */
+export const normalizeUsername = (s: string) => s.replace(EDGE_WHITESPACE, '').normalize('NFC')
+// Exactly what the server refuses: Cc, line/paragraph separators, and Cf except ZWJ (U+200D).
+const USERNAME_FORBIDDEN = /[\p{Cc}\u2028\u2029]|(?!\u200D)\p{Cf}/u
+// Draws nothing: whitespace, Cf, Mn, and the blank letters (Hangul fillers, Braille blank).
+const INVISIBLE = /^[\p{White_Space}\p{Cf}\p{Mn}\u3164\u2800\u115F\u1160\uFFA0]*$/u
+export function isValidUsername(s: string): boolean {
+  const name = normalizeUsername(s)
+  // Code points, like the server's `chars().count()`: an emoji is one character, not two.
+  const length = [...name].length
+  return (
+    length >= 1 &&
+    length <= USERNAME_MAX &&
+    !USERNAME_FORBIDDEN.test(name) &&
+    !INVISIBLE.test(name)
+  )
+}
+export function isValidPassword(s: string): boolean {
+  const length = [...s].length
+  return length >= PASSWORD_MIN && length <= PASSWORD_MAX
+}
 
 /** What is wrong with a new password typed twice, if anything. */
 export function newPasswordError(password: string, confirm: string): 'invalid' | 'mismatch' | null {
@@ -107,7 +129,9 @@ export function isValidEmail(raw: string): boolean {
   )
 }
 
-/** "Forgot password" takes a username or an address; the server tells them apart by the `@`. */
-export const normalizeLogin = (s: string) =>
-  s.includes('@') ? normalizeEmail(s) : normalizeUsername(s)
-export const isValidLogin = (s: string) => (s.includes('@') ? isValidEmail(s) : isValidUsername(s))
+/**
+ * "Forgot password" takes a username or an address. Usernames may contain `@`, so the server tries
+ * both; the login is sent as typed (trimmed, NFC) and the server lowercases the address itself.
+ */
+export const normalizeLogin = normalizeUsername
+export const isValidLogin = (s: string) => isValidUsername(s) || isValidEmail(s)

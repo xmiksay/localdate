@@ -70,7 +70,7 @@ async fn new_facebook_account_signs_up_then_logs_in() {
         .oauth_exchange(Some(&started.cookie), &resp.fragment()["code"])
         .await;
     assert_eq!(resp.status, StatusCode::OK, "{}", resp.body);
-    assert_eq!(resp.body["session"]["user"]["username"], "fiona");
+    assert_eq!(resp.body["session"]["user"]["username"], "Fiona");
     assert_eq!(
         fake.picture_hits.load(std::sync::atomic::Ordering::SeqCst),
         0
