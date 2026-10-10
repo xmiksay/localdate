@@ -2,7 +2,7 @@
 export default {
   impersonation: {
     actAs: 'Přihlásit se jako',
-    actAsLabel: 'Přihlásit se jako @{username}',
+    actAsLabel: "Přihlásit se jako {'@'}{username}",
     banner: 'Jednáte jako {username}',
     stop: 'Ukončit',
     expired: 'Přihlášení za uživatele vypršelo — jste zpět jako admin',
@@ -41,10 +41,10 @@ export default {
     photoHint: 'Bez fotky se vygeneruje zástupný avatar.',
     create: 'Vytvořit',
     delete: 'Smazat',
-    deleteTitle: 'Smazat @{username}?',
+    deleteTitle: "Smazat {'@'}{username}?",
     deleteBody:
       'Účet se nenávratně smaže i se vším, co k němu patří, stejně jako při smazání účtu.',
-    photoFailed: 'Účet @{username} je vytvořený, ale fotku se nepodařilo nahrát: {error}',
+    photoFailed: "Účet {'@'}{username} je vytvořený, ale fotku se nepodařilo nahrát: {error}",
     impersonationOff: 'Přihlášení za uživatele je na serveru vypnuté (ADMIN_IMPERSONATION).',
   },
   audit: {

@@ -45,8 +45,8 @@ export default {
     ban: 'Zablokovat účet',
     unban: 'Odblokovat účet',
     dismissTitle: 'Zamítnout nahlášení?',
-    dismissBody: 'Nahlášení uživatele @{username} se uzavře bez dalšího zásahu.',
-    banTitle: 'Zablokovat @{username}?',
+    dismissBody: "Nahlášení uživatele {'@'}{username} se uzavře bez dalšího zásahu.",
+    banTitle: "Zablokovat {'@'}{username}?",
     banBody:
       'Uživatel se odhlásí, zmizí z okolí i chatů a všechna jeho otevřená nahlášení se uzavřou. Blokaci lze později zrušit.',
     resolvedDismissed: 'Zamítnuto',

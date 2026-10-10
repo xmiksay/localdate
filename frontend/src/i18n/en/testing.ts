@@ -4,7 +4,7 @@ import type { Messages } from '../messages'
 const en: Messages<typeof cs> = {
   impersonation: {
     actAs: 'Act as',
-    actAsLabel: 'Act as @{username}',
+    actAsLabel: "Act as {'@'}{username}",
     banner: 'Acting as {username}',
     stop: 'Stop',
     expired: 'Acting as the user expired — you are back as admin',
@@ -43,10 +43,10 @@ const en: Messages<typeof cs> = {
     photoHint: 'Without a photo a placeholder avatar is generated.',
     create: 'Create',
     delete: 'Delete',
-    deleteTitle: 'Delete @{username}?',
+    deleteTitle: "Delete {'@'}{username}?",
     deleteBody:
       'The account and everything that belongs to it is deleted for good, like a deleted account.',
-    photoFailed: 'Account @{username} was created, but the photo upload failed: {error}',
+    photoFailed: "Account {'@'}{username} was created, but the photo upload failed: {error}",
     impersonationOff: 'Acting as users is switched off on the server (ADMIN_IMPERSONATION).',
   },
   audit: {
