@@ -3,7 +3,7 @@
 //! to the SPA through the URL fragment. Providers: Google, Telegram, Facebook; a new one is a `Provider`
 //! variant, an `IdentityProvider` enum value and its `OidcConfig` preset in `config::from_env`.
 //! Facebook (OAuth 2.0 without ID token) resolves its account id through `SubjectSource::Userinfo`
-//! and can import the profile picture (`import`).
+//! and can import the profile picture (`import`) at sign-up, link, or any time later (`Mode::Import`).
 
 pub mod config;
 pub mod cookie;
@@ -130,6 +130,13 @@ impl OAuthService {
             .ok_or(AppError::ProviderDisabled)
     }
 
+    /// `Ok` when `provider` is configured and has a profile picture to import.
+    fn offers_picture(&self, provider: Provider) -> Result<(), AppError> {
+        import::source(self.oidc(provider)?)
+            .map(|_| ())
+            .ok_or(AppError::NotFound)
+    }
+
     /// `Set-Cookie` that drops the flow cookie (exchange, finished link, logout).
     pub fn clear_cookie(&self) -> Result<HeaderValue> {
         cookie::set_cookie(None, self.secure)
@@ -158,6 +165,7 @@ impl OAuthService {
 pub fn router() -> Router<AppState> {
     let limited = Router::new()
         .route("/auth/oauth/{provider}/link", post(flow::link))
+        .route("/auth/oauth/{provider}/import", post(flow::import_picture))
         .route("/auth/oauth/signup", post(exchange::signup))
         .route_layer(middleware::from_fn(limit_by_ip));
     // `start` limits inside the handler so a refusal still lands on the SPA's done page. The

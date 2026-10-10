@@ -62,6 +62,8 @@ const en: Messages<typeof cs> = {
     moveDown: 'Move later',
     remove: 'Delete photo',
     alt: 'Photo {n}',
+    importFrom: 'Import {from}',
+    importFull: 'You have the maximum number of photos. Delete one to import.',
     errType: 'Supported formats are JPEG, PNG and WebP.',
     errSize: 'The photo is larger than 10 MB.',
     hint: 'The first photo is your main one.',

@@ -1,21 +1,50 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { useRoute } from 'vue-router'
+import { PHOTO_IMPORT_PROVIDERS, type OAuthProvider } from '@/api/types'
 import { useT } from '@/i18n/typed'
+import { useAuthStore } from '@/stores/auth'
 import { useMeStore } from '@/stores/me'
 import { errorMessage } from '@/utils/errors'
 import { prepareUpload } from '@/utils/imageResize'
 import { checkPhotoFile, MAX_PHOTOS, moveItem } from '@/utils/validation'
+import PhotoImportNote from './PhotoImportNote.vue'
 import BaseButton from './ui/BaseButton.vue'
 import ErrorNote from './ui/ErrorNote.vue'
 
 const { t } = useT()
 const me = useMeStore()
+const auth = useAuthStore()
+const route = useRoute()
 const input = ref<HTMLInputElement | null>(null)
 const phase = ref<'idle' | 'processing' | 'uploading'>('idle')
 const busy = computed(() => phase.value !== 'idle')
 const failure = ref<string | null>(null)
 
 const canAdd = computed(() => me.photos.length < MAX_PHOTOS)
+/** Enabled providers whose profile picture can be (re-)imported. */
+const importable = computed(() =>
+  auth.oauthProviders.filter((p) => PHOTO_IMPORT_PROVIDERS.includes(p)),
+)
+const importing = ref<OAuthProvider | null>(null)
+
+onMounted(() => auth.loadProviders())
+// The import note belongs to the visit right after the round trip, not to every later one.
+onUnmounted(() => (me.justImportedPhoto = null))
+
+async function importFrom(provider: OAuthProvider) {
+  failure.value = null
+  importing.value = provider
+  try {
+    // Full navigation: the provider round trip ends on /auth/oauth/done, then back here.
+    window.location.assign(await me.startPhotoImport(provider, route.fullPath))
+  } catch (e) {
+    failure.value = errorMessage(e)
+  } finally {
+    // Also reset for a back-navigation that restores this page from the bfcache.
+    importing.value = null
+  }
+}
 
 async function run(action: () => Promise<void>) {
   failure.value = null
@@ -72,6 +101,7 @@ function move(from: number, to: number) {
       </span>
     </div>
     <p class="mb-3 text-sm text-muted">{{ t('photos.hint') }}</p>
+    <PhotoImportNote v-if="me.justImportedPhoto" :outcome="me.justImportedPhoto" class="mb-3" />
 
     <ul class="grid grid-cols-2 gap-3">
       <li
@@ -144,6 +174,20 @@ function move(from: number, to: number) {
               : t('photos.add')
         }}
       </BaseButton>
+      <BaseButton
+        v-for="p in importable"
+        :key="p"
+        variant="ghost"
+        block
+        :disabled="!canAdd || busy"
+        :loading="importing === p"
+        @click="importFrom(p)"
+      >
+        {{ t('photos.importFrom', { from: t(`oauth.from.${p}`) }) }}
+      </BaseButton>
+      <p v-if="importable.length > 0 && !canAdd" class="text-sm text-muted">
+        {{ t('photos.importFull') }}
+      </p>
     </div>
   </section>
 </template>

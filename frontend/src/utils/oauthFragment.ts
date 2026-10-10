@@ -2,9 +2,11 @@ import {
   OAUTH_ERRORS,
   OAUTH_PROVIDERS,
   PHOTO_IMPORT_OUTCOMES,
+  PHOTO_REIMPORT_OUTCOMES,
   type OAuthError,
   type OAuthProvider,
   type PhotoImportOutcome,
+  type PhotoReimportOutcome,
 } from '@/api/types'
 import { inAppPath } from './redirect'
 
@@ -17,6 +19,7 @@ export type OAuthOutcome =
       redirect: string | null
       photo: PhotoImportOutcome | null
     }
+  | { kind: 'imported'; outcome: PhotoReimportOutcome; redirect: string | null }
   | { kind: 'error'; error: OAuthError | 'unknown'; redirect: string | null }
   | { kind: 'none' }
 
@@ -30,6 +33,8 @@ export function parseOAuthFragment(hash: string): OAuthOutcome {
   if (code) return { kind: 'code', code, redirect, photo }
   const linked = OAUTH_PROVIDERS.find((o) => o === p.get('linked'))
   if (linked) return { kind: 'linked', provider: linked, redirect, photo }
+  const imported = PHOTO_REIMPORT_OUTCOMES.find((o) => o === p.get('imported'))
+  if (imported) return { kind: 'imported', outcome: imported, redirect }
   const error = p.get('error')
   if (error !== null) {
     const known = OAUTH_ERRORS.find((e) => e === error)

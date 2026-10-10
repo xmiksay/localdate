@@ -65,6 +65,8 @@ pub enum AppError {
     ProviderDisabled,
     #[error("this account is already linked to another user")]
     IdentityTaken,
+    #[error("another account of this provider is linked to this user")]
+    IdentityMismatch,
     #[error("internal server error")]
     Internal,
 }
@@ -93,6 +95,7 @@ impl AppError {
             | Self::AreaInUse
             | Self::LastLoginMethod
             | Self::IdentityTaken
+            | Self::IdentityMismatch
             | Self::PushDisabled => StatusCode::CONFLICT,
             Self::Underage
             | Self::ProfileIncomplete
@@ -134,6 +137,7 @@ impl AppError {
             Self::EmailDisabled => "email_disabled",
             Self::ProviderDisabled => "provider_disabled",
             Self::IdentityTaken => "identity_taken",
+            Self::IdentityMismatch => "identity_mismatch",
             Self::Internal => "internal",
         }
     }
@@ -244,6 +248,7 @@ mod tests {
             (AppError::EmailDisabled, 503, "email_disabled"),
             (AppError::ProviderDisabled, 503, "provider_disabled"),
             (AppError::IdentityTaken, 409, "identity_taken"),
+            (AppError::IdentityMismatch, 409, "identity_mismatch"),
             (AppError::Internal, 500, "internal"),
         ];
         for (err, status, code) in cases {

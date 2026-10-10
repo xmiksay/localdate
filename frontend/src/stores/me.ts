@@ -1,7 +1,17 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import * as meApi from '@/api/me'
-import type { Filter, Interest, Photo, Profile, ProfileInput } from '@/api/types'
+import { oauthImport } from '@/api/oauth'
+import type {
+  Filter,
+  Interest,
+  OAuthProvider,
+  Photo,
+  PhotoReimportOutcome,
+  Profile,
+  ProfileInput,
+} from '@/api/types'
+import { mailLang } from '@/i18n'
 import { useAuthStore } from './auth'
 
 export const DEFAULT_FILTER: Filter = {
@@ -20,6 +30,8 @@ export const useMeStore = defineStore('me', () => {
   const interests = ref<Interest[]>([])
   const loaded = ref(false)
   const isAdmin = ref(false)
+  /** What a provider picture re-import just did; the photo manager shows it once. */
+  const justImportedPhoto = ref<PhotoReimportOutcome | null>(null)
 
   const isOnboarded = computed(
     () => profile.value !== null && photos.value.length > 0 && filter.value !== null,
@@ -62,12 +74,18 @@ export const useMeStore = defineStore('me', () => {
     photos.value = await meApi.putPhotoOrder(ids)
   }
 
+  /** The provider URL for a picture re-import; the flow returns via `/auth/oauth/done`. */
+  async function startPhotoImport(provider: OAuthProvider, redirect: string) {
+    return (await oauthImport(provider, { redirect, lang: mailLang() })).url
+  }
+
   function reset() {
     profile.value = null
     filter.value = null
     photos.value = []
     isAdmin.value = false
     loaded.value = false
+    justImportedPhoto.value = null
   }
 
   return {
@@ -78,6 +96,7 @@ export const useMeStore = defineStore('me', () => {
     loaded,
     isAdmin,
     isOnboarded,
+    justImportedPhoto,
     load,
     loadInterests,
     saveProfile,
@@ -85,6 +104,7 @@ export const useMeStore = defineStore('me', () => {
     addPhoto,
     removePhoto,
     reorderPhotos,
+    startPhotoImport,
     reset,
   }
 })

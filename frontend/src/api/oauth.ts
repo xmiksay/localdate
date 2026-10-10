@@ -27,6 +27,15 @@ export const oauthLink = (
   body: { redirect?: string; lang?: MailLang; import_photo?: boolean },
 ) => post<{ url: string }>(`/auth/oauth/${provider}/link`, body)
 
+/**
+ * Re-import the provider's current profile picture (links the provider account if the user has
+ * none); like a link, a POST answering with the provider URL. Facebook only.
+ */
+export const oauthImport = (
+  provider: OAuthProvider,
+  body: { redirect?: string; lang?: MailLang },
+) => post<{ url: string }>(`/auth/oauth/${provider}/import`, body)
+
 // A same-origin fetch sends the HttpOnly `ld_oauth` flow cookie the server checks here.
 export const oauthExchange = (code: string) =>
   request<OAuthExchange>('/auth/oauth/exchange', { method: 'POST', body: { code }, anon: true })

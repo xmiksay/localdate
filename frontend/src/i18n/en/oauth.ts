@@ -28,6 +28,8 @@ const en: Messages<typeof cs> = {
       provider_disabled: 'This sign-in method is not available right now.',
       banned: 'This account has been suspended.',
       identity_taken: 'This account is already linked to another user.',
+      identity_mismatch:
+        'A different account of this provider is linked to yours. Sign in there with the linked one and try again.',
       unauthorized: 'Your session expired. Log in and try again.',
       rate_limited: 'Too many attempts. Wait a moment and try again.',
       internal: 'Something went wrong on our side. Please try again later.',

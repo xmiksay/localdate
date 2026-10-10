@@ -192,11 +192,14 @@ export interface Tokens {
 /** Providers signed in through `/auth/oauth/{provider}`; the one list the UI iterates. */
 export const OAUTH_PROVIDERS = ['google', 'telegram', 'facebook'] as const
 export type OAuthProvider = (typeof OAUTH_PROVIDERS)[number]
-/** Providers whose profile picture can be imported during login / link (`import_photo`). */
+/** Providers whose profile picture can be imported (`import_photo`, `POST …/import`). */
 export const PHOTO_IMPORT_PROVIDERS: readonly OAuthProvider[] = ['facebook']
 /** `photo=` on `/auth/oauth/done`: what became of an asked-for picture import. */
 export const PHOTO_IMPORT_OUTCOMES = ['pending', 'imported', 'full', 'none', 'failed'] as const
 export type PhotoImportOutcome = (typeof PHOTO_IMPORT_OUTCOMES)[number]
+/** `imported=` on `/auth/oauth/done` after `POST /auth/oauth/{provider}/import`. */
+export const PHOTO_REIMPORT_OUTCOMES = ['imported', 'full', 'none', 'failed'] as const
+export type PhotoReimportOutcome = (typeof PHOTO_REIMPORT_OUTCOMES)[number]
 /** `POST /auth/oauth/signup`: `photo` only when the sign-up held an imported picture (`pending`). */
 export type OAuthSignedUp = Tokens & { photo?: 'imported' | 'full' | 'failed' }
 export type IdentityProvider = 'email' | OAuthProvider
@@ -231,6 +234,7 @@ export const OAUTH_ERRORS = [
   'provider_disabled',
   'banned',
   'identity_taken',
+  'identity_mismatch',
   'unauthorized',
   'rate_limited',
   'internal',

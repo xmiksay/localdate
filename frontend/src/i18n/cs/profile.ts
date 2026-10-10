@@ -60,6 +60,9 @@ export default {
     moveDown: 'Posunout dozadu',
     remove: 'Smazat fotku',
     alt: 'Fotka {n}',
+    // "{from}" is `oauth.from.<provider>`.
+    importFrom: 'Importovat {from}',
+    importFull: 'Máš plný počet fotek. Pro import nějakou smaž.',
     errType: 'Podporované formáty jsou JPEG, PNG a WebP.',
     errSize: 'Fotka je větší než 10 MB.',
     hint: 'První fotka je hlavní.',

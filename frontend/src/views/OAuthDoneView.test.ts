@@ -6,6 +6,7 @@ import * as oauthApi from '@/api/oauth'
 import { ApiError } from '@/api/client'
 import { i18n } from '@/i18n'
 import { useIdentitiesStore } from '@/stores/identities'
+import { useMeStore } from '@/stores/me'
 import { pendingToken } from '@/utils/pendingToken'
 import OAuthDoneView from './OAuthDoneView.vue'
 
@@ -27,6 +28,8 @@ async function open(hash: string) {
       { path: '/', component: Stub },
       { path: '/login', component: Stub },
       { path: '/settings', name: 'settings', component: Stub },
+      { path: '/profile', name: 'profile', component: Stub },
+      { path: '/onboarding', component: Stub },
       { path: '/matches/:id', component: Stub },
     ],
   })
@@ -95,6 +98,22 @@ describe('OAuthDoneView', () => {
     expect(wrapper.text()).toContain(i18n.global.t('oauth.error.identity_taken'))
     const other = await open('#error=teapot')
     expect(other.wrapper.text()).toContain(i18n.global.t('oauth.error.unknown'))
+  })
+
+  it('a finished picture import returns to the photo manager with its outcome', async () => {
+    const { router } = await open('#imported=full')
+    expect(router.currentRoute.value.fullPath).toBe('/profile')
+    expect(useMeStore().justImportedPhoto).toBe('full')
+
+    const back = await open('#imported=imported&redirect=%2Fonboarding')
+    expect(back.router.currentRoute.value.fullPath).toBe('/onboarding')
+    expect(useMeStore().justImportedPhoto).toBe('imported')
+    expect(oauthApi.oauthExchange).not.toHaveBeenCalled()
+  })
+
+  it('explains an import from another provider account', async () => {
+    const { wrapper } = await open('#error=identity_mismatch')
+    expect(wrapper.text()).toContain(i18n.global.t('oauth.error.identity_mismatch'))
   })
 
   it('a finished link goes to settings with a success note', async () => {

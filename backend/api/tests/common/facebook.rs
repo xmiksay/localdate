@@ -285,6 +285,22 @@ impl TestApp {
         started(&resp, &url)
     }
 
+    /// `POST /auth/oauth/facebook/import` as `token`, returning to the profile page.
+    pub async fn fb_import(&self, token: &str) -> Started {
+        let resp = self
+            .raw(
+                Method::POST,
+                "/api/auth/oauth/facebook/import",
+                None,
+                Some(token),
+                Some(json!({ "redirect": "/profile" })),
+            )
+            .await;
+        assert_eq!(resp.status, StatusCode::OK, "{}", resp.body);
+        let url = resp.body["url"].as_str().expect("url").to_owned();
+        started(&resp, &url)
+    }
+
     /// Start → consent as `id` → exchange → username; the account and the callback's fragment.
     pub async fn fb_signup(
         &self,

@@ -24,6 +24,8 @@ const MAX_REDIRECT_LEN: usize = 512;
 pub enum Mode {
     Login,
     Link,
+    /// A signed-in user re-imports the provider's profile picture (links the identity if needed).
+    Import,
 }
 
 /// Everything the callback needs to finish the flow the cookie's browser started.
@@ -35,7 +37,7 @@ pub struct Flow {
     pub verifier: String,
     pub nonce: String,
     pub redirect: Option<String>,
-    /// Link mode: the account that asked; signed, so the browser cannot swap it.
+    /// Link / import mode: the account that asked; signed, so the browser cannot swap it.
     pub linker: Option<Linker>,
     /// Unix seconds.
     pub exp: i64,
@@ -44,7 +46,7 @@ pub struct Flow {
     pub import_photo: bool,
 }
 
-/// Who started a link flow, and with which access token.
+/// Who started a link / import flow, and with which access token.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Linker {
     pub user_id: Uuid,
