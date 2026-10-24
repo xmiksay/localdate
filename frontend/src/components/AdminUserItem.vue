@@ -4,6 +4,7 @@ import { useT } from '@/i18n/typed'
 import type { AdminUserRow } from '@/api/types'
 import UserBadges from './UserBadges.vue'
 import AvatarImage from './ui/AvatarImage.vue'
+import { isolate } from '@/utils/bidi'
 
 const props = defineProps<{ user: AdminUserRow }>()
 const { t } = useT()
@@ -27,7 +28,7 @@ const details = computed(() =>
       </div>
       <div class="min-w-0 flex-1">
         <p class="truncate font-semibold">{{ name }}</p>
-        <p class="truncate text-sm text-muted">@{{ user.username }}</p>
+        <p class="truncate text-sm text-muted">@{{ isolate(user.username) }}</p>
         <p v-if="details" class="text-xs text-muted">{{ details }}</p>
       </div>
       <UserBadges :is-test="user.is_test" :is-admin="user.is_admin" :banned-at="user.banned_at" />

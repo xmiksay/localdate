@@ -71,11 +71,14 @@ describe('credentials', () => {
     expect(confirmsUsername('Petr Novák', 'Petr  Novák')).toBe(true)
     expect(confirmsUsername('a b', 'a\tb')).toBe(true)
     expect(confirmsUsername('eva', 'eva\u200B')).toBe(true)
+    expect(confirmsUsername('a b', 'a \u200B b')).toBe(true)
     // Copied from a sentence where the name is isolated.
     expect(confirmsUsername('\u2068eva\u2069', 'eva')).toBe(true)
     // Nothing visible: only the exact name (e.g. pasted) confirms.
     expect(confirmsUsername('\u2068\u200B\u2069', '\u200B')).toBe(true)
     expect(confirmsUsername('', '\u200B')).toBe(false)
+    expect(confirmsUsername('\u2068\u2069', '\u2069\u200B')).toBe(false)
+    expect(confirmsUsername('\u200B', '\u2069\u200B')).toBe(true)
     expect(confirmsUsername('', '')).toBe(false)
   })
   it('validates password length', () => {

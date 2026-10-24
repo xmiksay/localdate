@@ -160,6 +160,8 @@ impl IntoResponse for AppError {
 impl From<sea_orm::DbErr> for AppError {
     fn from(err: sea_orm::DbErr) -> Self {
         if is_untranslatable_text(&err) {
+            // Usually a client's NUL, but it can come from provider data too: keep a trace.
+            tracing::warn!(error = %err, "text with NUL refused by the database");
             return Self::validation("text must not contain NUL characters");
         }
         tracing::error!(error = %err, "database error");
