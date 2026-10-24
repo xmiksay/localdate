@@ -54,7 +54,7 @@ const resolution = computed(() => {
       </div>
       <div class="min-w-0 flex-1">
         <p class="truncate font-semibold">{{ name }}</p>
-        <p class="truncate text-sm text-muted">@{{ subject.username }}</p>
+        <p class="truncate text-sm text-muted">@{{ isolate(subject.username) }}</p>
         <p class="text-xs text-muted">{{ t('admin.openReports', { n: subject.open_reports }) }}</p>
       </div>
       <UserBadges
