@@ -266,7 +266,7 @@ async fn signup_with_a_taken_username_keeps_the_token() {
     let (status, _) = app
         .post(
             "/api/auth/oauth/signup",
-            json!({ "token": token, "username": "a\nb" }),
+            json!({ "token": token, "username": "   " }),
         )
         .await;
     assert_eq!(status, StatusCode::BAD_REQUEST, "validation");

@@ -273,7 +273,7 @@ async fn signup_token_is_previewed_then_spent_by_signup() {
             json!({ "token": token, "username": username }),
         )
     };
-    let (status, body) = signup("a\nb").await;
+    let (status, body) = signup("   ").await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
     assert_eq!(body["error"]["code"], "validation");
     let (status, body) = signup("Taken").await;

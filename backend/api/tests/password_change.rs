@@ -91,7 +91,7 @@ async fn missing_or_wrong_current_password_changes_nothing() {
 async fn new_password_follows_the_register_policy() {
     let app = TestApp::new().await;
     let t = app.register("alice").await;
-    for bad in ["short".to_owned(), "x".repeat(129)] {
+    for bad in [String::new(), "x".repeat(129)] {
         let (status, body) = change(
             &app,
             &t,

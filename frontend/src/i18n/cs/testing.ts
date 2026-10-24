@@ -35,7 +35,7 @@ export default {
     add: 'Nový testovací uživatel',
     empty: 'Zatím žádní testovací uživatelé.',
     username: 'Uživatelské jméno',
-    usernameInvalid: '1 až 64 znaků, aspoň jeden viditelný, bez řídicích znaků.',
+    usernameInvalid: '1 až 64 znaků.',
     gender: 'Pohlaví',
     photo: 'Fotka (nepovinné)',
     photoHint: 'Bez fotky se vygeneruje zástupný avatar.',

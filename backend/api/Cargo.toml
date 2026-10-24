@@ -45,7 +45,6 @@ tower-http.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 unicode-normalization.workspace = true
-unicode-properties.workspace = true
 url.workspace = true
 uuid.workspace = true
 web-push-native.workspace = true
