@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   ageFromBirthDate,
   checkPhotoFile,
+  confirmsUsername,
   invalidAreaFields,
   isAdult,
   isValidEmail,
@@ -57,10 +58,17 @@ describe('credentials', () => {
       expect(isValidUsername(ok), JSON.stringify(ok)).toBe(true)
     }
   })
-  it('rejects empty and overlong usernames', () => {
-    for (const bad of ['', '   ', '\u3000\u00A0', 'x'.repeat(65)]) {
+  it('rejects empty, overlong and NUL usernames', () => {
+    for (const bad of ['', '   ', '\u3000\u00A0', 'x'.repeat(65), 'a\u0000b']) {
       expect(isValidUsername(bad), JSON.stringify(bad)).toBe(false)
     }
+  })
+  it('confirms a username as an input can hold it', () => {
+    expect(confirmsUsername(' eva ', 'eva')).toBe(true)
+    expect(confirmsUsername('Eva', 'eva')).toBe(false)
+    expect(confirmsUsername('ab', 'a\nb')).toBe(true)
+    expect(confirmsUsername('', '')).toBe(false)
+    expect(confirmsUsername('', '\n')).toBe(false)
   })
   it('validates password length', () => {
     expect(isValidPassword('')).toBe(false)

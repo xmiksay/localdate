@@ -11,7 +11,8 @@ pub const MAX_PASSWORD_CHARS: usize = 128;
 const PASSWORD_LEN: std::ops::RangeInclusive<usize> = 1..=MAX_PASSWORD_CHARS;
 
 /// The form a username is stored and compared in: trimmed, NFC. NFC makes a precomposed "á" and
-/// "a" + combining acute the same name, so look-alikes cannot coexist or miss each other at login.
+/// "a" + combining acute the same name at login. Invisible and format characters are allowed, so
+/// visually identical names (`eva` vs `eva` + U+200B) can still be distinct accounts.
 pub fn canonical_username(raw: &str) -> String {
     raw.trim().nfc().collect()
 }
@@ -31,14 +32,37 @@ pub struct Username {
 }
 
 /// [`canonical_username`], then 1-64 characters. Anything else goes, inner whitespace included,
-/// as typed.
+/// as typed — except NUL, which a Postgres `text` column cannot store.
 pub fn normalize_username(raw: &str) -> Result<Username, AppError> {
     let name = canonical_username(raw);
-    if !USERNAME_LEN.contains(&name.chars().count()) {
-        return Err(AppError::validation("username must be 1-64 characters"));
+    if !USERNAME_LEN.contains(&name.chars().count()) || name.contains('\0') {
+        return Err(AppError::validation(
+            "username must be 1-64 characters, without NUL",
+        ));
     }
     let key = username_key(&name);
     Ok(Username { name, key })
+}
+
+/// `name` for a plain-text mail or bot message: control, line-separator and bidi characters
+/// become `\u{…}` escapes, so a name cannot start a line of its own or reorder the text after it.
+pub fn inline_username(name: &str) -> String {
+    name.chars()
+        .map(|c| {
+            let unsafe_char = c.is_control()
+                || matches!(
+                    c,
+                    '\u{2028}' | '\u{2029}' | '\u{200E}' | '\u{200F}' | '\u{061C}'
+                )
+                || ('\u{202A}'..='\u{202E}').contains(&c)
+                || ('\u{2066}'..='\u{2069}').contains(&c);
+            if unsafe_char {
+                c.escape_unicode().to_string()
+            } else {
+                c.to_string()
+            }
+        })
+        .collect()
 }
 
 /// The account `raw` names, by the same key the unique index enforces.
@@ -94,11 +118,22 @@ mod tests {
     }
 
     #[test]
-    fn username_rejects_empty_and_too_long() {
+    fn username_rejects_empty_too_long_and_nul() {
         let long = "x".repeat(65);
-        for bad in ["", "   ", "\u{3000}\u{00A0}", long.as_str()] {
+        for bad in ["", "   ", "\u{3000}\u{00A0}", long.as_str(), "a\0b", "\0"] {
             assert!(normalize_username(bad).is_err(), "{bad:?} should fail");
         }
+    }
+
+    #[test]
+    fn inline_username_escapes_line_breaks_and_bidi() {
+        assert_eq!(inline_username("Petr Novák 🦊"), "Petr Novák 🦊");
+        assert_eq!(inline_username("a\nb"), "a\\u{a}b");
+        assert_eq!(inline_username("\u{202E}nimda"), "\\u{202e}nimda");
+        assert_eq!(
+            inline_username("x\u{2028}y\u{2066}"),
+            "x\\u{2028}y\\u{2066}"
+        );
     }
 
     #[test]

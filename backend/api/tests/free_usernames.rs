@@ -76,6 +76,10 @@ async fn any_non_empty_password_and_name_are_accepted() {
     let (status, body) = register(&app, "a\nb\u{200B}", PASSWORD).await;
     assert_eq!(status, StatusCode::CREATED);
     assert_eq!(body["user"]["username"], "a\nb\u{200B}");
+    // Postgres `text` cannot hold NUL: a 400, never a failed insert.
+    let (status, body) = register(&app, "a\u{0}b", PASSWORD).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(body["error"]["code"], "validation");
 }
 
 #[tokio::test]

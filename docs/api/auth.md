@@ -13,7 +13,8 @@ Part of the [API contract](../api.md); conventions, errors and shared types live
 
 **Username** (identical rule on the client): free-form display name — trimmed (Unicode White_Space), then
 Unicode NFC, then 1–64 characters (code points). Any characters are allowed (spaces inside kept as typed, diacritics,
-emoji, `@`, punctuation, even control or invisible characters). It is stored and returned exactly in that form (case
+emoji, `@`, punctuation, even control or invisible characters) except NUL (U+0000, not storable). Mails and
+Telegram messages show control, line-separator and bidi characters as `\u{…}` escapes. It is stored and returned exactly in that form (case
 kept).
 Uniqueness and every lookup by username (login, forgot password, `admin grant|revoke`) are case-insensitive
 in every script (Unicode lowercase of the NFC form, computed by the server), so `Petr` and `petr`, or `Řeka`

@@ -97,6 +97,7 @@ impl TelegramBot for MemoryBot {
 
 /// The password-reset message; `link` carries the token in its fragment.
 pub fn reset_text(lang: Lang, username: &str, link: &str) -> String {
+    let username = crate::auth::validation::inline_username(username);
     match lang {
         Lang::Cs => format!(
             "localdate: někdo požádal o nové heslo k účtu {username}. Nastavíš si ho tímto \

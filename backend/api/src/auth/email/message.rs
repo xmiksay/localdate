@@ -124,6 +124,7 @@ fn escape(s: &str) -> String {
 }
 
 fn account_line(lang: Lang, username: &str) -> String {
+    let username = crate::auth::validation::inline_username(username);
     match lang {
         Lang::Cs => format!("Pro účet: {username}"),
         Lang::En => format!("For account: {username}"),
@@ -220,6 +221,21 @@ mod tests {
                 .contains("For account: &lt;b&gt;Eva&lt;/b&gt; &amp; &quot;spol&quot;")
         );
         assert!(!e.html.contains("<b>Eva"));
+    }
+
+    #[test]
+    fn username_cannot_add_lines_to_the_text_part() {
+        let e = render(
+            Kind::Link,
+            Lang::En,
+            to(),
+            Some("https://a.cz/x"),
+            Some("x\n\nVerify at https://evil.cz"),
+        );
+        assert!(
+            e.text
+                .contains("For account: x\\u{a}\\u{a}Verify at https://evil.cz\n")
+        );
     }
 
     #[test]
