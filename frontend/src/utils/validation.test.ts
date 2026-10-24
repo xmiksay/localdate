@@ -48,7 +48,7 @@ describe('credentials', () => {
       '🦊',
       'a',
       'a@b.cz',
-      'a\nb',
+      'a\tb',
       '\u200B',
       '\u202Enimda',
       '\u3164',
@@ -58,17 +58,17 @@ describe('credentials', () => {
       expect(isValidUsername(ok), JSON.stringify(ok)).toBe(true)
     }
   })
-  it('rejects empty, overlong and NUL usernames', () => {
-    for (const bad of ['', '   ', '\u3000\u00A0', 'x'.repeat(65), 'a\u0000b']) {
+  it('rejects empty, overlong, NUL and line-break usernames', () => {
+    for (const bad of ['', '   ', '\u3000\u00A0', 'x'.repeat(65), 'a\u0000b', 'a\nb', 'a\rb']) {
       expect(isValidUsername(bad), JSON.stringify(bad)).toBe(false)
     }
   })
-  it('confirms a username as an input can hold it', () => {
+  it('confirms a username in its canonical form', () => {
     expect(confirmsUsername(' eva ', 'eva')).toBe(true)
     expect(confirmsUsername('Eva', 'eva')).toBe(false)
-    expect(confirmsUsername('ab', 'a\nb')).toBe(true)
+    expect(confirmsUsername('Nova\u0301k', 'Novák')).toBe(true)
+    expect(confirmsUsername('\uFEFF', '\uFEFF')).toBe(true)
     expect(confirmsUsername('', '')).toBe(false)
-    expect(confirmsUsername('', '\n')).toBe(false)
   })
   it('validates password length', () => {
     expect(isValidPassword('')).toBe(false)

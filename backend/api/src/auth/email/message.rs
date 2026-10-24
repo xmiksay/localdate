@@ -230,11 +230,11 @@ mod tests {
             Lang::En,
             to(),
             Some("https://a.cz/x"),
-            Some("x\n\nVerify at https://evil.cz"),
+            Some("x\u{2028}\u{2028}Verify at https://evil.cz"),
         );
         assert!(
             e.text
-                .contains("For account: x\\u{a}\\u{a}Verify at https://evil.cz\n")
+                .contains("For account: x\\u{2028}\\u{2028}Verify at https://evil.cz\n")
         );
     }
 
