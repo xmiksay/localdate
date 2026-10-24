@@ -49,7 +49,7 @@ Internal/DB errors are logged and returned as `500 internal` with a generic mess
 
 | Status | code | When |
 |---|---|---|
-| 400 | `validation` | body fails validation (`message` says which field) |
+| 400 | `validation` | body fails validation (`message` says which field); also any text containing NUL (U+0000) that reaches the database — Postgres `text` cannot store it (`message`: "text must not contain NUL characters", no field) |
 | 400 | `invalid_token` | email token unknown, expired, already used, of another purpose, or (link confirm) issued to another account; also password-reset tokens; OAuth code / sign-up token likewise (or exchanged without the browser's flow cookie) |
 | 401 | `unauthorized` | missing/invalid/expired access token, or one issued before the last password reset/change |
 | 401 | `invalid_credentials` | login failed; `PUT /me/password` with a wrong `current_password` |

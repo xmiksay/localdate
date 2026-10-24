@@ -79,6 +79,8 @@ describe('credentials', () => {
     expect(confirmsUsername('', '\u200B')).toBe(false)
     expect(confirmsUsername('\u2068\u2069', '\u2069\u200B')).toBe(false)
     expect(confirmsUsername('\u200B', '\u2069\u200B')).toBe(true)
+    expect(confirmsUsername('\u2068\u200B\u2069', '\u202E\u200B')).toBe(true)
+    expect(confirmsUsername('eva', 'eva\u3164')).toBe(true)
     expect(confirmsUsername('', '')).toBe(false)
   })
   it('validates password length', () => {
