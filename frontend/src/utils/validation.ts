@@ -1,5 +1,5 @@
 export const USERNAME_MAX = 64
-export const PASSWORD_MIN = 7
+export const PASSWORD_MIN = 1
 export const PASSWORD_MAX = 128
 export const MAX_PHOTO_BYTES = 10 * 1024 * 1024
 export const PHOTO_TYPES = ['image/jpeg', 'image/png', 'image/webp']
@@ -13,20 +13,10 @@ export const MAX_NAME = 40
 const EDGE_WHITESPACE = /^\p{White_Space}+|\p{White_Space}+$/gu
 /** The server's canonical form (docs/api/auth.md, "Username"): trimmed, NFC, case kept. */
 export const normalizeUsername = (s: string) => s.replace(EDGE_WHITESPACE, '').normalize('NFC')
-// Exactly what the server refuses: Cc, line/paragraph separators, and Cf except ZWJ (U+200D).
-const USERNAME_FORBIDDEN = /[\p{Cc}\u2028\u2029]|(?!\u200D)\p{Cf}/u
-// Draws nothing: whitespace, Cf, Mn, and the blank letters (Hangul fillers, Braille blank).
-const INVISIBLE = /^[\p{White_Space}\p{Cf}\p{Mn}\u3164\u2800\u115F\u1160\uFFA0]*$/u
 export function isValidUsername(s: string): boolean {
-  const name = normalizeUsername(s)
   // Code points, like the server's `chars().count()`: an emoji is one character, not two.
-  const length = [...name].length
-  return (
-    length >= 1 &&
-    length <= USERNAME_MAX &&
-    !USERNAME_FORBIDDEN.test(name) &&
-    !INVISIBLE.test(name)
-  )
+  const length = [...normalizeUsername(s)].length
+  return length >= 1 && length <= USERNAME_MAX
 }
 export function isValidPassword(s: string): boolean {
   const length = [...s].length

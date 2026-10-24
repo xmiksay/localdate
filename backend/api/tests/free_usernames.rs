@@ -67,15 +67,15 @@ async fn login_ignores_case_and_keeps_the_display_form() {
 }
 
 #[tokio::test]
-async fn password_minimum_is_seven_characters() {
+async fn any_non_empty_password_and_name_are_accepted() {
     let app = TestApp::new().await;
-    let (status, body) = register(&app, "six", "123456").await;
+    let (status, body) = register(&app, "empty", "").await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
     assert_eq!(body["error"]["code"], "validation");
-    assert_eq!(
-        register(&app, "seven", "1234567").await.0,
-        StatusCode::CREATED
-    );
+    assert_eq!(register(&app, "one", "1").await.0, StatusCode::CREATED);
+    let (status, body) = register(&app, "a\nb\u{200B}", PASSWORD).await;
+    assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(body["user"]["username"], "a\nb\u{200B}");
 }
 
 #[tokio::test]

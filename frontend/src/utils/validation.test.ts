@@ -37,38 +37,34 @@ describe('credentials', () => {
     expect(normalizeUsername('  Petr Novák ')).toBe('Petr Novák')
     expect(normalizeUsername('Nova\u0301k')).toBe('Novák')
     expect(normalizeUsername(' Petr  Novák ')).toBe('Petr  Novák')
-    // U+FEFF is not White_Space: kept like the server keeps it, then refused.
+    // U+FEFF is not White_Space: kept like the server keeps it.
     expect(normalizeUsername('\uFEFFeva')).toBe('\uFEFFeva')
   })
-  it('accepts free-form usernames', () => {
-    for (const ok of ['Petr Novák', '👨\u200D👩\u200D👧', '🦊', 'a', 'a@b.cz', 'dash-name!', 'x'.repeat(64), '🦊'.repeat(64)]) {
-      expect(isValidUsername(ok), ok).toBe(true)
+  it('accepts any non-empty username up to 64 characters', () => {
+    for (const ok of [
+      'Petr Novák',
+      '👨\u200D👩\u200D👧',
+      '🦊',
+      'a',
+      'a@b.cz',
+      'a\nb',
+      '\u200B',
+      '\u202Enimda',
+      '\u3164',
+      'x'.repeat(64),
+      '🦊'.repeat(64),
+    ]) {
+      expect(isValidUsername(ok), JSON.stringify(ok)).toBe(true)
     }
   })
-  it('rejects empty, overlong, invisible, control- and format-character usernames', () => {
-    for (const bad of [
-      '',
-      '   ',
-      '\u3000\u00A0',
-      'x'.repeat(65),
-      'a\nb',
-      '\u0007',
-      'a\u2028b',
-      'admin\u200B',
-      '\u202Enimda',
-      '\u200B',
-      '\uFEFFeva',
-      '\u3164',
-      '\u2800\u115F',
-      '\u0301',
-      '\u200D',
-    ]) {
+  it('rejects empty and overlong usernames', () => {
+    for (const bad of ['', '   ', '\u3000\u00A0', 'x'.repeat(65)]) {
       expect(isValidUsername(bad), JSON.stringify(bad)).toBe(false)
     }
   })
   it('validates password length', () => {
-    expect(isValidPassword('123456')).toBe(false)
-    expect(isValidPassword('1234567')).toBe(true)
+    expect(isValidPassword('')).toBe(false)
+    expect(isValidPassword('1')).toBe(true)
     expect(isValidPassword('x'.repeat(128))).toBe(true)
     expect(isValidPassword('x'.repeat(129))).toBe(false)
   })
@@ -76,7 +72,7 @@ describe('credentials', () => {
 
 describe('new password', () => {
   it('checks the policy before the repetition', () => {
-    expect(newPasswordError('short', 'short')).toBe('invalid')
+    expect(newPasswordError('', '')).toBe('invalid')
     expect(newPasswordError('x'.repeat(7), 'x'.repeat(8))).toBe('mismatch')
     expect(newPasswordError('x'.repeat(7), 'x'.repeat(7))).toBeNull()
   })
@@ -97,7 +93,7 @@ describe('forgot-password login', () => {
     // Too long for a username, still a valid address.
     expect(isValidLogin(`${'e'.repeat(60)}@example.cz`)).toBe(true)
     expect(isValidLogin('   ')).toBe(false)
-    expect(isValidLogin('a\nb')).toBe(false)
+    expect(isValidLogin('x'.repeat(65))).toBe(false)
   })
 })
 

@@ -2,14 +2,13 @@ use entity::user;
 use sea_orm::ColumnTrait;
 use sea_orm::sea_query::SimpleExpr;
 use unicode_normalization::UnicodeNormalization;
-use unicode_properties::{GeneralCategory, UnicodeGeneralCategory};
 
 use crate::error::AppError;
 
 const USERNAME_LEN: std::ops::RangeInclusive<usize> = 1..=64;
 /// Longest valid password; login and password change refuse longer input before argon2 runs.
 pub const MAX_PASSWORD_CHARS: usize = 128;
-const PASSWORD_LEN: std::ops::RangeInclusive<usize> = 7..=MAX_PASSWORD_CHARS;
+const PASSWORD_LEN: std::ops::RangeInclusive<usize> = 1..=MAX_PASSWORD_CHARS;
 
 /// The form a username is stored and compared in: trimmed, NFC. NFC makes a precomposed "á" and
 /// "a" + combining acute the same name, so look-alikes cannot coexist or miss each other at login.
@@ -31,41 +30,12 @@ pub struct Username {
     pub key: String,
 }
 
-const ZWJ: char = '\u{200D}';
-/// Letters that render as nothing (Hangul fillers, Braille blank) — the usual empty-name trick.
-const BLANKS: [char; 5] = ['\u{3164}', '\u{2800}', '\u{115F}', '\u{1160}', '\u{FFA0}'];
-
-/// Control characters (Cc), line/paragraph separators (they break a name across lines), and
-/// format characters (Cf: zero-width spaces, BOM, bidi overrides) that make one name pass for
-/// another. ZWJ stays: emoji sequences like 👨‍👩‍👧 need it.
-fn is_forbidden(c: char) -> bool {
-    c.is_control()
-        || c == '\u{2028}'
-        || c == '\u{2029}'
-        || (c.general_category() == GeneralCategory::Format && c != ZWJ)
-}
-
-/// Draws nothing on its own: a name made only of these looks empty.
-fn is_invisible(c: char) -> bool {
-    c.is_whitespace()
-        || BLANKS.contains(&c)
-        || matches!(
-            c.general_category(),
-            GeneralCategory::Format | GeneralCategory::NonspacingMark
-        )
-}
-
-/// [`canonical_username`], then 1-64 characters, at least one visible, none in [`is_forbidden`].
-/// Everything else goes, inner whitespace included, as typed.
+/// [`canonical_username`], then 1-64 characters. Anything else goes, inner whitespace included,
+/// as typed.
 pub fn normalize_username(raw: &str) -> Result<Username, AppError> {
     let name = canonical_username(raw);
-    if !USERNAME_LEN.contains(&name.chars().count())
-        || name.chars().any(is_forbidden)
-        || name.chars().all(is_invisible)
-    {
-        return Err(AppError::validation(
-            "username must be 1-64 characters, at least one visible, without control or format characters",
-        ));
+    if !USERNAME_LEN.contains(&name.chars().count()) {
+        return Err(AppError::validation("username must be 1-64 characters"));
     }
     let key = username_key(&name);
     Ok(Username { name, key })
@@ -80,7 +50,7 @@ pub fn validate_password(password: &str) -> Result<(), AppError> {
     if PASSWORD_LEN.contains(&password.chars().count()) {
         Ok(())
     } else {
-        Err(AppError::validation("password must be 7-128 characters"))
+        Err(AppError::validation("password must be 1-128 characters"))
     }
 }
 
@@ -106,11 +76,15 @@ mod tests {
         for ok in [
             "👨\u{200D}👩\u{200D}👧",
             "Petr  Novák",
-            "Petr Novák",
             "🦊",
             "a",
             "a@b.cz",
             "dash-name!",
+            "a\nb",
+            "\u{0007}",
+            "\u{200B}",
+            "\u{202E}nimda",
+            "\u{3164}",
             max.as_str(),
         ] {
             assert!(normalize_username(ok).is_ok(), "{ok:?} should pass");
@@ -120,25 +94,9 @@ mod tests {
     }
 
     #[test]
-    fn username_rejects_bad_input() {
+    fn username_rejects_empty_and_too_long() {
         let long = "x".repeat(65);
-        for bad in [
-            "",
-            "   ",
-            "\u{3000}\u{00A0}",
-            long.as_str(),
-            "a\nb",
-            "\u{0007}",
-            "a\u{2028}b",
-            "admin\u{200B}",
-            "\u{202E}nimda",
-            "\u{200B}",
-            "\u{FEFF}eva",
-            "\u{3164}",
-            "\u{2800}\u{115F}",
-            "\u{0301}",
-            "\u{200D}",
-        ] {
+        for bad in ["", "   ", "\u{3000}\u{00A0}", long.as_str()] {
             assert!(normalize_username(bad).is_err(), "{bad:?} should fail");
         }
     }
@@ -165,8 +123,8 @@ mod tests {
 
     #[test]
     fn password_length_bounds() {
-        assert!(validate_password(&"a".repeat(6)).is_err());
-        assert!(validate_password(&"a".repeat(7)).is_ok());
+        assert!(validate_password("").is_err());
+        assert!(validate_password("a").is_ok());
         assert!(validate_password(&"a".repeat(128)).is_ok());
         assert!(validate_password(&"a".repeat(129)).is_err());
     }

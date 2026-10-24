@@ -11,17 +11,14 @@ Part of the [API contract](../api.md); conventions, errors and shared types live
 | `POST /auth/refresh` | `{ refresh_token }` | `200 Tokens` (old token revoked) |
 | `POST /auth/logout` | `{ refresh_token }` | `204`; also clears the OAuth flow cookie (`ld_oauth`, `Path=/api/auth/oauth`) |
 
-**Username** (identical rule on the client): free-form display name — trimmed, then Unicode NFC, then
-1–64 characters (code points). Refused, against look-alike and empty names: control characters (`Cc`),
-U+2028/U+2029, format characters (`Cf`: zero-width spaces, BOM, bidi overrides/isolates) except U+200D ZWJ (emoji
-sequences), and names with no visible character (only White_Space, `Cf`, `Mn` and the blank letters U+3164, U+2800,
-U+115F, U+1160, U+FFA0). Trimming strips Unicode White_Space only (U+FEFF is not trimmed, so it is refused). Spaces
-inside (kept as typed, never collapsed), diacritics, emoji, `@` and punctuation are fine. It is stored and returned
-exactly in that form (case kept).
+**Username** (identical rule on the client): free-form display name — trimmed (Unicode White_Space), then
+Unicode NFC, then 1–64 characters (code points). Any characters are allowed (spaces inside kept as typed, diacritics,
+emoji, `@`, punctuation, even control or invisible characters). It is stored and returned exactly in that form (case
+kept).
 Uniqueness and every lookup by username (login, forgot password, `admin grant|revoke`) are case-insensitive
 in every script (Unicode lowercase of the NFC form, computed by the server), so `Petr` and `petr`, or `Řeka`
 and `řeka`, are the same account (`409 username_taken`). Password:
-7–128 chars, checked whenever one is set (existing passwords keep working).
+1–128 chars (any characters), checked whenever one is set (existing passwords keep working).
 An account created by email (or a later OAuth provider) has **no password**: password login for it
 answers the same `401 invalid_credentials` as a wrong password (same argon2 timing).
 

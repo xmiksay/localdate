@@ -37,7 +37,7 @@ const en: Messages<typeof cs> = {
     add: 'New test user',
     empty: 'No test users yet.',
     username: 'Username',
-    usernameInvalid: '1 to 64 characters, at least one visible, no control characters.',
+    usernameInvalid: '1 to 64 characters.',
     gender: 'Gender',
     photo: 'Photo (optional)',
     photoHint: 'Without a photo a placeholder avatar is generated.',
