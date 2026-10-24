@@ -9,6 +9,7 @@ import BaseButton from './ui/BaseButton.vue'
 import ErrorNote from './ui/ErrorNote.vue'
 import FormField from './ui/FormField.vue'
 import TextInput from './ui/TextInput.vue'
+import { isolate } from '@/utils/bidi'
 
 const { t } = useT()
 const auth = useAuthStore()
@@ -76,7 +77,9 @@ async function deleteAccount() {
       @submit.prevent="deleteAccount"
     >
       <h3 class="font-display text-lg font-semibold text-danger">{{ t('safety.deleteTitle') }}</h3>
-      <p class="text-sm text-muted">{{ t('safety.deleteBody', { username }) }}</p>
+      <p class="text-sm text-muted">
+        {{ t('safety.deleteBody', { username: isolate(username) }) }}
+      </p>
       <FormField v-slot="f" :label="t('safety.deleteConfirmLabel')">
         <TextInput :id="f.id" v-model="typed" autocomplete="off" :described-by="f.describedBy" />
       </FormField>

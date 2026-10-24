@@ -125,6 +125,12 @@ mod tests {
         }
     }
 
+    #[test]
+    fn reset_text_escapes_bidi_and_line_separators_in_the_name() {
+        let text = reset_text(Lang::En, "\u{202E}x\u{2028}y", "https://a.cz/r");
+        assert!(text.contains("account \\u{202e}x\\u{2028}y. Set one"));
+    }
+
     #[tokio::test]
     async fn memory_bot_captures() {
         let bot = MemoryBot::default();

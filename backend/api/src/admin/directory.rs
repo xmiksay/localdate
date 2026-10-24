@@ -100,12 +100,12 @@ fn like_pattern(q: &str) -> String {
     out
 }
 
-/// Trimmed search text; empty = none, over the cap or with NUL (Postgres `text` refuses it) = 400.
+/// Trimmed search text; empty = none, over the cap = 400.
 fn search_text(raw: Option<&String>) -> Result<Option<String>, AppError> {
     let q = raw.map(|s| s.trim()).unwrap_or_default();
-    if q.chars().count() > MAX_QUERY_CHARS || q.contains('\0') {
+    if q.chars().count() > MAX_QUERY_CHARS {
         return Err(AppError::validation(format!(
-            "q must be at most {MAX_QUERY_CHARS} characters, without NUL"
+            "q must be at most {MAX_QUERY_CHARS} characters"
         )));
     }
     Ok((!q.is_empty()).then(|| q.to_owned()))
@@ -193,7 +193,6 @@ mod tests {
         );
         assert!(search_text(Some(&"x".repeat(65))).is_err());
         assert!(search_text(Some(&"ž".repeat(64))).is_ok());
-        assert!(search_text(Some(&"a\0".into())).is_err());
     }
 
     #[test]

@@ -6,6 +6,7 @@ import { useImpersonationStore } from '@/stores/impersonation'
 import { errorMessage } from '@/utils/errors'
 import BaseButton from './ui/BaseButton.vue'
 import ErrorNote from './ui/ErrorNote.vue'
+import { isolate } from '@/utils/bidi'
 
 const props = defineProps<{
   user: { id: string; username: string; is_admin: boolean; banned_at: string | null }
@@ -40,7 +41,7 @@ async function actAs() {
       variant="ghost"
       class="!min-h-10 !text-sm"
       :loading="busy"
-      :aria-label="t('impersonation.actAsLabel', { username: user.username })"
+      :aria-label="t('impersonation.actAsLabel', { username: isolate(user.username) })"
       @click="actAs"
     >
       {{ t('impersonation.actAs') }}

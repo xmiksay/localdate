@@ -1,7 +1,8 @@
 export default {
   auth: {
     username: 'Uživatelské jméno',
-    usernameHint: '1–64 znaků, klidně s mezerami, diakritikou i emoji. Velikost písmen při přihlášení nehraje roli.',
+    usernameHint:
+      '1–64 znaků, klidně s mezerami, diakritikou i emoji. Velikost písmen při přihlášení nehraje roli.',
     password: 'Heslo',
     passwordHint: '1–128 znaků.',
     loginTitle: 'Vítej zpět',
@@ -10,7 +11,7 @@ export default {
     registerTitle: 'Vytvoř si účet',
     registerSubmit: 'Registrovat se',
     registerSwitch: 'Už máš účet?',
-    invalidUsername: 'Jméno musí mít 1 až 64 znaků.',
+    invalidUsername: 'Jméno musí mít 1 až 64 znaků a nesmí obsahovat nový řádek ani znak NUL.',
     invalidPassword: 'Heslo musí mít 1 až 128 znaků.',
     suspendedTitle: 'Účet byl zablokován',
     suspendedBody:

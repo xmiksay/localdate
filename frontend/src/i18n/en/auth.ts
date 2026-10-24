@@ -13,7 +13,8 @@ const en: Messages<typeof cs> = {
     registerTitle: 'Create your account',
     registerSubmit: 'Sign up',
     registerSwitch: 'Already have an account?',
-    invalidUsername: 'A username must be 1 to 64 characters.',
+    invalidUsername:
+      'A username must be 1 to 64 characters, without line breaks or NUL characters.',
     invalidPassword: 'Password must be 1 to 128 characters.',
     suspendedTitle: 'Account suspended',
     suspendedBody:

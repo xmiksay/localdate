@@ -92,7 +92,7 @@ waves, and chats after a mutual wave.
   `views/EmailAuthView.vue` (`/auth/email`: verify → login or username sign-up), `EmailLinkView.vue`
   (`/auth/email/link`, confirm linking), `ForgotPasswordView.vue` (`/auth/password/forgot`) + `PasswordResetView.vue`
   (`/auth/password/reset`: preview → new password), `OAuthDoneView.vue` (`/auth/oauth/done`: fragment → exchange →
-  login or username sign-up; `linked`/`error`), `api/oauth.ts`, `LinkedAccountsSection.vue` + `PasswordSection.vue` (Settings), `utils/redirect.ts` (`?redirect=` guard),
+  login or username sign-up; `linked`/`error`), `api/oauth.ts`, `LinkedAccountsSection.vue` + `PasswordSection.vue` (Settings), `utils/redirect.ts` (`?redirect=` guard), `utils/bidi.ts` (`isolate`: FSI…PDI around usernames interpolated into sentences),
   `sw/` (custom service worker:
   `sw.ts` precache + push handlers, own `tsconfig.sw.json`; `push.ts` = the handlers as pure, tested functions),
   `utils/webPush.ts` (support/iOS detection + the only `PushManager`/`Notification` adapter),

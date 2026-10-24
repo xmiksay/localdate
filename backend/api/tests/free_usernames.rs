@@ -82,10 +82,10 @@ async fn any_non_empty_password_and_name_are_accepted() {
         assert_eq!(status, StatusCode::BAD_REQUEST, "{bad:?}");
         assert_eq!(body["error"]["code"], "validation");
     }
-    // A NUL at login is a wrong name, not a database error.
+    // A NUL that reaches Postgres (here a login lookup) is a 400, not a database error.
     let (status, body) = login(&app, "a\u{0}b").await;
-    assert_eq!(status, StatusCode::UNAUTHORIZED);
-    assert_eq!(body["error"]["code"], "invalid_credentials");
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(body["error"]["code"], "validation");
 }
 
 #[tokio::test]

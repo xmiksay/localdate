@@ -136,7 +136,7 @@ async fn unknown_or_emailless_accounts_get_the_same_answer_and_no_mail() {
 #[tokio::test]
 async fn malformed_login_is_rejected_and_disabled_email_is_503() {
     let app = TestApp::with_email().await;
-    for bad in ["", "   ", &"x".repeat(65)] {
+    for bad in ["", "   ", "a\nb", &"x".repeat(65)] {
         let (status, body) = app
             .post("/api/auth/password/forgot", json!({ "login": bad }))
             .await;

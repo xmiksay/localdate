@@ -8,6 +8,7 @@ import AdminReportCard from './AdminReportCard.vue'
 import BaseButton from './ui/BaseButton.vue'
 import BaseDialog from './ui/BaseDialog.vue'
 import ErrorNote from './ui/ErrorNote.vue'
+import { isolate } from '@/utils/bidi'
 
 const TABS: ReportStatus[] = ['open', 'resolved']
 
@@ -90,7 +91,7 @@ function confirm() {
     v-if="confirming"
     :title="
       t(confirming.kind === 'dismiss' ? 'admin.dismissTitle' : 'admin.banTitle', {
-        username: confirming.report.subject.username,
+        username: isolate(confirming.report.subject.username),
       })
     "
     @close="confirming = null"
@@ -98,7 +99,7 @@ function confirm() {
     <p class="mb-5 text-muted">
       {{
         t(confirming.kind === 'dismiss' ? 'admin.dismissBody' : 'admin.banBody', {
-          username: confirming.report.subject.username,
+          username: isolate(confirming.report.subject.username),
         })
       }}
     </p>

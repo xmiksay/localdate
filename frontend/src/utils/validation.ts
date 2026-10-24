@@ -20,9 +20,17 @@ export function isValidUsername(s: string): boolean {
   // NUL: Postgres `text` cannot store it; CR/LF: a single-line input cannot type it at login.
   return length >= 1 && length <= USERNAME_MAX && !/[\0\r\n]/.test(name)
 }
-/** Whether `typed` names the account, compared in the server's canonical form. */
-export const confirmsUsername = (typed: string, username: string) =>
-  username !== '' && normalizeUsername(typed) === username
+// What a reader can see and retype of a name: no control/format characters (zero-width, bidi
+// marks — also the isolate marks the page wraps names in), whitespace runs as one space.
+const visibleForm = (s: string) =>
+  normalizeUsername(s.replace(/\p{White_Space}+/gu, ' ').replace(/[\p{Cc}\p{Cf}]/gu, ''))
+/** Whether `typed` names the account, as far as the name can be seen; a name with nothing visible
+ * must match exactly (pasted, isolate marks aside). */
+export function confirmsUsername(typed: string, username: string): boolean {
+  const target = visibleForm(username)
+  if (target !== '') return visibleForm(typed) === target
+  return username !== '' && normalizeUsername(typed.replace(/[\u2068\u2069]/g, '')) === username
+}
 export function isValidPassword(s: string): boolean {
   const length = [...s].length
   return length >= PASSWORD_MIN && length <= PASSWORD_MAX

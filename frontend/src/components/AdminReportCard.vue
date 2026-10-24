@@ -7,6 +7,7 @@ import ImpersonateButton from './ImpersonateButton.vue'
 import UserBadges from './UserBadges.vue'
 import AvatarImage from './ui/AvatarImage.vue'
 import BaseButton from './ui/BaseButton.vue'
+import { isolate } from '@/utils/bidi'
 
 const props = defineProps<{ report: AdminReport }>()
 const emit = defineEmits<{ dismiss: []; ban: []; unban: [] }>()
@@ -21,7 +22,7 @@ const resolution = computed(() => {
   if (!r.resolved_at || !r.resolution) return null
   return t('admin.resolvedBy', {
     resolution: t(r.resolution === 'banned' ? 'admin.resolvedBanned' : 'admin.resolvedDismissed'),
-    username: r.resolved_by?.username ?? t('admin.deletedAccount'),
+    username: r.resolved_by ? isolate(r.resolved_by.username) : t('admin.deletedAccount'),
     date: formatDateTime(r.resolved_at, locale.value),
   })
 })
@@ -41,7 +42,9 @@ const resolution = computed(() => {
     </p>
     <p class="text-sm text-muted">
       {{
-        t('admin.reportedBy', { username: report.reporter?.username ?? t('admin.deletedAccount') })
+        t('admin.reportedBy', {
+          username: report.reporter ? isolate(report.reporter.username) : t('admin.deletedAccount'),
+        })
       }}
     </p>
 

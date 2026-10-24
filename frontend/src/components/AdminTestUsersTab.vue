@@ -10,6 +10,7 @@ import ImpersonateButton from './ImpersonateButton.vue'
 import BaseButton from './ui/BaseButton.vue'
 import BaseDialog from './ui/BaseDialog.vue'
 import ErrorNote from './ui/ErrorNote.vue'
+import { isolate } from '@/utils/bidi'
 
 const { t } = useT()
 const store = useAdminUsersStore()
@@ -32,7 +33,7 @@ onMounted(async () => {
 function created(row: AdminUserRow, photoError: string | null) {
   creating.value = false
   failure.value = photoError
-    ? t('testUsers.photoFailed', { username: row.username, error: photoError })
+    ? t('testUsers.photoFailed', { username: isolate(row.username), error: photoError })
     : null
 }
 
@@ -86,7 +87,7 @@ async function confirmDelete() {
 
   <BaseDialog
     v-if="deleting"
-    :title="t('testUsers.deleteTitle', { username: deleting.username })"
+    :title="t('testUsers.deleteTitle', { username: isolate(deleting.username) })"
     @close="deleting = null"
   >
     <p class="mb-5 text-muted">{{ t('testUsers.deleteBody') }}</p>
