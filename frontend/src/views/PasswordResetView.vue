@@ -12,6 +12,7 @@ import { useAuthStore } from '@/stores/auth'
 import { errorMessage } from '@/utils/errors'
 import { pendingToken, tokenFromHash } from '@/utils/pendingToken'
 import { newPasswordError } from '@/utils/validation'
+import { isolate } from '@/utils/bidi'
 
 type Phase = 'loading' | 'form' | 'done' | 'invalid' | 'banned' | 'failed'
 
@@ -101,7 +102,7 @@ onMounted(async () => {
       @submit.prevent="submit"
     >
       <h1 class="font-display text-2xl font-semibold">
-        {{ t('password.resetTitle', { username }) }}
+        {{ t('password.resetTitle', { username: isolate(username) }) }}
       </h1>
       <!-- Lets password managers file the new password under the right account. -->
       <input type="text" name="username" autocomplete="username" :value="username" hidden />

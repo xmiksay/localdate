@@ -24,7 +24,7 @@ describe('ImpersonateButton', () => {
   it('offers acting as an unbanned non-admin, labelled with the username', () => {
     const b = render(true).find('button')
     expect(b.text()).toBe('Přihlásit se jako')
-    expect(b.attributes('aria-label')).toBe('Přihlásit se jako @eva')
+    expect(b.attributes('aria-label')).toBe('Přihlásit se jako @\u2068eva\u2069')
   })
 
   it('stays hidden when the server has it off, and for admins or banned accounts', () => {

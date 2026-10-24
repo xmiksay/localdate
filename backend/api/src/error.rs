@@ -159,8 +159,24 @@ impl IntoResponse for AppError {
 
 impl From<sea_orm::DbErr> for AppError {
     fn from(err: sea_orm::DbErr) -> Self {
+        if is_untranslatable_text(&err) {
+            return Self::validation("text must not contain NUL characters");
+        }
         tracing::error!(error = %err, "database error");
         Self::Internal
+    }
+}
+
+/// SQLSTATE 22021: Postgres `text` cannot hold U+0000, and only the database knows which value
+/// carried it — any free-form input (message, bio, username lookup) can, so it is the client's fault.
+fn is_untranslatable_text(err: &sea_orm::DbErr) -> bool {
+    use sea_orm::{DbErr, RuntimeErr, sqlx};
+    match err {
+        DbErr::Query(RuntimeErr::SqlxError(sqlx::Error::Database(e)))
+        | DbErr::Exec(RuntimeErr::SqlxError(sqlx::Error::Database(e))) => {
+            e.code().as_deref() == Some("22021")
+        }
+        _ => false,
     }
 }
 

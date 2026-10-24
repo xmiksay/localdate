@@ -1,12 +1,14 @@
 use entity::user;
 use sea_orm::ColumnTrait;
-use sea_orm::sea_query::{Expr, SimpleExpr};
+use sea_orm::sea_query::SimpleExpr;
 use unicode_normalization::UnicodeNormalization;
 
 use crate::error::AppError;
 
 const USERNAME_LEN: std::ops::RangeInclusive<usize> = 1..=64;
-const UNSTORABLE: [char; 3] = ['\0', '\r', '\n'];
+/// NUL: Postgres `text` cannot store it. CR/LF: a single-line input drops them, so the name could
+/// never be typed at login.
+const FORBIDDEN_IN_USERNAME: [char; 3] = ['\0', '\r', '\n'];
 /// Longest valid password; login and password change refuse longer input before argon2 runs.
 pub const MAX_PASSWORD_CHARS: usize = 128;
 const PASSWORD_LEN: std::ops::RangeInclusive<usize> = 1..=MAX_PASSWORD_CHARS;
@@ -33,11 +35,10 @@ pub struct Username {
 }
 
 /// [`canonical_username`], then 1-64 characters. Anything else goes, inner whitespace included,
-/// as typed — except NUL, which a Postgres `text` column cannot store, and CR/LF, which a
-/// single-line input drops, so such a name could never be typed at login.
+/// as typed — except [`FORBIDDEN_IN_USERNAME`].
 pub fn normalize_username(raw: &str) -> Result<Username, AppError> {
     let name = canonical_username(raw);
-    if !USERNAME_LEN.contains(&name.chars().count()) || name.contains(UNSTORABLE) {
+    if !USERNAME_LEN.contains(&name.chars().count()) || name.contains(FORBIDDEN_IN_USERNAME) {
         return Err(AppError::validation(
             "username must be 1-64 characters, without NUL or line breaks",
         ));
@@ -48,14 +49,17 @@ pub fn normalize_username(raw: &str) -> Result<Username, AppError> {
 
 /// `name` for a plain-text mail or bot message: control, line-separator and bidi characters
 /// become `\u{…}` escapes, so a name cannot start a line of its own or reorder the text after it.
-/// A backslash is escaped too, so typed escape text never reads as a real control character.
+/// A backslash before `u` is escaped too, so typed escape text never reads as a real control
+/// character; any other backslash stays readable.
 pub fn inline_username(name: &str) -> String {
     let mut out = String::with_capacity(name.len());
-    for c in name.chars() {
+    let mut chars = name.chars().peekable();
+    while let Some(c) = chars.next() {
         let escaped = c.is_control()
+            || (c == '\\' && chars.peek() == Some(&'u'))
             || matches!(
                 c,
-                '\\' | '\u{2028}' | '\u{2029}' | '\u{200E}' | '\u{200F}' | '\u{061C}'
+                '\u{2028}' | '\u{2029}' | '\u{200E}' | '\u{200F}' | '\u{061C}'
             )
             || ('\u{202A}'..='\u{202E}').contains(&c)
             || ('\u{2066}'..='\u{2069}').contains(&c);
@@ -68,12 +72,8 @@ pub fn inline_username(name: &str) -> String {
     out
 }
 
-/// The account `raw` names, by the same key the unique index enforces. A NUL (never in a stored
-/// name) matches nothing rather than reaching Postgres, which refuses it in `text`.
+/// The account `raw` names, by the same key the unique index enforces.
 pub fn username_matches(raw: &str) -> SimpleExpr {
-    if raw.contains('\0') {
-        return Expr::val(false).into();
-    }
     user::Column::UsernameKey.eq(username_key(raw))
 }
 
@@ -146,6 +146,7 @@ mod tests {
         assert_eq!(inline_username("Petr Novák 🦊"), "Petr Novák 🦊");
         assert_eq!(inline_username("a\u{7}b"), "a\\u{7}b");
         assert_eq!(inline_username("a\\u{7}b"), "a\\u{5c}u{7}b");
+        assert_eq!(inline_username("C:\\Users"), "C:\\Users");
         assert_eq!(inline_username("\u{202E}nimda"), "\\u{202e}nimda");
         assert_eq!(
             inline_username("x\u{2028}y\u{2066}"),

@@ -2,6 +2,7 @@
 import { ref } from 'vue'
 import { useT } from '@/i18n/typed'
 import { useImpersonationStore } from '@/stores/impersonation'
+import { isolate } from '@/utils/bidi'
 
 const { t } = useT()
 const impersonation = useImpersonationStore()
@@ -28,7 +29,7 @@ async function stop() {
       class="mx-auto flex max-w-xl items-center gap-3 px-4 py-2 text-sm font-semibold"
     >
       <p class="min-w-0 flex-1 truncate">
-        {{ t('impersonation.banner', { username: `@${impersonation.target.username}` }) }}
+        {{ t('impersonation.banner', { username: `@${isolate(impersonation.target.username)}` }) }}
       </p>
       <button
         type="button"

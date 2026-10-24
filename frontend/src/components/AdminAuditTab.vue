@@ -6,12 +6,13 @@ import { useAdminUsersStore } from '@/stores/adminUsers'
 import { errorMessage } from '@/utils/errors'
 import { formatDateTime } from '@/utils/time'
 import ErrorNote from './ui/ErrorNote.vue'
+import { isolate } from '@/utils/bidi'
 
 const { t, locale } = useT()
 const store = useAdminUsersStore()
 const loading = ref(true)
 const failure = ref<string | null>(null)
-const who = (u: UserRef | null) => (u ? `@${u.username}` : t('audit.deleted'))
+const who = (u: UserRef | null) => (u ? `@${isolate(u.username)}` : t('audit.deleted'))
 
 onMounted(async () => {
   try {

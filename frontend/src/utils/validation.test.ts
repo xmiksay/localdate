@@ -63,11 +63,19 @@ describe('credentials', () => {
       expect(isValidUsername(bad), JSON.stringify(bad)).toBe(false)
     }
   })
-  it('confirms a username in its canonical form', () => {
+  it('confirms a username as far as it can be seen and retyped', () => {
     expect(confirmsUsername(' eva ', 'eva')).toBe(true)
     expect(confirmsUsername('Eva', 'eva')).toBe(false)
     expect(confirmsUsername('Nova\u0301k', 'Novák')).toBe(true)
-    expect(confirmsUsername('\uFEFF', '\uFEFF')).toBe(true)
+    // Rendered HTML collapses whitespace and hides zero-width characters.
+    expect(confirmsUsername('Petr Novák', 'Petr  Novák')).toBe(true)
+    expect(confirmsUsername('a b', 'a\tb')).toBe(true)
+    expect(confirmsUsername('eva', 'eva\u200B')).toBe(true)
+    // Copied from a sentence where the name is isolated.
+    expect(confirmsUsername('\u2068eva\u2069', 'eva')).toBe(true)
+    // Nothing visible: only the exact name (e.g. pasted) confirms.
+    expect(confirmsUsername('\u2068\u200B\u2069', '\u200B')).toBe(true)
+    expect(confirmsUsername('', '\u200B')).toBe(false)
     expect(confirmsUsername('', '')).toBe(false)
   })
   it('validates password length', () => {

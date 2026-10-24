@@ -10,6 +10,7 @@ import { useAuthStore } from '@/stores/auth'
 import { useIdentitiesStore } from '@/stores/identities'
 import { errorMessage } from '@/utils/errors'
 import { pendingToken, tokenFromHash } from '@/utils/pendingToken'
+import { isolate } from '@/utils/bidi'
 
 const { t } = useT()
 const route = useRoute()
@@ -82,7 +83,12 @@ onMounted(async () => {
     </template>
     <div v-else-if="preview" class="flex flex-col gap-4">
       <h1 class="font-display text-2xl font-semibold">
-        {{ t('identities.linkTitle', { email: preview.email, username: preview.username ?? '' }) }}
+        {{
+          t('identities.linkTitle', {
+            email: preview.email,
+            username: isolate(preview.username ?? ''),
+          })
+        }}
       </h1>
       <BaseButton block :loading="busy" @click="confirm">{{
         t('identities.linkSubmit')

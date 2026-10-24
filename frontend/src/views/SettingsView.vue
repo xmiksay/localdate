@@ -11,6 +11,7 @@ import { LOCALES, setLocale, type Locale } from '@/i18n'
 import { useAuthStore } from '@/stores/auth'
 import { useImpersonationStore } from '@/stores/impersonation'
 import { useMeStore } from '@/stores/me'
+import { isolate } from '@/utils/bidi'
 
 const { t, locale } = useT()
 const auth = useAuthStore()
@@ -67,7 +68,7 @@ const me = useMeStore()
     <section aria-labelledby="s-account" class="flex flex-col gap-3">
       <h2 id="s-account" class="font-display text-xl font-semibold">{{ t('settings.account') }}</h2>
       <p v-if="auth.user" class="text-muted">
-        {{ t('settings.loggedInAs', { username: auth.user.username }) }}
+        {{ t('settings.loggedInAs', { username: isolate(auth.user.username) }) }}
       </p>
       <RouterLink
         v-if="me.isAdmin"

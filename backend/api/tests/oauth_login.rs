@@ -263,13 +263,15 @@ async fn signup_with_a_taken_username_keeps_the_token() {
         )
         .await;
     assert_eq!(status, StatusCode::CONFLICT);
-    let (status, _) = app
-        .post(
-            "/api/auth/oauth/signup",
-            json!({ "token": token, "username": "   " }),
-        )
-        .await;
-    assert_eq!(status, StatusCode::BAD_REQUEST, "validation");
+    for bad in ["   ", "a\nb"] {
+        let (status, _) = app
+            .post(
+                "/api/auth/oauth/signup",
+                json!({ "token": token, "username": bad }),
+            )
+            .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{bad:?}");
+    }
     let (status, _) = app
         .post(
             "/api/auth/oauth/signup",

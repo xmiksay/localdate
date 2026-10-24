@@ -87,4 +87,11 @@ mod tests {
                 .starts_with("Google sign-in was just linked to your account eva.")
         );
     }
+
+    #[test]
+    fn notice_escapes_bidi_and_line_separators_in_the_name() {
+        let to: Address = "a@b.cz".parse().expect("address");
+        let e = render(Provider::Google, Lang::En, to, "\u{202E}x\u{2028}y");
+        assert!(e.text.contains("your account \\u{202e}x\\u{2028}y."));
+    }
 }

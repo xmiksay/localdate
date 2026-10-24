@@ -13,6 +13,7 @@ import { useAuthStore } from '@/stores/auth'
 import { errorMessage } from '@/utils/errors'
 import { pendingToken, tokenFromHash } from '@/utils/pendingToken'
 import { isValidUsername } from '@/utils/validation'
+import { isolate } from '@/utils/bidi'
 
 type Phase = 'loading' | 'login' | 'signup' | 'invalid' | 'banned' | 'failed'
 
@@ -123,7 +124,7 @@ onMounted(async () => {
       <h1 class="font-display text-2xl font-semibold">{{ t('auth.loginTitle') }}</h1>
       <p class="text-muted">{{ preview?.email }}</p>
       <BaseButton block :loading="busy" @click="login">
-        {{ t('auth.emailLoginAs', { username: preview?.username ?? '' }) }}
+        {{ t('auth.emailLoginAs', { username: isolate(preview?.username ?? '') }) }}
       </BaseButton>
     </div>
 
