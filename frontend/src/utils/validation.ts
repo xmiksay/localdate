@@ -15,8 +15,15 @@ const EDGE_WHITESPACE = /^\p{White_Space}+|\p{White_Space}+$/gu
 export const normalizeUsername = (s: string) => s.replace(EDGE_WHITESPACE, '').normalize('NFC')
 export function isValidUsername(s: string): boolean {
   // Code points, like the server's `chars().count()`: an emoji is one character, not two.
-  const length = [...normalizeUsername(s)].length
-  return length >= 1 && length <= USERNAME_MAX
+  const name = normalizeUsername(s)
+  const length = [...name].length
+  return length >= 1 && length <= USERNAME_MAX && !name.includes('\0')
+}
+/** Whether `typed` names the account. A text input drops CR/LF from typed and pasted text, so a
+ * username containing them has to match without. */
+export function confirmsUsername(typed: string, username: string): boolean {
+  const target = username.replace(/[\r\n]/g, '').trim()
+  return target !== '' && typed.trim() === target
 }
 export function isValidPassword(s: string): boolean {
   const length = [...s].length

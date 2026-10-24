@@ -4,6 +4,7 @@ import { useT } from '@/i18n/typed'
 import { useAuthStore } from '@/stores/auth'
 import { useSafetyStore } from '@/stores/safety'
 import { errorMessage } from '@/utils/errors'
+import { confirmsUsername } from '@/utils/validation'
 import BaseButton from './ui/BaseButton.vue'
 import ErrorNote from './ui/ErrorNote.vue'
 import FormField from './ui/FormField.vue'
@@ -17,7 +18,7 @@ const failure = ref<string | null>(null)
 const typed = ref('')
 const deleting = ref(false)
 const username = computed(() => auth.user?.username ?? '')
-const canDelete = computed(() => username.value !== '' && typed.value.trim() === username.value)
+const canDelete = computed(() => confirmsUsername(typed.value, username.value))
 
 onMounted(() => safety.loadBlocked().catch((e) => (failure.value = errorMessage(e))))
 

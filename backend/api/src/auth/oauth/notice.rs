@@ -13,6 +13,7 @@ use crate::state::AppState;
 
 pub fn render(provider: Provider, lang: Lang, to: Address, username: &str) -> Email {
     let name = provider.display_name();
+    let username = crate::auth::validation::inline_username(username);
     let (subject, body) = match lang {
         Lang::Cs => (
             format!("K účtu localdate bylo propojeno přihlášení přes {name}"),
