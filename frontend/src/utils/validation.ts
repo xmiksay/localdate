@@ -9,7 +9,7 @@ export const MAX_BIO = 500
 export const MAX_NAME = 40
 
 // Unicode White_Space, like Rust's `str::trim`; `String.prototype.trim` also strips U+FEFF,
-// which the server keeps (and then refuses as a format character).
+// which the server keeps.
 const EDGE_WHITESPACE = /^\p{White_Space}+|\p{White_Space}+$/gu
 /** The server's canonical form (docs/api/auth.md, "Username"): trimmed, NFC, case kept. */
 export const normalizeUsername = (s: string) => s.replace(EDGE_WHITESPACE, '').normalize('NFC')
@@ -17,14 +17,12 @@ export function isValidUsername(s: string): boolean {
   // Code points, like the server's `chars().count()`: an emoji is one character, not two.
   const name = normalizeUsername(s)
   const length = [...name].length
-  return length >= 1 && length <= USERNAME_MAX && !name.includes('\0')
+  // NUL: Postgres `text` cannot store it; CR/LF: a single-line input cannot type it at login.
+  return length >= 1 && length <= USERNAME_MAX && !/[\0\r\n]/.test(name)
 }
-/** Whether `typed` names the account. A text input drops CR/LF from typed and pasted text, so a
- * username containing them has to match without. */
-export function confirmsUsername(typed: string, username: string): boolean {
-  const target = username.replace(/[\r\n]/g, '').trim()
-  return target !== '' && typed.trim() === target
-}
+/** Whether `typed` names the account, compared in the server's canonical form. */
+export const confirmsUsername = (typed: string, username: string) =>
+  username !== '' && normalizeUsername(typed) === username
 export function isValidPassword(s: string): boolean {
   const length = [...s].length
   return length >= PASSWORD_MIN && length <= PASSWORD_MAX

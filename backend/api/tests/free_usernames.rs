@@ -73,13 +73,19 @@ async fn any_non_empty_password_and_name_are_accepted() {
     assert_eq!(status, StatusCode::BAD_REQUEST);
     assert_eq!(body["error"]["code"], "validation");
     assert_eq!(register(&app, "one", "1").await.0, StatusCode::CREATED);
-    let (status, body) = register(&app, "a\nb\u{200B}", PASSWORD).await;
+    let (status, body) = register(&app, "a\tb\u{200B}", PASSWORD).await;
     assert_eq!(status, StatusCode::CREATED);
-    assert_eq!(body["user"]["username"], "a\nb\u{200B}");
-    // Postgres `text` cannot hold NUL: a 400, never a failed insert.
-    let (status, body) = register(&app, "a\u{0}b", PASSWORD).await;
-    assert_eq!(status, StatusCode::BAD_REQUEST);
-    assert_eq!(body["error"]["code"], "validation");
+    assert_eq!(body["user"]["username"], "a\tb\u{200B}");
+    // Postgres `text` cannot hold NUL, an input cannot type a line break: a 400, never a failed insert.
+    for bad in ["a\u{0}b", "a\nb"] {
+        let (status, body) = register(&app, bad, PASSWORD).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{bad:?}");
+        assert_eq!(body["error"]["code"], "validation");
+    }
+    // A NUL at login is a wrong name, not a database error.
+    let (status, body) = login(&app, "a\u{0}b").await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    assert_eq!(body["error"]["code"], "invalid_credentials");
 }
 
 #[tokio::test]

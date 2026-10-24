@@ -243,7 +243,7 @@ mod tests {
 
     #[test]
     fn malformed_login_is_rejected() {
-        for bad in ["", "   ", &"x".repeat(65)] {
+        for bad in ["", "   ", "a\nb", &"x".repeat(65)] {
             assert!(Login::parse(bad).is_err(), "{bad:?} should fail");
         }
     }
