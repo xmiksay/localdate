@@ -1,3 +1,5 @@
+import { withoutBidiControls } from './bidi'
+
 export const USERNAME_MAX = 64
 export const PASSWORD_MIN = 1
 export const PASSWORD_MAX = 128
@@ -21,19 +23,22 @@ export function isValidUsername(s: string): boolean {
   return length >= 1 && length <= USERNAME_MAX && !/[\0\r\n]/.test(name)
 }
 // What a reader can see and retype of a name: no format or non-whitespace control characters
-// (zero-width, bidi marks — also the isolate marks the page wraps names in), then whitespace
-// runs as one space.
+// (zero-width, bidi marks — also the isolate marks the page wraps names in) and no blank letters
+// (Hangul fillers, Braille blank), then whitespace runs as one space.
 const visibleForm = (s: string) =>
   normalizeUsername(
-    s.replace(/\p{Cf}|(?!\p{White_Space})\p{Cc}/gu, '').replace(/\p{White_Space}+/gu, ' '),
+    s
+      .replace(/\p{Cf}|(?!\p{White_Space})\p{Cc}|[\u3164\u2800\u115F\u1160\uFFA0]/gu, '')
+      .replace(/\p{White_Space}+/gu, ' '),
   )
-const withoutIsolates = (s: string) => normalizeUsername(s.replace(/[\u2066-\u2069]/g, ''))
+// The page shows names through `isolate`, which drops bidi controls: compare without them.
+const shownForm = (s: string) => normalizeUsername(withoutBidiControls(s))
 /** Whether `typed` names the account, as far as the name can be seen; a name with nothing visible
- * must match exactly (pasted; isolate marks aside on both sides). */
+ * must match exactly as shown (pasted). */
 export function confirmsUsername(typed: string, username: string): boolean {
   const target = visibleForm(username)
   if (target !== '') return visibleForm(typed) === target
-  return username !== '' && typed !== '' && withoutIsolates(typed) === withoutIsolates(username)
+  return username !== '' && typed !== '' && shownForm(typed) === shownForm(username)
 }
 export function isValidPassword(s: string): boolean {
   const length = [...s].length

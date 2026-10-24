@@ -15,7 +15,7 @@ Part of the [API contract](../api.md); conventions, errors and shared types live
 Unicode NFC, then 1–64 characters (code points). Any characters are allowed (spaces inside kept as typed, diacritics,
 emoji, `@`, punctuation, even control or invisible characters) except NUL (U+0000, not storable) and
 CR/LF (a single-line input cannot type them at login). Mails and
-Telegram messages show control, line-separator and bidi characters (and a `\` before `u`) as `\u{…}` escapes;
+Telegram messages show control, line-separator, bidi and invisible characters (and a `\` before `u`) as `\u{…}` escapes;
 the PWA wraps names interpolated into sentences in FSI…PDI. A NUL in any other text that reaches the database is
 `400 validation`. It is stored and returned exactly in that form (case
 kept).

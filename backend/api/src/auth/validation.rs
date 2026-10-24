@@ -47,8 +47,16 @@ pub fn normalize_username(raw: &str) -> Result<Username, AppError> {
     Ok(Username { name, key })
 }
 
-/// `name` for a plain-text mail or bot message: control, line-separator and bidi characters
-/// become `\u{…}` escapes, so a name cannot start a line of its own or reorder the text after it.
+/// Characters that draw nothing: zero-width (ZWJ excluded, emoji need it), soft hyphen, BOM and
+/// the blank letters (Hangul fillers, Braille blank).
+const INVISIBLE: [char; 14] = [
+    '\u{00AD}', '\u{200B}', '\u{200C}', '\u{2060}', '\u{2061}', '\u{2062}', '\u{2063}', '\u{2064}',
+    '\u{FEFF}', '\u{3164}', '\u{2800}', '\u{115F}', '\u{1160}', '\u{FFA0}',
+];
+
+/// `name` for a plain-text mail or bot message: control, line-separator, bidi and invisible
+/// characters become `\u{…}` escapes, so a name cannot start a line of its own, reorder the text
+/// after it, or pass for another account's name in the "For account" line.
 /// A backslash before `u` is escaped too, so typed escape text never reads as a real control
 /// character; any other backslash stays readable.
 pub fn inline_username(name: &str) -> String {
@@ -61,6 +69,7 @@ pub fn inline_username(name: &str) -> String {
                 c,
                 '\u{2028}' | '\u{2029}' | '\u{200E}' | '\u{200F}' | '\u{061C}'
             )
+            || INVISIBLE.contains(&c)
             || ('\u{202A}'..='\u{202E}').contains(&c)
             || ('\u{2066}'..='\u{2069}').contains(&c);
         if escaped {
@@ -147,6 +156,8 @@ mod tests {
         assert_eq!(inline_username("a\u{7}b"), "a\\u{7}b");
         assert_eq!(inline_username("a\\u{7}b"), "a\\u{5c}u{7}b");
         assert_eq!(inline_username("C:\\Users"), "C:\\Users");
+        assert_eq!(inline_username("eva\u{200B}"), "eva\\u{200b}");
+        assert_eq!(inline_username("👨\u{200D}👩"), "👨\u{200D}👩");
         assert_eq!(inline_username("\u{202E}nimda"), "\\u{202e}nimda");
         assert_eq!(
             inline_username("x\u{2028}y\u{2066}"),
