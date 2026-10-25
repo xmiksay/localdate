@@ -175,6 +175,22 @@ export interface NearbyProfile {
   wave_state: WaveState
   match_id: string | null
 }
+/** Guest preview card (`GET /preview`): deliberately no user_id, bio, gallery or interests. */
+export interface PreviewProfile {
+  display_name: string
+  age: number
+  gender: Gender
+  /** The first photo. */
+  photo_url: string
+  /** null for area windows. */
+  distance_band: DistanceBand | null
+  area: AreaRef | null
+}
+export interface Preview {
+  /** Everyone the guest could see; `items` holds at most 10 of them. */
+  total: number
+  items: PreviewProfile[]
+}
 export interface Message {
   id: string
   match_id: string

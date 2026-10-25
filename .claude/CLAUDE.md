@@ -38,7 +38,8 @@ waves, and chats after a mutual wave.
   caching, RFC 9110 `If-None-Match` decided by a store HEAD), `me/` (profile, photos + `image_proc`, filter, `identities` = linked login methods +
   email linking, `password` = change / first password, `DELETE /me`), `discovery/` (`geo` bands/haversine, `rules::mutually_visible` = spec,
   `duration` presets/12 h cap/end of day, `window`, `location` (location updates + area leave check), `nearby` = the **only runtime visibility SQL**,
-  reused by waves, + shared-interest ranking), `areas/` (`GET /areas` containment, admin CRUD `/admin/areas`),
+  reused by waves, + shared-interest ranking; `preview` = `GET /preview`, the token-less guest preview: own SQL,
+  gender-only both ways, ≤ 10 reduced cards without `user_id`, point never stored, `AppState::preview_limiter`), `areas/` (`GET /areas` containment, admin CRUD `/admin/areas`),
   `social/` (waves, matches, messages), `ws/` (`hub` = per-replica `LocalHub`, `bridge` = cross-replica `Hub` over Postgres LISTEN/NOTIFY (own listener
   connection), `publisher` (bounded ordered NOTIFY queue, Close ops retried),
   `envelope` wire format + `presence` (`Hub::is_online`, `ws_presence`/`ws_replica`), session (re-reads the account every 60 s); `Hub::disconnect` on ban), `push/` (Web Push: `Notifier::send` =
@@ -85,13 +86,14 @@ waves, and chats after a mutual wave.
   `telegram_reset.rs` cover #14. `common/facebook.rs`: `TestApp::with_facebook()` + `FakeFacebook` (token, `/me`,
   `/me/picture`, CDN; checks PKCE + `appsecret_proof`), `fb_start`/`fb_link`/`fb_return`/`fb_signup`;
   `tests/oauth_facebook.rs` / `oauth_facebook_photo.rs` (import, photo cap, SSRF refusals) cover #17.
-  `tests/visibility_agreement.rs` = SQL ↔ rule cross-check.
+  `tests/visibility_agreement.rs` = SQL ↔ rule cross-check. `tests/guest_preview.rs` = guest preview.
 - `frontend/src/`: `api/` (typed client with single-flight refresh, `ws.ts`, per-domain modules, `types.ts` mirrors
   docs/api.md + docs/api/; any `403 banned` or WS close `4403` → `onBanned` → logout + suspended notice on `/login`),
   `stores/` (auth incl. providers + email login, me, window, nearby, matches, safety, admin, areas, identities, push),
   `views/EmailAuthView.vue` (`/auth/email`: verify → login or username sign-up), `EmailLinkView.vue`
   (`/auth/email/link`, confirm linking), `ForgotPasswordView.vue` (`/auth/password/forgot`) + `PasswordResetView.vue`
-  (`/auth/password/reset`: preview → new password), `OAuthDoneView.vue` (`/auth/oauth/done`: fragment → exchange →
+  (`/auth/password/reset`: preview → new password), `PreviewView.vue` (`/preview`, guest preview: a logged-out `/` lands here via `router.guestAccess`;
+  `api/preview.ts`), `OAuthDoneView.vue` (`/auth/oauth/done`: fragment → exchange →
   login or username sign-up; `linked`/`error`), `api/oauth.ts`, `LinkedAccountsSection.vue` + `PasswordSection.vue` (Settings), `utils/redirect.ts` (`?redirect=` guard), `utils/bidi.ts` (`isolate`: FSI…PDI around usernames interpolated into sentences),
   `sw/` (custom service worker:
   `sw.ts` precache + push handlers, own `tsconfig.sw.json`; `push.ts` = the handlers as pure, tested functions),

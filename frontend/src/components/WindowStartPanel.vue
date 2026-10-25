@@ -121,6 +121,7 @@ async function start() {
 <template>
   <section class="flex flex-col gap-5 rounded-3xl border-2 border-line bg-paper p-5">
     <p class="text-muted">{{ t('nearby.intro') }}</p>
+    <p class="text-sm text-muted">{{ t('nearby.guestNote') }}</p>
 
     <PillRadios v-model="kind" :label="t('area.mode')" :options="kinds" />
     <AreaPicker v-if="kind === 'area'" ref="picker" v-model="areaId" />

@@ -96,7 +96,7 @@ pub async fn lock_active(db: &impl ConnectionTrait, id: Uuid) -> Result<area::Mo
         .ok_or(AppError::NotFound)
 }
 
-fn coord(params: &HashMap<String, String>, key: &str) -> Result<f64, AppError> {
+pub(crate) fn coord(params: &HashMap<String, String>, key: &str) -> Result<f64, AppError> {
     params
         .get(key)
         .and_then(|v| v.parse::<f64>().ok())

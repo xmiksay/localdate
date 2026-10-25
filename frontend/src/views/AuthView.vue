@@ -147,6 +147,13 @@ async function submit() {
       </template>
     </section>
 
+    <RouterLink
+      :to="{ name: 'preview' }"
+      class="self-center text-sm font-semibold text-coral underline"
+    >
+      {{ t('preview.peek') }}
+    </RouterLink>
+
     <p class="text-center text-muted">
       {{ isRegister ? t('auth.registerSwitch') : t('auth.loginSwitch') }}
       <RouterLink

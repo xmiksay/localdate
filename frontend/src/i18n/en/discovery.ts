@@ -28,6 +28,23 @@ const en: Messages<typeof cs> = {
     waveBack: 'Wave back',
     loadFailed: 'Could not load people nearby.',
     inArea: 'In area: {name}',
+    guestNote:
+      'While you are visible, visitors without an account also see your name, age, first photo and approximate distance.',
+  },
+  preview: {
+    title: 'Who is nearby right now',
+    intro:
+      'See who has visibility turned on around you. We need your location for that and never store it.',
+    share: 'Share location and show',
+    locating: 'Getting your location…',
+    me: 'I am',
+    show: 'Who do you want to see',
+    empty: 'Nobody is around right now. Try again in a while.',
+    more: 'and {n} more person | and {n} more people',
+    cta: 'Sign up to see full profiles, wave and chat.',
+    register: 'Sign up',
+    login: 'Log in',
+    peek: 'See who is nearby',
   },
   area: {
     mode: 'Where do you want to be visible',

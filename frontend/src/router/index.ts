@@ -24,6 +24,13 @@ const router = createRouter({
       meta: { guestOnly: true },
     },
     {
+      // The guest preview: what a logged-out visitor on `/` sees instead of the login form.
+      path: '/preview',
+      name: 'preview',
+      component: () => import('@/views/PreviewView.vue'),
+      meta: { guestOnly: true },
+    },
+    {
       path: '/register',
       name: 'register',
       component: () => import('@/views/AuthView.vue'),
@@ -104,9 +111,15 @@ const router = createRouter({
   ],
 })
 
-/** Unauthenticated access: protected routes go to login and come back afterwards. */
-const guestAccess = (to: RouteLocationNormalized) =>
-  to.meta.requiresAuth ? { name: 'login', query: { redirect: to.fullPath } } : true
+/**
+ * Unauthenticated access: the bare `/` opens the guest preview; other protected routes go to login
+ * and come back afterwards.
+ */
+export function guestAccess(to: RouteLocationNormalized) {
+  if (!to.meta.requiresAuth) return true
+  if (to.redirectedFrom?.path === '/') return { name: 'preview' }
+  return { name: 'login', query: { redirect: to.fullPath } }
+}
 
 router.beforeEach(async (to) => {
   const auth = useAuthStore()

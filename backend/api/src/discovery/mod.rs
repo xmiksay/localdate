@@ -1,9 +1,10 @@
-//! Visibility window, location and the mutual-filter "nearby" list.
+//! Visibility window, location, the mutual-filter "nearby" list and the guest preview.
 
 pub mod duration;
 pub mod geo;
 pub mod location;
 pub mod nearby;
+pub mod preview;
 pub mod rules;
 pub mod window;
 
@@ -23,4 +24,5 @@ pub fn router() -> Router<AppState> {
         )
         .route("/me/location", post(location::update_location))
         .route("/nearby", get(nearby::get_nearby))
+        .route("/preview", get(preview::get_preview))
 }
