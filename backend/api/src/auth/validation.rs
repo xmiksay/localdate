@@ -47,36 +47,63 @@ pub fn normalize_username(raw: &str) -> Result<Username, AppError> {
     Ok(Username { name, key })
 }
 
-/// Characters that draw nothing: zero-width (ZWJ excluded, emoji need it), soft hyphen, BOM and
-/// the blank letters (Hangul fillers, Braille blank).
-const INVISIBLE: [char; 14] = [
-    '\u{00AD}', '\u{200B}', '\u{200C}', '\u{2060}', '\u{2061}', '\u{2062}', '\u{2063}', '\u{2064}',
-    '\u{FEFF}', '\u{3164}', '\u{2800}', '\u{115F}', '\u{1160}', '\u{FFA0}',
+/// Unicode `Default_Ignorable_Code_Point` (DerivedCoreProperties.txt, Unicode 16): characters
+/// that draw nothing — zero-width, soft hyphen, BOM, bidi controls, variation selectors, tags,
+/// Hangul fillers. Plus the Braille blank, which draws nothing either.
+const INVISIBLE: [(char, char); 18] = [
+    ('\u{00AD}', '\u{00AD}'),
+    ('\u{034F}', '\u{034F}'),
+    ('\u{061C}', '\u{061C}'),
+    ('\u{115F}', '\u{1160}'),
+    ('\u{17B4}', '\u{17B5}'),
+    ('\u{180B}', '\u{180F}'),
+    ('\u{200B}', '\u{200F}'),
+    ('\u{202A}', '\u{202E}'),
+    ('\u{2060}', '\u{206F}'),
+    ('\u{2800}', '\u{2800}'),
+    ('\u{3164}', '\u{3164}'),
+    ('\u{FE00}', '\u{FE0F}'),
+    ('\u{FEFF}', '\u{FEFF}'),
+    ('\u{FFA0}', '\u{FFA0}'),
+    ('\u{FFF0}', '\u{FFF8}'),
+    ('\u{1BCA0}', '\u{1BCA3}'),
+    ('\u{1D173}', '\u{1D17A}'),
+    ('\u{E0000}', '\u{E0FFF}'),
 ];
 
-/// `name` for a plain-text mail or bot message: control, line-separator, bidi and invisible
-/// characters become `\u{…}` escapes, so a name cannot start a line of its own, reorder the text
-/// after it, or pass for another account's name in the "For account" line.
+fn is_invisible(c: char) -> bool {
+    INVISIBLE.iter().any(|&(lo, hi)| (lo..=hi).contains(&c))
+}
+
+/// ZWJ, variation selectors and tags are how emoji sequences (👨‍👩‍👧, ❤️, flags) are spelled: kept
+/// after a symbol, where they shape what is drawn, escaped after a letter, where they hide.
+fn joins_emoji(c: char, prev: Option<char>) -> bool {
+    let joiner = c == '\u{200D}'
+        || ('\u{FE00}'..='\u{FE0F}').contains(&c)
+        || ('\u{E0020}'..='\u{E007F}').contains(&c);
+    joiner && prev.is_some_and(|p| !p.is_alphanumeric() && !p.is_whitespace() && !is_invisible(p))
+}
+
+/// `name` for a plain-text mail or bot message: control, line-separator and invisible (bidi
+/// included) characters become `\u{…}` escapes, so a name cannot start a line of its own,
+/// reorder the text after it, or pass for another account's name in the "For account" line.
 /// A backslash before `u` is escaped too, so typed escape text never reads as a real control
 /// character; any other backslash stays readable.
 pub fn inline_username(name: &str) -> String {
     let mut out = String::with_capacity(name.len());
+    let mut prev = None;
     let mut chars = name.chars().peekable();
     while let Some(c) = chars.next() {
         let escaped = c.is_control()
             || (c == '\\' && chars.peek() == Some(&'u'))
-            || matches!(
-                c,
-                '\u{2028}' | '\u{2029}' | '\u{200E}' | '\u{200F}' | '\u{061C}'
-            )
-            || INVISIBLE.contains(&c)
-            || ('\u{202A}'..='\u{202E}').contains(&c)
-            || ('\u{2066}'..='\u{2069}').contains(&c);
+            || matches!(c, '\u{2028}' | '\u{2029}')
+            || (is_invisible(c) && !joins_emoji(c, prev));
         if escaped {
             out.extend(c.escape_unicode());
         } else {
             out.push(c);
         }
+        prev = Some(c);
     }
     out
 }
@@ -158,6 +185,17 @@ mod tests {
         assert_eq!(inline_username("C:\\Users"), "C:\\Users");
         assert_eq!(inline_username("eva\u{200B}"), "eva\\u{200b}");
         assert_eq!(inline_username("👨\u{200D}👩"), "👨\u{200D}👩");
+        assert_eq!(inline_username("❤\u{FE0F}"), "❤\u{FE0F}");
+        for (hidden, shown) in [
+            ("eva\u{200D}", "eva\\u{200d}"),
+            ("eva\u{FE0F}", "eva\\u{fe0f}"),
+            ("eva\u{E0041}", "eva\\u{e0041}"),
+            ("eva\u{034F}", "eva\\u{34f}"),
+            ("eva\u{3164}", "eva\\u{3164}"),
+            ("eva\u{2800}", "eva\\u{2800}"),
+        ] {
+            assert_eq!(inline_username(hidden), shown, "{hidden:?}");
+        }
         assert_eq!(inline_username("\u{202E}nimda"), "\\u{202e}nimda");
         assert_eq!(
             inline_username("x\u{2028}y\u{2066}"),
