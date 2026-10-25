@@ -9,5 +9,6 @@ describe('isolate', () => {
   it('drops bidi controls inside the name, so it cannot close the isolate early', () => {
     expect(isolate('\u2069\u202Eevil')).toBe('\u2068evil\u2069')
     expect(isolate('a\u200Fb\u2066c')).toBe('\u2068abc\u2069')
+    expect(isolate('x\u2029y\u0085z\u001Cw')).toBe('\u2068xyzw\u2069')
   })
 })

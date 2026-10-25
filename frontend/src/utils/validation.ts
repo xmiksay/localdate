@@ -22,23 +22,28 @@ export function isValidUsername(s: string): boolean {
   // NUL: Postgres `text` cannot store it; CR/LF: a single-line input cannot type it at login.
   return length >= 1 && length <= USERNAME_MAX && !/[\0\r\n]/.test(name)
 }
-// What a reader can see and retype of a name: no format or non-whitespace control characters
-// (zero-width, bidi marks — also the isolate marks the page wraps names in) and no blank letters
-// (Hangul fillers, Braille blank), then whitespace runs as one space.
+// What a reader can see and retype of a name: no default-ignorable characters (zero-width, bidi
+// marks — also the isolate marks the page wraps names in —, variation selectors, Hangul fillers),
+// format, non-whitespace control characters or Braille blanks, then whitespace runs as one space.
 const visibleForm = (s: string) =>
   normalizeUsername(
     s
-      .replace(/\p{Cf}|(?!\p{White_Space})\p{Cc}|[\u3164\u2800\u115F\u1160\uFFA0]/gu, '')
+      .replace(/\p{Default_Ignorable_Code_Point}|\p{Cf}|(?!\p{White_Space})\p{Cc}|\u2800/gu, '')
       .replace(/\p{White_Space}+/gu, ' '),
   )
 // The page shows names through `isolate`, which drops bidi controls: compare without them.
 const shownForm = (s: string) => normalizeUsername(withoutBidiControls(s))
-/** Whether `typed` names the account, as far as the name can be seen; a name with nothing visible
- * must match exactly as shown (pasted). */
+/**
+ * Whether `typed` names the account, as far as the name can be seen. A name with nothing visible
+ * must be pasted exactly as shown; one the page shows as nothing at all (only bidi controls)
+ * leaves nothing to retype, so the button alone confirms.
+ */
 export function confirmsUsername(typed: string, username: string): boolean {
+  if (username === '') return false
   const target = visibleForm(username)
   if (target !== '') return visibleForm(typed) === target
-  return username !== '' && typed !== '' && shownForm(typed) === shownForm(username)
+  const shown = shownForm(username)
+  return shown === '' || shownForm(typed) === shown
 }
 export function isValidPassword(s: string): boolean {
   const length = [...s].length

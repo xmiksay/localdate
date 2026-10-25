@@ -81,6 +81,10 @@ describe('credentials', () => {
     expect(confirmsUsername('\u200B', '\u2069\u200B')).toBe(true)
     expect(confirmsUsername('\u2068\u200B\u2069', '\u202E\u200B')).toBe(true)
     expect(confirmsUsername('eva', 'eva\u3164')).toBe(true)
+    expect(confirmsUsername('eva', 'eva\u034F')).toBe(true)
+    expect(confirmsUsername('eva', 'eva\uFE0F')).toBe(true)
+    // Only bidi controls: nothing is shown, nothing to retype.
+    expect(confirmsUsername('', '\u200E')).toBe(true)
     expect(confirmsUsername('', '')).toBe(false)
   })
   it('validates password length', () => {
@@ -115,6 +119,7 @@ describe('forgot-password login', () => {
     expect(isValidLogin(`${'e'.repeat(60)}@example.cz`)).toBe(true)
     expect(isValidLogin('   ')).toBe(false)
     expect(isValidLogin('x'.repeat(65))).toBe(false)
+    expect(isValidLogin('a\nb')).toBe(false)
   })
 })
 
