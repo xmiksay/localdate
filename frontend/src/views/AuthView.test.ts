@@ -24,6 +24,7 @@ async function render() {
       { path: '/login', component: Stub },
       { path: '/register', component: Stub },
       { path: '/password/forgot', name: 'password-forgot', component: Stub },
+      { path: '/preview', name: 'preview', component: Stub },
     ],
   })
   await router.push('/login?redirect=%2Fmatches')

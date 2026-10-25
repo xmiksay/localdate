@@ -78,6 +78,7 @@ const PUBLIC: &[&str] = &[
     "/live",
     "/interests",
     "/push/config",
+    "/preview",
     "/auth/register",
     "/auth/login",
     "/auth/refresh",

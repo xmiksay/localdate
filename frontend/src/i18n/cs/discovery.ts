@@ -25,6 +25,23 @@ export default {
     waveBack: 'Zamávat zpět',
     loadFailed: 'Okolí se nepodařilo načíst.',
     inArea: 'V oblasti: {name}',
+    guestNote:
+      'Dokud jsi viditelný, uvidí tvé jméno, věk, první fotku a přibližnou vzdálenost i návštěvníci bez účtu.',
+  },
+  preview: {
+    title: 'Kdo je právě poblíž',
+    intro:
+      'Podívej se, kdo má kolem tebe zapnutou viditelnost. K tomu potřebujeme tvou polohu, nikam ji neukládáme.',
+    share: 'Sdílet polohu a ukázat',
+    locating: 'Zjišťuji polohu…',
+    me: 'Jsem',
+    show: 'Koho chceš vidět',
+    empty: 'Právě tu nikdo není. Zkus to za chvíli.',
+    more: 'a další {n} člověk | a další {n} lidé | a dalších {n} lidí',
+    cta: 'Zaregistruj se a uvidíš celé profily, můžeš zamávat a psát si.',
+    register: 'Zaregistrovat se',
+    login: 'Přihlásit se',
+    peek: 'Podívat se, kdo je poblíž',
   },
   area: {
     mode: 'Kde chceš být viditelný',

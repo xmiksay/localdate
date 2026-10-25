@@ -55,3 +55,24 @@ sort by shared interests, then newest window, then `user_id`); a timed window se
 within distance (`area: null`, `distance_band` set).
 
 Band = smallest of 200 / 500 / 1000 / 2000 / 5000 / 10000 m that the real distance is below.
+
+## Guest preview
+
+`GET /preview?lat=&lon=&gender=&genders=` — **no token**. → `200 { total: number, items: PreviewProfile[] }`.
+
+A basic look at who is around for a visitor without an account: anyone could register a fake
+account just to look, so a reduced preview takes the reason away. Every user with an open window
+can appear in it; registering is needed for full profiles, waves and chat.
+
+- `gender` (required): the guest's own sex, `male | female | other`. `genders` (optional): comma-separated
+  list of whom to show; missing or empty = any.
+- A windowed user appears iff they are not banned, have a photo, their filter's `genders` is empty or
+  contains the guest's `gender`, and the guest's `genders` is empty or contains theirs. Age, reasons and
+  blocks do not apply (a guest has none).
+- Timed window: distance ≤ min(their `max_distance_m`, 5000 m). Area window: the guest's point lies inside
+  the area's circle and the window is fresh (not stale, see above); `distance_band: null`, `area` set.
+- `items` holds at most 10 cards: area windows first, then nearest band, newest window. `total` counts
+  everyone the guest could see.
+- The point is used for the query only — never stored, logged or echoed.
+- Missing/invalid `lat`/`lon`/`gender`/`genders` → `400 validation`. Own per-IP bucket (burst 5, 10/min),
+  separate from the login one → `429 rate_limited`.

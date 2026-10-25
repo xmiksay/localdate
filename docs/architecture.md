@@ -79,6 +79,12 @@ Debug builds (clippy, tests) need no bundle: they read `frontend/dist` from disk
   - B.age ∈ [A.age_min, A.age_max] and vice versa
   - A.reasons ∩ B.reasons ≠ ∅ (one shared reason is enough)
   - neither has blocked the other
+- **Guest preview** — `GET /preview` (`discovery/preview.rs`, own SQL) shows visitors without an account
+  up to 10 reduced cards (name, age, gender, first photo, band or area; no `user_id`) of everyone with an
+  open window near a point they share. Rationale: anyone can register a fake account to look, so the login
+  wall protects nobody; a preview removes the incentive. Only gender applies, both ways (the guest declares
+  theirs); timed windows within min(their max distance, 5 km), fresh area windows whose circle holds the
+  point. The point is never stored; its own per-IP limiter (`AppState::preview_limiter`).
 - **Wave** — A waves at a currently visible B. Valid until A's window ends.
   Max 20 waves per window. When B waves back (or A waves at B who already waved),
   a **match** is created and a chat opens. Chat persists after windows end.

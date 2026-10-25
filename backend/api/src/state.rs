@@ -19,6 +19,8 @@ pub struct AppState {
     pub db: DatabaseConnection,
     pub config: Arc<Config>,
     pub limiter: RateLimiter,
+    /// `GET /preview` only: guests get their own bucket, apart from the login budget.
+    pub preview_limiter: RateLimiter,
     pub hub: Arc<Hub>,
     /// Wave / match / message delivery: WebSocket, plus Web Push for offline recipients.
     pub notify: Arc<Notifier>,
@@ -45,6 +47,7 @@ impl AppState {
     /// Also starts this replica's WebSocket bridge (listener, publisher, heartbeat tasks).
     pub async fn new(db: DatabaseConnection, config: Config) -> Result<Self> {
         let limiter = RateLimiter::new(config.rate_limit, config.trust_proxy_headers);
+        let preview_limiter = RateLimiter::new(config.rate_limit, config.trust_proxy_headers);
         let hub = Hub::start(db.clone(), &config.database_url).await?;
         let notify = Arc::new(Notifier::new(
             db.clone(),
@@ -57,6 +60,7 @@ impl AppState {
             db,
             config: Arc::new(config),
             limiter,
+            preview_limiter,
             hub,
             notify,
             image_permits: Arc::new(Semaphore::new(IMAGE_DECODE_PERMITS)),

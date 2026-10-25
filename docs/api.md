@@ -13,7 +13,7 @@ a banned one `403 banned`, and an access token issued before the account's last 
 
 - [Auth](api/auth.md) — password, email magic link, password reset, Google / Telegram / Facebook
 - [Me / profile](api/profile.md) — profile, photos, filter, identities, password change
-- [Discovery](api/discovery.md) — visibility window & location, areas, nearby
+- [Discovery](api/discovery.md) — visibility window & location, areas, nearby, guest preview
 - [Social](api/social.md) — waves & matches, safety
 - [Admin (moderation)](api/admin.md) — reports, bans, areas, test users, impersonation, audit log
 - [WebSocket `/api/ws`](api/realtime.md) — realtime protocol and close codes
@@ -74,7 +74,7 @@ Internal/DB errors are logged and returned as `500 internal` with a generic mess
 | 422 | `profile_incomplete` | window start without profile + filter + ≥ 1 photo |
 | 422 | `photo_limit` | 7th photo |
 | 422 | `unsupported_image` | not decodable jpeg/png/webp, > 10 MB, an edge > 10 000 px or > 32 Mi pixels (~33 MP) |
-| 429 | `rate_limited` | per-IP throttle: login, register, `/auth/email/start`, `/auth/email/signup`, `/auth/password/forgot`, `POST /me/identities/email`, `PUT /me/password`, `/auth/oauth/{provider}/start` · `/link`, `/auth/oauth/signup` (never the callback: refusing it would waste the provider's code; its flow was counted at start) |
+| 429 | `rate_limited` | per-IP throttle: login, register, `/auth/email/start`, `/auth/email/signup`, `/auth/password/forgot`, `POST /me/identities/email`, `PUT /me/password`, `/auth/oauth/{provider}/start` · `/link`, `/auth/oauth/signup` (never the callback: refusing it would waste the provider's code; its flow was counted at start); `GET /preview` in its own bucket |
 | 429 | `wave_limit` | > 20 waves in one window |
 | 503 | `email_disabled` | any email endpoint while the server has no mailer (`GET /auth/providers` → `email: false`); `/auth/password/forgot` with an email address while there is no mailer, or with a username while there is neither a mailer nor a Telegram bot (`password_reset: false`) |
 | 503 | `provider_disabled` | `POST /auth/oauth/{provider}/link` while that provider is not configured (`GET /auth/providers` → `google` / `telegram` / `facebook: false`) |
@@ -117,6 +117,13 @@ interface NearbyProfile {
   distance_band: DistanceBand | null /* null for area matches (deliberate: the area is the place) */
   area: AreaRef | null /* the shared area when both windows are area windows, else null */
   wave_state: WaveState; match_id: string | null
+}
+/** Guest preview card (`GET /preview`): deliberately no user_id, bio, gallery or interests. */
+interface PreviewProfile {
+  display_name: string; age: number; gender: Gender
+  photo_url: string /* the first photo */
+  distance_band: DistanceBand | null /* null for area windows */
+  area: AreaRef | null
 }
 interface Message { id: string; match_id: string; sender_id: string; body: string; created_at: string }
 interface MatchSummary {
