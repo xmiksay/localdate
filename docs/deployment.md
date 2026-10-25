@@ -69,8 +69,13 @@ invalidates it (see [build identity](architecture/config.md#build-identity-build
   test) passes:
   - On pull requests, `image-build` builds it without pushing, so Dockerfile breakage shows up before
     merge.
-  - On a push to `master`, `image-publish` pushes `ghcr.io/xmiksay/localdate:master` and
-    `:sha-<short>`. On a `v*` tag it pushes `:<version>`. Only this job gets `packages: write`.
+  - On a push to `master`, `image-publish` pushes `ghcr.io/xmiksay/localdate:master`,
+    `:sha-<short>` and `:master-<YYYYMMDDHHmmss>` (UTC). On a `v*` tag it pushes `:<version>`. Only
+    this job gets `packages: write`.
+- Release: the letsgo instance (namespace `sites`) is an Argo CD Application in the deploy repo
+  (`Sourcelab/deploy`, `apps/sites/localdate.yaml`). Argo CD Image Updater moves it to the newest
+  `master-<timestamp>` tag, so every green master push rolls out by itself (it polls ghcr.io; no
+  GHCR webhook on this repo). Roll back or pin: see the deploy repo README.
 - The package must be public for the cluster to pull it without credentials. Otherwise add an
   `imagePullSecrets` entry with a read-only ghcr token.
 

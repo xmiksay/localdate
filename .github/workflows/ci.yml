@@ -66,6 +66,8 @@ jobs:
           cache-to: type=gha,mode=max
 
   # master and v* tags, only after the gate passed: :master + :sha-<short> (+ :<version> on tags).
+  # master also gets :master-<YYYYMMDDHHmmss> (UTC): a sortable tag Argo CD Image Updater follows
+  # to release every master build (deploy repo, apps/image-updaters.yaml).
   image-publish:
     if: github.event_name == 'push'
     needs: gate
@@ -87,6 +89,7 @@ jobs:
           images: ${{ env.IMAGE }}
           tags: |
             type=ref,event=branch
+            type=raw,value=master-{{date 'YYYYMMDDHHmmss' tz='UTC'}},enable={{is_default_branch}}
             type=sha,prefix=sha-,format=short
             type=semver,pattern={{version}}
       - uses: docker/build-push-action@v6

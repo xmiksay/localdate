@@ -150,7 +150,8 @@ while migrations are pending):
 kubectl -n sites exec deploy/localdate-api -- localdate-api admin grant <username>
 ```
 
-New `master` build: `kubectl -n sites rollout restart deployment/localdate-api`. ConfigMap
+New `master` build: released by Argo CD Image Updater (newest `master-<timestamp>` tag, see
+[docs/deployment.md](../../docs/deployment.md)); no restart needed. ConfigMap
 changes: `make deploy-letsgo`, then the same restart.
 
 Test users for the alpha (password-less, onboarded, placeholder avatars; also creatable in the admin
